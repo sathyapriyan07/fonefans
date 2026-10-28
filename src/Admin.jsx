@@ -9,7 +9,7 @@ const T={
  cars:[ref('team_id','teams'),n('year'),t('model'),img('image_url'),t('engine'),...CAR.map(n)],
  grids:[t('name'),n('year')],
  grid_entries:[ref('grid_id','grids'),ref('team_id','teams'),ref('car_id','cars','model'),ref('driver_id','drivers')],
- races:[n('year'),n('round'),t('name'),t('circuit'),t('country'),{k:'date',t:'date'},{k:'is_sprint',t:'bool'},n('laps'),n('circuit_length_km'),n('straight_line_importance'),n('high_speed_corner_share'),n('medium_speed_corner_share'),n('low_speed_corner_share'),n('braking_demand'),n('traction_demand'),n('downforce_requirement'),n('tyre_energy'),n('overtaking_difficulty'),n('pit_lane_loss_seconds'),n('baseline_lap_seconds'),n('drs_zones'),t('weekend_format'),{k:'sprint_affects_grand_prix_grid',t:'bool'}]};
+ races:[n('year'),n('round'),t('name'),t('circuit'),t('country'),{k:'date',t:'date'},{k:'is_sprint',t:'bool'},n('laps'),n('circuit_length_km'),n('straight_line_importance'),n('high_speed_corner_share'),n('medium_speed_corner_share'),n('low_speed_corner_share'),n('braking_demand'),n('traction_demand'),n('downforce_requirement'),n('tyre_energy'),n('overtaking_difficulty'),n('pit_lane_loss_seconds'),n('baseline_lap_seconds'),n('drs_zones'),n('tyre_wear_multiplier'),n('puncture_risk_multiplier'),n('tyre_overheating_threshold'),{k:'circuit_path',t:'area'},t('weekend_format'),{k:'sprint_affects_grand_prix_grid',t:'bool'}]};
 const IMAGE_TYPES=['image/png','image/jpeg','image/webp','image/gif','image/svg+xml','image/avif','image/x-icon'];
 const MAX_IMAGE_SIZE=10*1024*1024;
 function Crud({table}){const F=T[table];const [rows,setRows]=useState([]);const [opts,setOpts]=useState({});const [form,setForm]=useState({});const [saving,setSaving]=useState(false);

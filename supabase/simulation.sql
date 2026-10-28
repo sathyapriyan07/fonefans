@@ -44,6 +44,10 @@ alter table public.races
   add column if not exists overtaking_difficulty numeric,
   add column if not exists pit_lane_loss_seconds numeric,
   add column if not exists baseline_lap_seconds numeric,
+  add column if not exists tyre_wear_multiplier numeric,
+  add column if not exists puncture_risk_multiplier numeric,
+  add column if not exists tyre_overheating_threshold numeric,
+  add column if not exists circuit_path text,
   add column if not exists drs_zones int,
   add column if not exists weekend_format text,
   add column if not exists sprint_affects_grand_prix_grid boolean;
