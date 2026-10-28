@@ -348,6 +348,12 @@ function recordEvent(state,type,lap,car,details={}){
  state.events.push(event);
  if(car)car.events.push(event);
 }
+function retireCar(state,car,lapNumber,reason){
+ car.retired=true;car.retirementReason=reason;car.retirementLap=lapNumber;
+ car.pitInstruction=null;car.pendingCompound=null;car.manualPitMode=false;car.stayOutDeferredLap=null;
+ car.pitStatus='RETIRED';
+ recordEvent(state,'retirement',lapNumber,car,{reason});
+}
 function attemptPasses(state,cars,lapNumber){
  if(state.raceControl==='safety_car')return;
  const rng=stream(state,'racecraft');
@@ -393,8 +399,9 @@ export function setPitInstruction(previous,driverId,command,{compound,targetLap}
  if(selected.retired||selected.completed)throw new Error('A retired or finished car cannot receive a pit instruction.');
  const cars=[...previous.cars],car={...selected};
  if(command==='auto'){
-  car.automaticStrategy=true;car.manualPitMode=false;car.pitInstruction=null;car.pendingCompound=null;car.pitStatus='AUTO';
+  car.automaticStrategy=true;car.manualPitMode=false;car.stayOutDeferredLap=null;car.pitInstruction=null;car.pendingCompound=null;car.pitStatus='AUTO';
  }else if(command==='stay_out'){
+  car.automaticStrategy=true;car.manualPitMode=false;car.pendingCompound=null;
   car.pitInstruction={mode:'stay_out',targetLap:previous.lap+1};
   car.plannedStopLap=Math.max(car.plannedStopLap||0,previous.lap+2);
   car.stayOutDeferredLap=previous.lap+2;
@@ -402,7 +409,7 @@ export function setPitInstruction(previous,driverId,command,{compound,targetLap}
  }else if(command==='pit_this_lap'||command==='pit_next_lap'||command==='planned_stop'){
   const requested=command==='planned_stop'?Number(targetLap):previous.lap+(command==='pit_this_lap'?1:2);
   if(!Number.isInteger(requested)||requested<=previous.lap||requested>=previous.totalLaps)throw new Error('Choose a pit lap after the current lap and before the finish.');
-  car.manualPitMode=true;
+  car.manualPitMode=true;car.stayOutDeferredLap=null;
   car.pitInstruction={mode:'pit',targetLap:requested,compound:TYRES[compound]?compound:undefined};
   car.pendingCompound=TYRES[compound]?compound:null;
   car.pitStatus=`PIT LAP ${requested} · ${car.pendingCompound?.toUpperCase()||car.tyre.compound.toUpperCase()}`;
@@ -411,7 +418,7 @@ export function setPitInstruction(previous,driverId,command,{compound,targetLap}
   car.pendingCompound=compound;
   car.pitStatus=`NEXT STOP · ${compound.toUpperCase()}`;
  }else if(command==='cancel'){
-  car.pitInstruction=null;car.pendingCompound=null;car.manualPitMode=false;car.pitStatus=car.automaticStrategy?'AUTO':'NO AUTO STOP';
+  car.pitInstruction=null;car.pendingCompound=null;car.manualPitMode=false;car.stayOutDeferredLap=null;car.pitStatus=car.automaticStrategy?'AUTO':'NO AUTO STOP';
  }else{
   throw new Error(`Unknown pit instruction: ${command}`);
  }
@@ -518,15 +525,14 @@ export function advanceRaceLap(previous){
   car.lapHistory.push({lap:lapNumber,time:lapResult.lapTime,sectors:lapResult.sectors,tyre:car.tyre.compound,tyreAge:car.tyre.age,tyreWear:car.tyre.wear,tyreState:car.tyre.state,fuel:car.fuelRemaining});
   if(lapResult.mechanicalEvent){
    recordEvent(state,lapResult.mechanicalEvent,lapNumber,car);
-   if(lapResult.retire){car.retired=true;car.retirementReason=lapResult.mechanicalEvent.replaceAll('_',' ');car.retirementLap=lapNumber;recordEvent(state,'retirement',lapNumber,car,{reason:car.retirementReason})}
+   if(lapResult.retire)retireCar(state,car,lapNumber,lapResult.mechanicalEvent.replaceAll('_',' '));
    else car.mechanicalFault=lapResult.mechanicalEvent;
   }
   if(lapResult.puncture){recordEvent(state,'puncture',lapNumber,car,{wear:car.tyre.wear});car.weatherPitNeeded=true}
   if(lapResult.mistake){recordEvent(state,'driver_mistake',lapNumber,car,{timeLoss:lapResult.lapTime})}
   if(!car.retired&&car.damage>=0.98){
-   car.retired=true;car.retirementReason='terminal damage';car.retirementLap=lapNumber;
    recordEvent(state,'terminal_damage',lapNumber,car,{damage:car.damage});
-   recordEvent(state,'retirement',lapNumber,car,{reason:car.retirementReason});
+   retireCar(state,car,lapNumber,'terminal damage');
   }
   if(car.pitInstruction?.mode==='stay_out'&&car.pitInstruction.targetLap<=lapNumber){car.pitInstruction=null;car.pitStatus='AUTO · STAYED OUT'}
   results.set(stableId(car.entry),lapResult);
@@ -544,8 +550,19 @@ export function advanceRaceLap(previous){
  const ranked=rankCars(state.cars);
  const leader=ranked.find(car=>!car.retired&&!car.completed);
  for(const car of ranked){
-  if(!leader)continue;
-  if(car.retired){car.retiredProgress=car.trackProgress;continue}
+  if(!leader){
+   if(car.retired&&car.retirementLap===state.lap){car.trackProgress=(car.lapsCompleted/state.totalLaps)%1;car.retiredProgress=car.trackProgress}
+   continue;
+  }
+  if(car.retired){
+   if(car.retirementLap===state.lap){
+    const gap=Math.max(0,car.totalTime-leader.totalTime);
+    const lapOffset=clamp(1-gap/state.circuit.baselineLap,0,0.999);
+    car.trackProgress=((Math.max(0,car.lapsCompleted-1)+lapOffset)/state.totalLaps)%1;
+   }
+   car.retiredProgress=car.trackProgress;
+   continue;
+  }
   if(car.completed){car.trackProgress=0.999999;continue}
   const gap=Math.max(0,car.totalTime-leader.totalTime);
   const lapOffset=clamp(1-gap/state.circuit.baselineLap,0,0.999);
@@ -572,7 +589,7 @@ export function getClassification(state){
   lapsCompleted:car.lapsCompleted,totalTime:car.totalTime,
   bestLap:car.bestLap,lastLap:car.lastLap,lastSectors:car.lastSectors,
   fuelRemaining:car.fuelRemaining,damage:car.damage,tyre:car.tyre,pitStops:car.pitStops,pitHistory:car.pitHistory,
-  lapHistory:car.lapHistory,positionHistory:car.positionHistory,strategy:car.strategy,retirementReason:car.retirementReason,
+  lapHistory:car.lapHistory,positionHistory:car.positionHistory,strategy:car.strategy,
   mechanicalFault:car.mechanicalFault,mileageKm:car.mileageKm,vehicleStress:car.vehicleStress,
   penalties:car.penalties,retirementLap:car.retirementLap,retirementReason:car.retirementReason,tyreConfig:car.tyreConfig,
   pitInstruction:car.pitInstruction,pitStatus:car.pitStatus,manualPitMode:car.manualPitMode,pitState:car.pitState,pitLaneProgress:car.pitLaneProgress,trackProgress:car.retired?(car.retiredProgress??car.trackProgress):car.trackProgress,
@@ -692,4 +709,38 @@ export function championship(entries,races,options={}){
   }
  }
  return Object.values(tally).sort((a,b)=>b.pts-a.pts);
+}
+export function calculateStandings(completedRaces=[],entries=[]){
+ const drivers=new Map(),teams=new Map();
+ const makeStanding=(map,id,person,team)=>{
+  const key=String(id??person?.name??'unknown');
+  let standing=map.get(key);
+  if(!standing){
+   standing={id, name:person?.name||'Unknown',team,points:0,wins:0,podiums:0};
+   map.set(key,standing);
+  }else if(team){
+   standing.team=team;
+  }
+  return standing;
+ };
+ for(const entry of entries){
+  makeStanding(drivers,entry.driver?.id,entry.driver,entry.team);
+  makeStanding(teams,entry.team?.id,entry.team,null);
+ }
+ const races=[...completedRaces].sort((a,b)=>(Number(a.round)||0)-(Number(b.round)||0));
+ for(const race of races){
+  for(const [rows,isGrandPrix] of [[race.sprintResults||[],false],[race.raceResults||[],true]]){
+   for(const row of rows){
+    const position=Number(row.position??row.pos);
+    const points=Number(row.points??row.pts)||0;
+    const driver=makeStanding(drivers,row.driver?.id,row.driver,row.team);
+    const team=makeStanding(teams,row.team?.id,row.team,null);
+    driver.points+=points;team.points+=points;
+    if(isGrandPrix&&position===1){driver.wins++;team.wins++}
+    if(isGrandPrix&&position>0&&position<=3){driver.podiums++;team.podiums++}
+   }
+  }
+ }
+ const order=(a,b)=>b.points-a.points||b.wins-a.wins||b.podiums-a.podiums||a.name.localeCompare(b.name);
+ return {drivers:[...drivers.values()].sort(order),teams:[...teams.values()].sort(order)};
 }

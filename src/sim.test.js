@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {advanceRaceIfRunning,advanceRaceLap,createRaceState,getClassification,qualify,setPitInstruction,simulateRace,TYRES} from './sim.js';
+import {advanceRaceIfRunning,advanceRaceLap,calculateStandings,createRaceState,getClassification,qualify,setPitInstruction,simulateRace,TYRES} from './sim.js';
 
 function entry(id,{driver={},car={}}={}){
  return {
@@ -17,6 +17,31 @@ test('same seed and inputs reproduce the complete race state',()=>{
  const a=simulateRace({entries,race:circuit,seed:124,strategies:{'team-1':{stops:1,tyre:'medium'}}});
  const b=simulateRace({entries,race:circuit,seed:124,strategies:{'team-1':{stops:1,tyre:'medium'}}});
  assert.deepEqual(a,b);
+});
+
+test('season standings aggregate sprint and race points with Grand Prix wins and podiums',()=>{
+ const driverA={id:1,name:'Driver A'},driverB={id:2,name:'Driver B'};
+ const teamA={id:'team-a',name:'Team A'},teamB={id:'team-b',name:'Team B'};
+ const standings=calculateStandings([
+  {round:2,sprintResults:[{driver:driverB,team:teamB,pos:1,pts:8}],raceResults:[
+   {driver:driverA,team:teamA,pos:1,pts:25},
+   {driver:driverB,team:teamB,pos:2,pts:18}
+  ]},
+  {round:1,sprintResults:[{driver:driverA,team:teamA,pos:2,pts:7}],raceResults:[
+   {driver:driverB,team:teamB,pos:1,pts:25},
+   {driver:driverA,team:teamA,pos:3,pts:15}
+  ]}
+ ],[
+  {driver:driverA,team:teamA},
+  {driver:driverB,team:teamB},
+  {driver:{id:3,name:'Driver C'},team:{id:'team-c',name:'Team C'}}
+ ]);
+ assert.deepEqual(standings.drivers.map(row=>[row.id,row.points,row.wins,row.podiums]),[
+  [2,51,1,2],[1,47,1,2],[3,0,0,0]
+ ]);
+ assert.deepEqual(standings.teams.map(row=>[row.id,row.points,row.wins,row.podiums]),[
+  ['team-b',51,1,2],['team-a',47,1,2],['team-c',0,0,0]
+ ]);
 });
 
 test('qualifying sets the starting grid and grid penalties move a driver back',()=>{
@@ -135,7 +160,10 @@ test('pit next lap is distinct from pit this lap and pending commands remain vis
 test('stay-out defers the planned stop by one lap and automatic strategy resumes',()=>{
  let state=createRaceState({entries:[entry(1),entry(2)],race:{...circuit,laps:8},seed:25,laps:8,strategies:{'team-1':{stops:1,tyre:'medium'},'team-2':{stops:0}}});
  while(state.lap<2)state=advanceRaceLap(state);
+ state=setPitInstruction(state,1,'planned_stop',{targetLap:6,compound:'hard'});
  state=setPitInstruction(state,1,'stay_out');
+ assert.equal(state.cars.find(car=>car.driverId===1).manualPitMode,false);
+ assert.equal(state.cars.find(car=>car.driverId===1).pitInstruction.mode,'stay_out');
  assert.equal(state.cars.find(car=>car.driverId===1).pitStatus,'STAY OUT · AUTO RESUMES');
  state=advanceRaceLap(state);
  assert.equal(state.cars.find(car=>car.driverId===1).pitStops,0);
@@ -226,9 +254,11 @@ test('low reliability can cause a mechanical retirement with lap and reason',()=
   let state=createRaceState({entries,race:{...circuit,laps:100},seed,laps:100});
   const unreliable=state.cars.find(car=>car.driverId===1);
   unreliable.vehicleStress=1;
-  while(!state.done)state=advanceRaceLap(state);
-  retiredCar=getClassification(state).find(car=>car.driver.id===1&&car.retired);
-  if(retiredCar)retirementState=state;
+  while(!state.done&&!retiredCar){
+   state=advanceRaceLap(state);
+   retiredCar=getClassification(state).find(car=>car.driver.id===1&&car.retired);
+   if(retiredCar)retirementState=state;
+  }
  }
  assert.ok(retiredCar,'expected a seeded low-reliability run to retire mechanically');
  assert.ok(retiredCar.retirementLap>0);
@@ -236,6 +266,7 @@ test('low reliability can cause a mechanical retirement with lap and reason',()=
  assert.ok(retiredCar.events.some(event=>event.type==='retirement'));
  const afterRetirement=advanceRaceLap(retirementState);
  assert.equal(afterRetirement.cars.find(car=>car.driverId===1).lapsCompleted,retiredCar.lapsCompleted);
+ assert.equal(afterRetirement.cars.find(car=>car.driverId===1).retiredProgress,retirementState.cars.find(car=>car.driverId===1).retiredProgress);
 });
 
 test('track progress stays normalized and custom circuit geometry is retained',()=>{
