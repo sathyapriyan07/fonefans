@@ -186,10 +186,9 @@ export function Simulate(){
     </div>}
     {!phaseResult&&<button className="btn run-session" onClick={runPhase}>{isPractice?'Run practice':phase==='qualifying'?'Start qualifying':phase==='sprint'?'Start sprint':'Start Grand Prix'}</button>}
     {phaseResult&&<div className="results-panel"><div className="section-title"><h3>{PHASE_LABELS[phase]} classification</h3><p>{phase==='practice'?'Practice pace':isQualifying?'Starting grid':'Session results'}</p></div>
-     <div className="scroll"><table className="race-table"><thead><tr><th>POS</th><th>DRIVER</th><th>TEAM</th><th>CAR</th>{phase==='race'||phase==='sprint'?<th>PTS</th>:null}</tr></thead>
+     <div className="scroll"><table className="race-table"><thead><tr><th>POS</th><th>DRIVER</th><th>CAR</th>{phase==='race'||phase==='sprint'?<th>PTS</th>:null}</tr></thead>
       <tbody>{phaseResult.map((entry,index)=><tr key={`${entry.driver.id}-${index}`} className={index===0?'leader':''}>
-       <td className="position-cell">{getPosition(entry,index)}</td><td><strong>{entry.driver.name}</strong>{entry.driver.code&&<small> · {entry.driver.code}</small>}</td>
-       <td><span className="team-chip" style={{'--team-color':entry.team.color||'#d3202f'}}>{entry.team.name}</span></td>
+       <td className="position-cell">{getPosition(entry,index)}</td><td><span className="driver-result"><span className="team-logo">{entry.team.logo_normal&&<img src={entry.team.logo_normal} alt={`${entry.team.name} logo`}/>}</span><strong>{entry.driver.name.trim().split(/\s+/).pop()?.toUpperCase()}</strong></span></td>
        <td>{entry.cars?.model||entry.c.model||'—'}</td>{phase==='race'||phase==='sprint'?<td>{entry.pts}</td>:null}
       </tr>)}</tbody></table></div>
     </div>}
