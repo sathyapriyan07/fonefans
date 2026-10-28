@@ -12,4 +12,5 @@ main{max-width:1100px;margin:0 auto;padding:24px}.hero{padding:48px 0}.hero p{ma
 button{cursor:pointer}button:disabled{opacity:.4}:focus-visible{outline:3px solid var(--purple);outline-offset:2px}
 table{border-collapse:collapse;width:100%;background:#fff}td,th{padding:6px 10px;border-bottom:1px solid var(--line);text-align:left;font-size:.9rem}.scroll{overflow-x:auto}
 .form{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:20px}.form label{display:flex;flex-direction:column;font-size:.8rem}.form .row,.form pre{grid-column:1/-1}
+.image-preview{max-width:100%;max-height:120px;object-fit:contain;object-position:left center;margin-top:6px}
 .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}.tabs .on{background:var(--ink);color:#fff}
