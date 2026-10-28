@@ -4,12 +4,17 @@ const R=(x)=>x??50;
 export const RACE_PTS=[25,18,15,12,10,8,6,4,2,1],SPRINT_PTS=[8,7,6,5,4,3,2,1];
 export function qualify(es,noise=6){return es.map(e=>({...e,q:.45*R(e.d.qualifying)+.3*R(e.c.qualifying)+.15*R(e.c.speed)+.1*R(e.d.speed)+gauss()*noise}))
  .sort((a,b)=>b.q-a.q).map((e,i)=>({...e,grid:i+1}))}
-export function race(es,{sprint=false,noise=7}={}){
+export function practice(es,noise=5){return es.map(e=>({...e,practiceScore:.3*R(e.d.speed)+.25*R(e.c.speed)+.25*R(e.c.performance)+.2*R(e.c.race)+gauss()*noise}))
+ .sort((a,b)=>b.practiceScore-a.practiceScore).map((e,i)=>({...e,practicePos:i+1}))}
+export function race(es,{sprint=false,noise=7,strategies={}}={}){
  const k=sprint?.4:1;
  const out=es.map(e=>{const dnf=Math.random()<(100-R(e.c.reliability))/100*.12*k;
   const pace=.3*R(e.d.race)+.25*R(e.c.race)+.2*R(e.c.performance)+.1*R(e.d.speed)+.05*R(e.d.experience)+.1*R(e.c.speed);
   const gridBonus=(es.length-e.grid)*.35*(1-.006*R(e.d.overtaking)-.002*R(e.c.overtaking));
-  return {...e,dnf,score:dnf?-1e9:pace+gridBonus+gauss()*noise}}).sort((a,b)=>b.score-a.score);
+  const strategy=strategies[e.team.id];
+  const tyrePace={soft:3,medium:1,hard:-1}[strategy?.tyre]??0;
+  const stopPace=strategy?.stops===0?-4:strategy?.stops>1?-1:0;
+  return {...e,dnf,score:dnf?-1e9:pace+gridBonus+tyrePace+stopPace+gauss()*noise}}).sort((a,b)=>b.score-a.score);
  return out.map((e,i)=>({...e,pos:i+1,pts:e.dnf?0:(sprint?SPRINT_PTS:RACE_PTS)[i]||0}))}
 export function weekend(es,r){const q=qualify(es);return {q,sprint:r.is_sprint?race(q,{sprint:true}):null,race:race(q)}}
 export function championship(es,races){const tally={};
