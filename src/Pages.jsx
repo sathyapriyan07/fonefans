@@ -88,7 +88,7 @@ export function Home(){const n=useQ(async()=>{const c=async t=>{const {count,err
  <div className="row"><Link className="btn" to="/simulate">Start a race weekend</Link><Link className="btn ghost" to="/grids">Build a grid</Link></div>
  {n.data&&<p className="muted">{n.data.drivers} drivers, {n.data.teams} teams, {n.data.races} races loaded</p>}<QueryStatus query={n}/></section>}
 export function Drivers(){const d=useQ(()=>sb.from('drivers').select('*,driver_images(*)').order('name'));
- return <><h2>Drivers</h2><QueryStatus query={d} empty="No drivers yet."/><div className="grid">{d.data?.map(x=><Link key={x.id} to={'/drivers/'+x.id} className="card">{latestImg(x,'card_url')&&<img src={latestImg(x,'card_url')}/>}<h3>{x.name}</h3><p>{x.code} #{x.number}</p></Link>)}</div></>}
+ return <><h2>Drivers</h2><QueryStatus query={d} empty="No drivers yet."/><div className="grid">{d.data?.map(x=><Link key={x.id} to={'/drivers/'+x.id} className="card driver-card">{latestImg(x,'pole_url')&&<img className="driver-pole-image" src={latestImg(x,'pole_url')} alt="" aria-hidden="true"/>}<div className="driver-card-copy"><h3>{x.name}</h3><p>{x.code} #{x.number}</p></div></Link>)}</div></>}
 export function Driver(){const {id}=useParams();const d=useQ(()=>sb.from('drivers').select('*,driver_images(*),driver_ratings(*)').eq('id',id).single(),[id]);
  if(d.loading||d.error||!d.data)return <><h2>Driver</h2><QueryStatus query={d}/></>;
  const driver=d.data;const r=one(driver.driver_ratings)||{};
