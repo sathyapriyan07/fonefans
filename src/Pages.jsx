@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState} from 'react';import {Link,useParams} from 'react-router-dom';
-import {sb} from './supabase.js';import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,calculateStandings,createRaceState,getClassification,getWeekendPhases,practice,qualify,setPitInstruction} from './sim.js';
+import {sb} from './supabase.js';import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyTeamPerformanceBoosts,calculateStandings,createRaceState,getClassification,getWeekendPhases,practice,qualify,setPitInstruction} from './sim.js';
 function useQ(fn,deps=[]){
  const [query,setQuery]=useState({data:null,loading:true,error:null});
  const [attempt,setAttempt]=useState(0);
@@ -185,7 +185,7 @@ export function Simulate(){
  const [gid,setG]=useState('');const [rid,setR]=useState('');const [phaseIndex,setPhaseIndex]=useState(0);
  const [simulationTab,setSimulationTab]=useState('weekend');
  const [weekendStarted,setWeekendStarted]=useState(false);const [weekendComplete,setWeekendComplete]=useState(false);
- const [results,setResults]=useState({});const [setups,setSetups]=useState({});const [strategies,setStrategies]=useState({});const [strategyEnabled,setStrategyEnabled]=useState(false);const [garageSetupEnabled,setGarageSetupEnabled]=useState(false);
+ const [results,setResults]=useState({});const [setups,setSetups]=useState({});const [strategies,setStrategies]=useState({});const [performanceBoosts,setPerformanceBoosts]=useState({});const [strategyEnabled,setStrategyEnabled]=useState(false);const [garageSetupEnabled,setGarageSetupEnabled]=useState(false);
  const [seasonStore,setSeasonStore]=useState(loadSeasonStore);
  const [raceState,setRaceState]=useState(null);const [isRunning,setIsRunning]=useState(false);const [simulationSpeed,setSimulationSpeed]=useState(1);const [seed,setSeed]=useState(newSeed);const [weatherMode,setWeatherMode]=useState('dry');const [selectedDriverId,setSelectedDriverId]=useState(null);const [pitCompound,setPitCompound]=useState('medium');const [pitLap,setPitLap]=useState(1);const [pitFeedback,setPitFeedback]=useState('');const [boostFeedback,setBoostFeedback]=useState('');
  const [nextRaceNotice,setNextRaceNotice]=useState('');
@@ -200,6 +200,7 @@ export function Simulate(){
  const entries=(entriesQuery.data||[]).filter(e=>e.drivers&&e.teams&&e.cars).map(e=>({
   driver:e.drivers,team:e.teams,d:one(e.drivers.driver_ratings)||{},c:e.cars
  }));
+ const performanceEntries=applyTeamPerformanceBoosts(entries,performanceBoosts);
  const phases=getWeekendPhases(selectedRace||{});
  const seasonKey=grid?`${grid.id}:${grid.year}`:'';
  const seasonRacesCompleted=Boolean(grid&&races.data?.length&&races.data.every(race=>Array.isArray(seasonStore.data[seasonKey]?.[String(race.id)]?.raceResults)));
@@ -280,15 +281,15 @@ export function Simulate(){
    const isSprint=phase==='sprint';
    const raceLaps=Number(selectedRace.laps)||57;
    const state=createRaceState({
-    entries:startRows,race:selectedRace,seed,format:isSprint?'sprint':'race',
+    entries:applyTeamPerformanceBoosts(startRows,performanceBoosts),race:selectedRace,seed,format:isSprint?'sprint':'race',
     strategies:strategyEnabled?strategies:{},setups:activeSetups,weather:weatherMode,laps:isSprint?Math.max(1,Math.round(raceLaps*0.32)):raceLaps
    });
    setRaceState(state);setBoostFeedback('');setIsRunning(true);setWeekendComplete(false);
    return;
   }
   let rows;
-  if(phase.startsWith('practice'))rows=practice(entries,{seed:seed+phaseIndex,race:selectedRace,setups:activeSetups,weather:weatherMode});
-  if(phase==='qualifying'||phase==='sprintQualifying')rows=qualify(entries,{seed:seed+phaseIndex,race:selectedRace,setups:activeSetups,weather:weatherMode==='wet'?{wetness:0.75}:undefined});
+  if(phase.startsWith('practice'))rows=practice(performanceEntries,{seed:seed+phaseIndex,race:selectedRace,setups:activeSetups,weather:weatherMode});
+  if(phase==='qualifying'||phase==='sprintQualifying')rows=qualify(performanceEntries,{seed:seed+phaseIndex,race:selectedRace,setups:activeSetups,weather:weatherMode==='wet'?{wetness:0.75}:undefined});
   setResults(current=>{
    const next={...current,[phase]:rows};
    phases.slice(phaseIndex+1).forEach(name=>delete next[name]);
@@ -316,6 +317,7 @@ export function Simulate(){
  };
  const setSetup=(id,key,value)=>updateTeam(setSetups,id,key,value);
  const setStrategy=(id,key,value)=>updateTeam(setStrategies,id,key,value);
+ const setPerformanceBoost=(id,value)=>setPerformanceBoosts(current=>({...current,[String(id)]:Math.max(0,Math.min(20,Number(value)||0))}));
  const isQualifying=phase==='qualifying'||phase==='sprintQualifying';const isPractice=phase.startsWith('practice');
  const getPosition=(entry,index)=>isPractice?entry.practicePos:isQualifying?entry.grid:entry.dnf?'DNF':entry.pos;
  return <section className="weekend">
@@ -328,6 +330,7 @@ export function Simulate(){
    <div className="tabs" role="tablist" aria-label="Simulation sections">
     <button type="button" role="tab" aria-selected={simulationTab==='weekend'} className={simulationTab==='weekend'?'on':''} onClick={()=>setSimulationTab('weekend')}>Race weekend</button>
     <button type="button" role="tab" aria-selected={simulationTab==='standings'} className={simulationTab==='standings'?'on':''} onClick={()=>setSimulationTab('standings')}>Standings</button>
+    <button type="button" role="tab" aria-selected={simulationTab==='performance'} className={simulationTab==='performance'?'on':''} onClick={()=>setSimulationTab('performance')}>Performance</button>
    </div>
   </div>
   <QueryStatus query={grids} empty="Create a grid before viewing the simulation."/>
@@ -341,7 +344,19 @@ export function Simulate(){
     </div>)}
    </div>
    {seasonStore.error&&<p className="query-status query-error" role="alert">{seasonStore.error}</p>}
-  </section>:<div className="weekend-empty"><h3>Choose a season grid</h3><p>Select a grid above to view its standings.</p></div>:<>
+  </section>:<div className="weekend-empty"><h3>Choose a season grid</h3><p>Select a grid above to view its standings.</p></div>:simulationTab==='performance'?grid?<section className="performance-panel">
+   <div className="section-title"><div><h3>{grid.year} team performance</h3><p>Boost a team to improve the car ratings of all its drivers in upcoming sessions.</p></div></div>
+   <div className="performance-team-grid">{teams.map(team=>{
+    const boost=performanceBoosts[String(team.id)]||0;
+    const teamDrivers=entries.filter(entry=>String(entry.team.id)===String(team.id));
+    return <article className="performance-team-card" key={team.id} style={{'--team-color':team.color||'#d3202f'}}>
+     <div className="performance-team-heading">{team.logo_normal&&<img src={team.logo_normal} alt=""/>}<div><h4>{team.name}</h4><p>{teamDrivers.map(entry=>entry.driver.code||entry.driver.name).join(' · ')}</p></div></div>
+     <label className="performance-boost-control"><span>Car performance <strong>+{boost} pts</strong></span><input type="range" min="0" max="20" step="1" value={boost} onChange={event=>setPerformanceBoost(team.id,event.target.value)}/><small>Improves speed, aero, grip, race and qualifying ratings for this team.</small></label>
+     <button type="button" className="performance-reset" onClick={()=>setPerformanceBoost(team.id,0)} disabled={boost===0}>Reset boost</button>
+    </article>;
+   })}</div>
+   {!teams.length&&<p className="muted">No complete teams are assigned to this grid.</p>}
+  </section>:<div className="weekend-empty"><h3>Choose a season grid</h3><p>Select a grid above to manage team performance.</p></div>:<>
   <div className="weekend-select">
    <label>Grand Prix<select value={rid} onChange={e=>{setNextRaceNotice('');setR(e.target.value);setWeekendStarted(false);setWeekendComplete(false);setResults({});setRaceState(null);setIsRunning(false);setPhaseIndex(0)}} disabled={!grid||races.loading}><option value="">Choose a race</option>{races.data?.map(r=><option key={r.id} value={r.id}>R{r.round} · {r.name}</option>)}</select></label>
    <label>Weather<select value={weatherMode} onChange={e=>setWeatherMode(e.target.value)}><option value="dry">Dry</option><option value="variable">Changeable</option><option value="wet">Wet</option></select></label>
@@ -412,7 +427,7 @@ export function Simulate(){
       {!raceState.done&&<button onClick={()=>setIsRunning(value=>!value)}>{isRunning?'Pause':'Resume'}</button>}
       <button onClick={()=>{setIsRunning(false);setRaceState(current=>current&&!current.done?advanceRaceLap(current):current)}} disabled={isRunning||raceState.done}>Advance one lap</button>
       <label>Speed<select value={simulationSpeed} onChange={e=>setSimulationSpeed(Number(e.target.value))}><option value={0.5}>0.5×</option><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option><option value={10}>10×</option></select></label>
-      <button onClick={()=>{const restartSource=phase==='sprint'?'sprintQualifying':phase==='race'&&selectedRace?.sprint_affects_grand_prix_grid?'sprint':'qualifying';const restartEntries=results[restartSource]?.map((entry,index)=>({...entry,grid:restartSource==='sprint'?(entry.position||entry.pos||index+1):entry.grid}));if(!restartEntries?.length)return alert(`Complete ${PHASE_LABELS[restartSource]||restartSource} before restarting.`);setIsRunning(false);setRaceState(createRaceState({entries:restartEntries,race:selectedRace,seed,format:phase==='sprint'?'sprint':'race',strategies:strategyEnabled?strategies:{},setups:activeSetups,weather:weatherMode,laps:phase==='sprint'?Math.max(1,Math.round((Number(selectedRace.laps)||57)*0.32)):Number(selectedRace.laps)||57}));setIsRunning(true)}}>Restart same seed</button>
+      <button onClick={()=>{const restartSource=phase==='sprint'?'sprintQualifying':phase==='race'&&selectedRace?.sprint_affects_grand_prix_grid?'sprint':'qualifying';const restartEntries=results[restartSource]?.map((entry,index)=>({...entry,grid:restartSource==='sprint'?(entry.position||entry.pos||index+1):entry.grid}));if(!restartEntries?.length)return alert(`Complete ${PHASE_LABELS[restartSource]||restartSource} before restarting.`);setIsRunning(false);setRaceState(createRaceState({entries:applyTeamPerformanceBoosts(restartEntries,performanceBoosts),race:selectedRace,seed,format:phase==='sprint'?'sprint':'race',strategies:strategyEnabled?strategies:{},setups:activeSetups,weather:weatherMode,laps:phase==='sprint'?Math.max(1,Math.round((Number(selectedRace.laps)||57)*0.32)):Number(selectedRace.laps)||57}));setIsRunning(true)}}>Restart same seed</button>
       <button onClick={()=>{setSeed(newSeed());setIsRunning(false);setRaceState(null);setSelectedDriverId(null);setPitFeedback('');setResults(current=>{const next={...current};delete next[phase];return next})}}>New seed / reset</button>
      </div>
      <LiveTrack state={raceState} selectedDriverId={selectedDriverId} onSelect={setSelectedDriverId}/>

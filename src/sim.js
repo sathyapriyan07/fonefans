@@ -126,6 +126,35 @@ function ratings(entry,circuit){
   operationalConsistency:value(entry.team,'operational_consistency',50)
  };
 }
+const PERFORMANCE_RATING_FIELDS=[
+ ['speed',['performance','race']],
+ ['performance',['race']],
+ ['qualifying',['performance']],
+ ['race',['performance']],
+ ['straight_line_speed',['speed']],
+ ['aerodynamic_efficiency',['downforce','performance']],
+ ['high_speed_cornering',['downforce','performance']],
+ ['medium_speed_cornering',['performance','race']],
+ ['low_speed_cornering',['mechanical_grip','race']],
+ ['downforce',['performance']],
+ ['mechanical_grip',['race']],
+ ['traction',['race']],
+ ['braking',['race']]
+];
+export function applyTeamPerformanceBoosts(entries,boosts={}){
+ return entries.map(entry=>{
+  const requested=Number(boosts[String(entry.team?.id)]??0);
+  const target=clamp(Number.isFinite(requested)?Math.round(requested):0,0,20);
+  const car=entry.c||entry.car;
+  if(!car)return entry;
+  const applied=clamp(Number(car.teamPerformanceBoost)||0,0,20);
+  const change=target-applied;
+  if(!change)return entry;
+  const boosted={...car,teamPerformanceBoost:target};
+  for(const [key,fallbacks] of PERFORMANCE_RATING_FIELDS)boosted[key]=clamp(carRating(car,key,fallbacks)+change,0,100);
+  return entry.c?{...entry,c:boosted}:{...entry,car:boosted};
+ });
+}
 function setupAdjustedCar(car,setup={},circuit){
  const aero=clamp(Number(setup.aero??50),0,100);
  const suspension=clamp(Number(setup.suspension??50),0,100);

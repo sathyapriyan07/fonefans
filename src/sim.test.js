@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,calculateStandings,createRaceState,getClassification,qualify,setPitInstruction,simulateRace,TYRES} from './sim.js';
+import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyTeamPerformanceBoosts,calculateStandings,createRaceState,getClassification,qualify,setPitInstruction,simulateRace,TYRES} from './sim.js';
 
 function entry(id,{driver={},car={}}={}){
  return {
@@ -344,4 +344,24 @@ test('driver boost rejects unknown, retired, finished, and completed-race target
  const completed={...state,cars:state.cars.map(car=>car.driverId===1?{...car,completed:true}:car)};
  assert.throws(()=>activateDriverBoost(completed,1),/retired or finished/);
  assert.throws(()=>activateDriverBoost({...state,done:true},1),/after the chequered flag/);
+});
+
+test('team performance boosts improve every team car once and respect the rating cap',()=>{
+ const entries=[
+  {...entry(1),c:{speed:70,performance:72,qualifying:74,race:76}},
+  {...entry(2),team:{id:'team-1',name:'Team 1'},c:{speed:65,performance:67,qualifying:69,race:71}},
+  {...entry(3),team:{id:'team-3',name:'Team 3'},c:{speed:60,performance:62,qualifying:64,race:66}}
+ ];
+ const boosted=applyTeamPerformanceBoosts(entries,{'team-1':10});
+ assert.equal(boosted[0].c.speed,80);
+ assert.equal(boosted[1].c.speed,75);
+ assert.equal(boosted[2].c.speed,60);
+ assert.equal(boosted[0].c.teamPerformanceBoost,10);
+ assert.equal(applyTeamPerformanceBoosts(boosted,{'team-1':10})[0].c.speed,80);
+ assert.equal(applyTeamPerformanceBoosts(boosted,{'team-1':15})[0].c.speed,85);
+ assert.equal(applyTeamPerformanceBoosts([{...entry(4),c:{speed:97,performance:98}}],{'team-4':20})[0].c.speed,100);
+ const raceOptions={race:{...circuit,laps:4},seed:109};
+ const regularRace=simulateRace({...raceOptions,entries}).classification;
+ const boostedRace=simulateRace({...raceOptions,entries:boosted}).classification;
+ assert.ok(boostedRace.find(row=>row.driver.id===1).totalTime<regularRace.find(row=>row.driver.id===1).totalTime);
 });
