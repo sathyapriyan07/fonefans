@@ -720,7 +720,7 @@ export function calculateStandings(completedRaces=[],entries=[]){
    map.set(key,standing);
   }else{
    if(person?.code)standing.code=person.code;
-   if(team)standing.team=team;
+   if(team)standing.team={...standing.team,...team};
   }
   return standing;
  };

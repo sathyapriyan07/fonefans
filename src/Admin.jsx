@@ -1,15 +1,16 @@
 import {useEffect,useState} from 'react';import {sb} from './supabase.js';
 const RAT=['race','overtaking','speed','experience','qualifying','defence','overall','consistency','tyre_management','wet_weather','starts','braking','error_resistance','adaptability','racecraft'],CAR=['speed','race','overtaking','defence','performance','qualifying','reliability','straight_line_speed','aerodynamic_efficiency','high_speed_cornering','medium_speed_cornering','low_speed_cornering','downforce','mechanical_grip','traction','braking','tyre_preservation','fuel_efficiency','wet_performance','drs_effectiveness'];
-const n=k=>({k,t:'number'}),t=k=>({k,t:'text'}),img=k=>({k,t:'image'}),ref=(k,table,label='name')=>({k,t:'ref',table,label});
+const n=k=>({k,t:'number'}),t=k=>({k,t:'text'}),img=k=>({k,t:'image'}),select=(k,options)=>({k,t:'select',options}),ref=(k,table,label='name')=>({k,t:'ref',table,label});
 const T={
  drivers:[t('name'),t('code'),n('number'),{k:'bio',t:'area'},t('nationality'),img('nationality_logo'),t('jolpica_id')],
  driver_images:[ref('driver_id','drivers'),n('year'),img('pole_url'),img('grid_url'),img('card_url')],
  driver_ratings:[ref('driver_id','drivers'),...RAT.map(n)],
  teams:[t('name'),img('logo_detailed'),img('logo_normal'),t('color'),n('pit_crew_execution'),n('strategy_quality'),n('reliability_management'),n('operational_consistency'),n('damage_repair_efficiency'),t('jolpica_id')],
  cars:[ref('team_id','teams'),n('year'),t('model'),img('image_url'),t('engine'),...CAR.map(n)],
+ tyre_images:[select('compound',['soft','medium','hard','intermediate','wet']),img('image_url')],
  grids:[t('name'),n('year')],
  grid_entries:[ref('grid_id','grids'),ref('team_id','teams'),ref('car_id','cars','model'),ref('driver_id','drivers')],
- races:[n('year'),n('round'),t('name'),t('circuit'),t('country'),{k:'date',t:'date'},{k:'is_sprint',t:'bool'},n('laps'),n('circuit_length_km'),n('straight_line_importance'),n('high_speed_corner_share'),n('medium_speed_corner_share'),n('low_speed_corner_share'),n('braking_demand'),n('traction_demand'),n('downforce_requirement'),n('tyre_energy'),n('overtaking_difficulty'),n('pit_lane_loss_seconds'),n('baseline_lap_seconds'),n('drs_zones'),n('tyre_wear_multiplier'),n('puncture_risk_multiplier'),n('tyre_overheating_threshold'),{k:'circuit_path',t:'area'},t('weekend_format'),{k:'sprint_affects_grand_prix_grid',t:'bool'}]};
+ races:[n('year'),n('round'),t('name'),t('circuit'),t('country'),img('circuit_image_url'),{k:'date',t:'date'},{k:'is_sprint',t:'bool'},n('laps'),n('circuit_length_km'),n('straight_line_importance'),n('high_speed_corner_share'),n('medium_speed_corner_share'),n('low_speed_corner_share'),n('braking_demand'),n('traction_demand'),n('downforce_requirement'),n('tyre_energy'),n('overtaking_difficulty'),n('pit_lane_loss_seconds'),n('baseline_lap_seconds'),n('drs_zones'),n('tyre_wear_multiplier'),n('puncture_risk_multiplier'),n('tyre_overheating_threshold'),{k:'circuit_path',t:'area'},t('weekend_format'),{k:'sprint_affects_grand_prix_grid',t:'bool'}]};
 const IMAGE_TYPES=['image/png','image/jpeg','image/webp','image/gif','image/svg+xml','image/avif','image/x-icon'];
 const MAX_IMAGE_SIZE=10*1024*1024;
 function Crud({table}){const F=T[table];const [rows,setRows]=useState([]);const [opts,setOpts]=useState({});const [form,setForm]=useState({});const [saving,setSaving]=useState(false);
@@ -36,6 +37,7 @@ function Crud({table}){const F=T[table];const [rows,setRows]=useState([]);const 
  return <><div className="form">{F.map(f=><label key={f.k}>{f.k}{f.t==='ref'?<select value={form[f.k]||''} onChange={e=>set(f.k,e.target.value)}><option value="">none</option>{opts[f.k]?.map(o=><option key={o.id} value={o.id}>{o[f.label]}</option>)}</select>
   :f.t==='area'?<textarea value={form[f.k]||''} onChange={e=>set(f.k,e.target.value)}/>
   :f.t==='bool'?<input type="checkbox" checked={!!form[f.k]} onChange={e=>set(f.k,e.target.checked)}/>
+  :f.t==='select'?<select value={form[f.k]||''} onChange={e=>set(f.k,e.target.value)}><option value="">Choose…</option>{f.options.map(option=><option key={option} value={option}>{option}</option>)}</select>
   :f.t==='image'?<><input type="text" placeholder="Image URL or upload a file" value={typeof form[f.k]==='string'?form[f.k]:''} onChange={e=>set(f.k,e.target.value)}/>
    <input type="file" accept={IMAGE_TYPES.join(',')} onChange={e=>{const file=e.target.files?.[0];if(!file)return;
    if(!IMAGE_TYPES.includes(file.type)){alert('Choose a supported image file.');e.target.value='';return}

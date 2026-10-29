@@ -27,6 +27,11 @@ function QueryStatus({query,empty}){
 }
 const Bar=({l,v})=><div className="bar"><span>{l}</span><i><b style={{width:(v??0)+'%'}}/></i><em>{v??'–'}</em></div>;
 const latestImg=(d,k)=>[...(d.driver_images||[])].sort((a,b)=>b.year-a.year)[0]?.[k];
+const driverSeasonImage=(driver,year)=>{
+ const images=driver.driver_images||[];
+ const image=images.find(item=>Number(item.year)===Number(year))||[...images].sort((a,b)=>b.year-a.year)[0];
+ return image?.card_url||image?.pole_url||image?.grid_url;
+};
 const CAR=['speed','race','overtaking','defence','performance','qualifying','reliability'];
 const one=x=>Array.isArray(x)?x[0]:x;
 const FALLBACK_TRACK='M22 72 33 32 68 20 92 35 127 21 155 38 148 66 164 82 133 94 105 81 77 94 49 81 22 72Z';
@@ -160,25 +165,30 @@ const loadSeasonStore=()=>{
 export function Simulate(){
  const grids=useQ(()=>sb.from('grids').select('id,name,year').order('year',{ascending:false}));
  const [gid,setG]=useState('');const [rid,setR]=useState('');const [phaseIndex,setPhaseIndex]=useState(0);
+ const [simulationTab,setSimulationTab]=useState('weekend');
  const [weekendStarted,setWeekendStarted]=useState(false);const [weekendComplete,setWeekendComplete]=useState(false);
- const [results,setResults]=useState({});const [setups,setSetups]=useState({});const [strategies,setStrategies]=useState({});
+ const [results,setResults]=useState({});const [setups,setSetups]=useState({});const [strategies,setStrategies]=useState({});const [strategyEnabled,setStrategyEnabled]=useState(false);
  const [seasonStore,setSeasonStore]=useState(loadSeasonStore);
  const [raceState,setRaceState]=useState(null);const [isRunning,setIsRunning]=useState(false);const [simulationSpeed,setSimulationSpeed]=useState(1);const [seed,setSeed]=useState(newSeed);const [weatherMode,setWeatherMode]=useState('dry');const [selectedDriverId,setSelectedDriverId]=useState(null);const [pitCompound,setPitCompound]=useState('medium');const [pitLap,setPitLap]=useState(1);const [pitFeedback,setPitFeedback]=useState('');
  const [nextRaceNotice,setNextRaceNotice]=useState('');
  const completedRaceRef=useRef(null);
+ const tyreImagesQuery=useQ(()=>sb.from('tyre_images').select('compound,image_url'));
+ const tyreImages=Object.fromEntries((tyreImagesQuery.data||[]).map(item=>[item.compound,item.image_url]));
  const grid=grids.data?.find(g=>String(g.id)===gid);
  const races=useQ(()=>grid?sb.from('races').select('*').eq('year',grid.year).order('round'):Promise.resolve({data:[],error:null}),[grid?.year]);
  const selectedRace=races.data?.find(r=>String(r.id)===rid);
- const entriesQuery=useQ(()=>gid?sb.from('grid_entries').select('*,drivers(*,driver_ratings(*)),teams(*),cars(*)').eq('grid_id',gid):Promise.resolve({data:[],error:null}),[gid]);
+ const entriesQuery=useQ(()=>gid?sb.from('grid_entries').select('*,drivers(*,driver_ratings(*),driver_images(*)),teams(*),cars(*)').eq('grid_id',gid):Promise.resolve({data:[],error:null}),[gid]);
  const entries=(entriesQuery.data||[]).filter(e=>e.drivers&&e.teams&&e.cars).map(e=>({
   driver:e.drivers,team:e.teams,d:one(e.drivers.driver_ratings)||{},c:e.cars
  }));
  const phases=getWeekendPhases(selectedRace||{});
  const seasonKey=grid?`${grid.id}:${grid.year}`:'';
+ const seasonRacesCompleted=Boolean(grid&&races.data?.length&&races.data.every(race=>Array.isArray(seasonStore.data[seasonKey]?.[String(race.id)]?.raceResults)));
  const seasonStandings=calculateStandings(Object.values(seasonStore.data[seasonKey]||{}),entries);
  const phase=phases[Math.min(phaseIndex,phases.length-1)];
  const racePhase=phase==='sprint'?'sprint':phase==='race'?'race':null;
  const phaseResult=results[phase]||((racePhase&&raceState?.format===racePhase)?getClassification(raceState):null);
+ const fastestSessionLap=phaseResult?Math.min(...phaseResult.map(entry=>entry.bestLap).filter(Number.isFinite)):Infinity;
  const selectedCar=raceState?.cars.find(car=>String(car.driverId)===String(selectedDriverId));
  const teams=[...new Map(entries.map(e=>[e.team.id,e.team])).values()];
  useEffect(()=>{setR('');setWeekendStarted(false);setWeekendComplete(false);setPhaseIndex(0);setResults({});setRaceState(null);setIsRunning(false)},[gid]);
@@ -204,8 +214,8 @@ export function Simulate(){
   if(completedRaceRef.current===completionKey)return;
   completedRaceRef.current=completionKey;
   const snapshot=rows=>rows.map(row=>({
-   driver:{id:row.driver.id,name:row.driver.name},
-   team:{id:row.team.id,name:row.team.name},
+   driver:{id:row.driver.id,name:row.driver.name,code:row.driver.code},
+   team:{id:row.team.id,name:row.team.name,logo_normal:row.team.logo_normal},
    position:row.position??row.pos,
    points:row.pts||0
   }));
@@ -223,16 +233,19 @@ export function Simulate(){
   const nextRace=raceIndex>=0?races.data[raceIndex+1]:null;
   if(nextRace){
    setNextRaceNotice(`Round ${selectedRace.round} complete. Round ${nextRace.round}: ${nextRace.name} is ready.`);
-   setR(String(nextRace.id));setWeekendStarted(false);setWeekendComplete(false);setPhaseIndex(0);
-   setResults({});setRaceState(null);setSelectedDriverId(null);
   }else{
    setNextRaceNotice('Season complete. Final standings are shown above.');
-   setWeekendComplete(true);
   }
  },[raceState?.done]);
  useEffect(()=>{if(selectedDriverId!==null){setPitLap(current=>current<=raceState?.lap?((raceState?.lap||0)+1):current);setPitFeedback('')}},[selectedDriverId]);
  const updateTeam=(setter,id,key,value)=>setter(current=>({...current,[id]:{...current[id],[key]:value}}));
  const startWeekend=()=>{setNextRaceNotice('');setWeekendStarted(true);setWeekendComplete(false);setPhaseIndex(0);setResults({});setRaceState(null);setSeed(newSeed())};
+ const resetSeasonStandings=()=>{
+  if(!grid||!window.confirm(`Reset all simulated results for ${grid.name} (${grid.year})? This only clears standings saved in this browser.`))return;
+  setSeasonStore(current=>{const data={...current.data};delete data[seasonKey];return {...current,data}});
+  completedRaceRef.current=null;setWeekendStarted(false);setWeekendComplete(false);setPhaseIndex(0);setResults({});setRaceState(null);setIsRunning(false);setSelectedDriverId(null);
+  setNextRaceNotice(`${grid.year} standings reset. Select any race in this season to simulate it again.`);
+ };
  const runPhase=()=>{
   if(entries.length<2)return alert('Add at least 2 complete driver and car entries to this grid.');
   if(phase==='race'||phase==='sprint'){
@@ -249,7 +262,7 @@ export function Simulate(){
    const raceLaps=Number(selectedRace.laps)||57;
    const state=createRaceState({
     entries:startRows,race:selectedRace,seed,format:isSprint?'sprint':'race',
-    strategies,setups,weather:weatherMode,laps:isSprint?Math.max(1,Math.round(raceLaps*0.32)):raceLaps
+    strategies:strategyEnabled?strategies:{},setups,weather:weatherMode,laps:isSprint?Math.max(1,Math.round(raceLaps*0.32)):raceLaps
    });
    setRaceState(state);setIsRunning(true);setWeekendComplete(false);
    return;
@@ -278,21 +291,20 @@ export function Simulate(){
  const isQualifying=phase==='qualifying'||phase==='sprintQualifying';const isPractice=phase.startsWith('practice');
  const getPosition=(entry,index)=>isPractice?entry.practicePos:isQualifying?entry.grid:entry.dnf?'DNF':entry.pos;
  return <section className="weekend">
-  <div className="weekend-heading"><div><p className="eyebrow">RACE OPERATIONS</p><h2>Race Weekend</h2>
+  <div className="weekend-heading"><div><p className="eyebrow">RACE OPERATIONS</p><h2>Simulation</h2>
    <p className="muted">Build your setup, qualify the grid, then call the race strategy.</p></div>
    {selectedRace&&<div className="race-round">ROUND <strong>{selectedRace.round||'—'}</strong></div>}
   </div>
-  <div className="weekend-select">
-   <label>Race grid<select value={gid} onChange={e=>{setNextRaceNotice('');setG(e.target.value);setR('')}}><option value="">Choose a grid</option>{grids.data?.map(g=><option key={g.id} value={g.id}>{g.name} · {g.year}</option>)}</select></label>
-   <label>Grand Prix<select value={rid} onChange={e=>{setNextRaceNotice('');setR(e.target.value);setWeekendStarted(false);setWeekendComplete(false);setResults({});setRaceState(null);setIsRunning(false);setPhaseIndex(0)}} disabled={!grid||races.loading}><option value="">Choose a race</option>{races.data?.map(r=><option key={r.id} value={r.id}>R{r.round} · {r.name}</option>)}</select></label>
-   <label>Weather<select value={weatherMode} onChange={e=>setWeatherMode(e.target.value)}><option value="dry">Dry</option><option value="variable">Changeable</option><option value="wet">Wet</option></select></label>
-   <button className="btn weekend-start" disabled={!grid||!selectedRace||entries.length<2} onClick={startWeekend}>
-    {weekendStarted?'Restart weekend':'Start race weekend'}
-   </button>
+  <div className="simulation-navigation">
+   <label>Season grid<select value={gid} onChange={e=>{setNextRaceNotice('');setG(e.target.value);setR('')}}><option value="">Choose a grid</option>{grids.data?.map(g=><option key={g.id} value={g.id}>{g.name} · {g.year}</option>)}</select></label>
+   <div className="tabs" role="tablist" aria-label="Simulation sections">
+    <button type="button" role="tab" aria-selected={simulationTab==='weekend'} className={simulationTab==='weekend'?'on':''} onClick={()=>setSimulationTab('weekend')}>Race weekend</button>
+    <button type="button" role="tab" aria-selected={simulationTab==='standings'} className={simulationTab==='standings'?'on':''} onClick={()=>setSimulationTab('standings')}>Standings</button>
+   </div>
   </div>
-  {nextRaceNotice&&<p className="query-status" role="status">{nextRaceNotice}</p>}
-  {grid&&<section className="standings-panel">
-   <div className="section-title"><h3>{grid.year} season standings</h3><p>Race and sprint points · wins and podiums count Grand Prix results</p></div>
+  <QueryStatus query={grids} empty="Create a grid before viewing the simulation."/>
+  {simulationTab==='standings'?grid?<section className="standings-panel">
+   <div className="section-title"><div><h3>{grid.year} season standings</h3><p>Race and sprint points · wins and podiums count Grand Prix results</p></div>{seasonRacesCompleted&&<button type="button" onClick={resetSeasonStandings}>Reset standings</button>}</div>
    <div className="standings-grid">
     {[['Drivers',seasonStandings.drivers],['Constructors',seasonStandings.teams]].map(([title,rows])=><div key={title}>
      <h4>{title}</h4><div className="scroll"><table><thead><tr><th>POS</th><th>{title==='Drivers'?'DRIVER':'TEAM'}</th><th>PTS</th><th>W</th><th>POD</th></tr></thead>
@@ -301,15 +313,22 @@ export function Simulate(){
     </div>)}
    </div>
    {seasonStore.error&&<p className="query-status query-error" role="alert">{seasonStore.error}</p>}
-  </section>}
-  <QueryStatus query={grids} empty="Create a grid before starting a race weekend."/>
+  </section>:<div className="weekend-empty"><h3>Choose a season grid</h3><p>Select a grid above to view its standings.</p></div>:<>
+  <div className="weekend-select">
+   <label>Grand Prix<select value={rid} onChange={e=>{setNextRaceNotice('');setR(e.target.value);setWeekendStarted(false);setWeekendComplete(false);setResults({});setRaceState(null);setIsRunning(false);setPhaseIndex(0)}} disabled={!grid||races.loading}><option value="">Choose a race</option>{races.data?.map(r=><option key={r.id} value={r.id}>R{r.round} · {r.name}</option>)}</select></label>
+   <label>Weather<select value={weatherMode} onChange={e=>setWeatherMode(e.target.value)}><option value="dry">Dry</option><option value="variable">Changeable</option><option value="wet">Wet</option></select></label>
+   <button className="btn weekend-start" disabled={!grid||!selectedRace||entries.length<2} onClick={startWeekend}>
+    {weekendStarted?'Restart weekend':'Start race weekend'}
+   </button>
+  </div>
+  {nextRaceNotice&&<p className="query-status" role="status">{nextRaceNotice}</p>}
   {grid&&<QueryStatus query={races} empty="No races found for this grid's season. Add the calendar in Admin."/>}
   {grid&&selectedRace&&<QueryStatus query={entriesQuery} empty="Add at least two complete driver and car entries to this grid."/>}
   {selectedRace&&<div className="circuit-panel">
-   <svg className="circuit-map" viewBox="0 0 180 110" role="img" aria-label="Circuit illustration">
+   {selectedRace.circuit_image_url?<img className="circuit-map-image" src={selectedRace.circuit_image_url} alt={`${selectedRace.circuit||selectedRace.name} circuit layout`}/>:<svg className="circuit-map" viewBox="0 0 180 110" role="img" aria-label="Circuit illustration">
     <path d="M22 72 33 32 68 20 92 35 127 21 155 38 148 66 164 82 133 94 105 81 77 94 49 81 22 72Z" fill="none" stroke="currentColor" strokeWidth="5" strokeLinejoin="round"/>
     <path d="M22 72 33 32 68 20" fill="none" stroke="var(--red)" strokeWidth="5" strokeLinecap="round"/>
-   </svg>
+   </svg>}
    <div><p className="eyebrow">CIRCUIT</p><h3>{selectedRace.circuit||selectedRace.name}</h3>
     <p>{selectedRace.country||'Race weekend'}{selectedRace.date?` · ${selectedRace.date}`:''}</p></div>
    <div className="circuit-facts"><span>{selectedRace.laps||57}<small> LAPS</small></span><span>{selectedRace.is_sprint?'SPRINT FORMAT':'GRAND PRIX'}</span></div>
@@ -346,11 +365,12 @@ export function Simulate(){
       </div>
      </details>})}
     </div>}
-    {(phase==='sprint'||phase==='race')&&<div className="strategy-panel"><div className="section-title"><h3>Race strategy</h3><p>Choose a tyre and pit plan for every team.</p></div>
-     <div className="strategy-grid">{teams.map(team=>{const strategy={...DEFAULT_STRATEGY,...strategies[team.id]};return <article className="strategy-card" key={team.id} style={{'--team-color':team.color||'#d3202f'}}>
+    {(phase==='sprint'||phase==='race')&&<div className="strategy-panel"><div className="section-title"><h3>Race strategy</h3><p>Off by default: the simulator selects each team’s tyre and pit plan automatically.</p></div>
+     <label className="strategy-toggle"><input type="checkbox" checked={strategyEnabled} onChange={e=>setStrategyEnabled(e.target.checked)}/><span>Enable custom race strategy</span></label>
+     {strategyEnabled&&<div className="strategy-grid">{teams.map(team=>{const strategy={...DEFAULT_STRATEGY,...strategies[team.id]};return <article className="strategy-card" key={team.id} style={{'--team-color':team.color||'#d3202f'}}>
       <strong>{team.name}</strong><label>Tyre compound<select value={strategy.tyre} onChange={e=>setStrategy(team.id,'tyre',e.target.value)}><option value="auto">Automatic strategy</option><option value="soft">Soft · fastest</option><option value="medium">Medium · balanced</option><option value="hard">Hard · durable</option></select></label>
       <label>Pit stops<select value={strategy.stops} onChange={e=>setStrategy(team.id,'stops',e.target.value==='auto'?'auto':Number(e.target.value))}><option value="auto">Automatic plan</option><option value={0}>No stop · high wear</option><option value={1}>One stop</option><option value={2}>Two stops</option></select></label>
-     </article>})}</div>
+     </article>})}</div>}
     </div>}
     {!phaseResult&&<button className="btn run-session" onClick={runPhase}>{isPractice?`Run ${PHASE_LABELS[phase]}`:phase==='sprintQualifying'?'Start sprint qualifying':phase==='qualifying'?'Start qualifying':phase==='sprint'?'Start sprint':'Start Grand Prix'}</button>}
     {phaseResult&&(phase==='race'||phase==='sprint')&&raceState&&<div className="race-live">
@@ -363,10 +383,11 @@ export function Simulate(){
       {!raceState.done&&<button onClick={()=>setIsRunning(value=>!value)}>{isRunning?'Pause':'Resume'}</button>}
       <button onClick={()=>{setIsRunning(false);setRaceState(current=>current&&!current.done?advanceRaceLap(current):current)}} disabled={isRunning||raceState.done}>Advance one lap</button>
       <label>Speed<select value={simulationSpeed} onChange={e=>setSimulationSpeed(Number(e.target.value))}><option value={1}>1×</option><option value={4}>4×</option><option value={10}>10×</option></select></label>
-      <button onClick={()=>{const restartSource=phase==='sprint'?'sprintQualifying':phase==='race'&&selectedRace?.sprint_affects_grand_prix_grid?'sprint':'qualifying';const restartEntries=results[restartSource]?.map((entry,index)=>({...entry,grid:restartSource==='sprint'?(entry.position||entry.pos||index+1):entry.grid}));if(!restartEntries?.length)return alert(`Complete ${PHASE_LABELS[restartSource]||restartSource} before restarting.`);setIsRunning(false);setRaceState(createRaceState({entries:restartEntries,race:selectedRace,seed,format:phase==='sprint'?'sprint':'race',strategies,setups,weather:weatherMode,laps:phase==='sprint'?Math.max(1,Math.round((Number(selectedRace.laps)||57)*0.32)):Number(selectedRace.laps)||57}));setIsRunning(true)}}>Restart same seed</button>
+      <button onClick={()=>{const restartSource=phase==='sprint'?'sprintQualifying':phase==='race'&&selectedRace?.sprint_affects_grand_prix_grid?'sprint':'qualifying';const restartEntries=results[restartSource]?.map((entry,index)=>({...entry,grid:restartSource==='sprint'?(entry.position||entry.pos||index+1):entry.grid}));if(!restartEntries?.length)return alert(`Complete ${PHASE_LABELS[restartSource]||restartSource} before restarting.`);setIsRunning(false);setRaceState(createRaceState({entries:restartEntries,race:selectedRace,seed,format:phase==='sprint'?'sprint':'race',strategies:strategyEnabled?strategies:{},setups,weather:weatherMode,laps:phase==='sprint'?Math.max(1,Math.round((Number(selectedRace.laps)||57)*0.32)):Number(selectedRace.laps)||57}));setIsRunning(true)}}>Restart same seed</button>
       <button onClick={()=>{setSeed(newSeed());setIsRunning(false);setRaceState(null);setSelectedDriverId(null);setPitFeedback('');setResults(current=>{const next={...current};delete next[phase];return next})}}>New seed / reset</button>
      </div>
      <LiveTrack state={raceState} selectedDriverId={selectedDriverId} onSelect={setSelectedDriverId}/>
+     <QueryStatus query={tyreImagesQuery}/>
      <div className="results-panel"><div className="section-title"><h3>Live timing</h3><p>Seed {raceState.seed} · {raceState.done?'Chequered flag':'Simulation in progress'}</p></div>
       <div className="scroll"><table className="race-table"><thead><tr><th>POS</th><th>DRIVER</th><th>GAP</th><th>INT</th><th>LAST</th><th>BEST</th><th>TYRE</th><th>AGE</th><th>WEAR</th><th>GRIP</th><th>PITS</th><th>FUEL</th><th>PIT COMMAND</th><th>STATUS</th></tr></thead>
        <tbody>{phaseResult.map((entry,index)=>{
@@ -377,13 +398,13 @@ export function Simulate(){
          <td className="position-cell">{entry.retired?'RET':index+1}{(()=>{
           const change=(entry.gridPosition??entry.grid??index+1)-(index+1);
           const direction=change>0?'up':change<0?'down':'same';
-          const symbol=change>0?'↑':change<0?'↓':'→';
+          const symbol=change>0?'▲':change<0?'▼':'→';
           const description=change>0?`${change} place${change===1?'':'s'} gained`:change<0?`${Math.abs(change)} place${change===-1?'':'s'} lost`:'no position change';
           return <span className={`position-change ${direction}`} aria-label={description} title={description}>{symbol}</span>;
          })()}</td>
-         <td><button className="driver-select" onClick={()=>setSelectedDriverId(entry.driver.id)}><span className="driver-result"><span className="team-logo">{entry.team.logo_normal&&<img src={entry.team.logo_normal} alt={`${entry.team.name} logo`}/>}</span><strong>{entry.driver.name.trim().split(/\s+/).pop()?.toUpperCase()}</strong></span></button></td>
+         <td><button className="driver-select" onClick={()=>setSelectedDriverId(entry.driver.id)}><span className="driver-result"><span className="team-logo">{entry.team.logo_normal&&<img src={entry.team.logo_normal} alt={`${entry.team.name} logo`}/>}</span><strong>{entry.driver.code||entry.driver.name.trim().split(/\s+/).pop()?.toUpperCase()}</strong></span></button></td>
          <td>{gap}</td><td>{interval}</td><td>{formatTime(entry.lastLap)}</td><td>{formatTime(entry.bestLap)}</td>
-         <td>{entry.tyre?.compound?.toUpperCase()||'—'}</td><td>{entry.tyre?.age??'—'}</td><td>{entry.tyre?.wear?.toFixed(0)??'—'}%</td><td>{entry.tyre?.state?.toUpperCase()||'—'}</td><td>{entry.pitStops}</td><td>{entry.retired?'—':`${entry.fuelRemaining.toFixed(1)} kg`}</td><td>{entry.pitInstruction?`${entry.pitInstruction.mode.toUpperCase()} · LAP ${entry.pitInstruction.targetLap}`:entry.pitStatus}</td><td>{entry.retired?`RETIRED · L${entry.retirementLap}`:entry.status}</td>
+         <td className="tyre-compound-cell">{entry.tyre?.compound&&tyreImages[entry.tyre.compound]?<img className="tyre-compound-image" src={tyreImages[entry.tyre.compound]} alt={entry.tyre.compound} title={entry.tyre.compound}/>:entry.tyre?.compound?.toUpperCase()||'—'}</td><td>{entry.tyre?.age??'—'}</td><td>{entry.tyre?.wear?.toFixed(0)??'—'}%</td><td>{entry.tyre?.state?.toUpperCase()||'—'}</td><td>{entry.pitStops}</td><td>{entry.retired?'—':`${entry.fuelRemaining.toFixed(1)} kg`}</td><td>{entry.pitInstruction?`${entry.pitInstruction.mode.toUpperCase()} · LAP ${entry.pitInstruction.targetLap}`:entry.pitStatus}</td><td>{entry.retired?`RETIRED · L${entry.retirementLap}`:entry.status}</td>
         </tr>})}</tbody></table></div>
      </div>
      {!!raceState.events.length&&<div className="race-events"><h3>Race control</h3>{raceState.events.slice(-6).reverse().map((event,index)=><p key={`${event.type}-${event.lap}-${index}`}><strong>L{event.lap}</strong> · {event.type.replaceAll('_',' ')}{event.reason?` — ${event.reason}`:''}</p>)}</div>}
@@ -411,13 +432,27 @@ export function Simulate(){
      </div>}
     </div>}
     {phaseResult&&phase!=='race'&&phase!=='sprint'&&<div className="results-panel"><div className="section-title"><h3>{PHASE_LABELS[phase]} classification</h3><p>{isPractice?'Practice pace':isQualifying?'Starting grid':'Session results'}</p></div>
-     <div className="scroll"><table className="race-table"><thead><tr><th>POS</th><th>DRIVER</th><th>BEST LAP</th>{!isPractice&&<th>CAR</th>}</tr></thead>
-      <tbody>{phaseResult.map((entry,index)=><tr key={`${entry.driver.id}-${index}`} className={index===0?'leader':''}>
+     {isPractice&&<section className="practice-podium" aria-label={`${PHASE_LABELS[phase]} top three`}>
+      <div className="practice-podium-heading"><h4>{selectedRace?.name||'Race'} · {PHASE_LABELS[phase]} top three</h4></div>
+      <div className="practice-podium-grid">{phaseResult.slice(0,3).map((entry,index)=>{
+       const gap=Number.isFinite(entry.bestLap)&&Number.isFinite(fastestSessionLap)?entry.bestLap-fastestSessionLap:null;
+       const portrait=driverSeasonImage(entry.driver,selectedRace?.year);
+       return <article className={`practice-podium-card practice-podium-${index+1}`} key={entry.driver.id} style={{'--team-color':entry.team.color||'#d3202f'}}>
+        <div className="practice-podium-portrait">{portrait?<img src={portrait} alt={`${entry.driver.name} portrait`}/>:<span>{entry.driver.code||entry.driver.name.trim().split(/\s+/).pop()?.slice(0,1)}</span>}<strong className="practice-podium-position">P{index+1}</strong></div>
+        <div className="practice-podium-details"><span className="practice-podium-team">{entry.team.logo_normal&&<img src={entry.team.logo_normal} alt=""/>}{entry.team.name}</span><strong className="practice-podium-driver">{entry.driver.name.toUpperCase()}</strong><span className="practice-podium-gap">{index===0?'POLE':gap===null?'—':`+${gap.toFixed(3)}`}</span></div>
+       </article>;
+      })}</div>
+     </section>}
+     <div className="scroll"><table className="race-table"><thead><tr><th>POS</th><th>DRIVER</th><th>GAP</th><th>BEST LAP</th>{!isPractice&&<th>CAR</th>}</tr></thead>
+      <tbody>{phaseResult.map((entry,index)=>{
+       const gap=Number.isFinite(entry.bestLap)&&Number.isFinite(fastestSessionLap)&&entry.bestLap>fastestSessionLap?`+${(entry.bestLap-fastestSessionLap).toFixed(3)}`:'—';
+       return <tr key={`${entry.driver.id}-${index}`} className={index===0?'leader':''}>
        <td className="position-cell">{getPosition(entry,index)}</td><td><span className="driver-result"><span className="team-logo">{entry.team.logo_normal&&<img src={entry.team.logo_normal} alt={`${entry.team.name} logo`}/>}</span><strong>{entry.driver.name.trim().split(/\s+/).pop()?.toUpperCase()}</strong></span></td>
-       <td>{formatTime(entry.bestLap)}</td>{!isPractice&&<td>{entry.cars?.model||entry.c.model||'—'}</td>}
-      </tr>)}</tbody></table></div>
+       <td>{gap}</td><td>{formatTime(entry.bestLap)}</td>{!isPractice&&<td>{entry.cars?.model||entry.c.model||'—'}</td>}
+      </tr>})}</tbody></table></div>
     </div>}
    </>}
+  </>}
   </>}
  </section>
 }

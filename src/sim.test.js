@@ -45,6 +45,15 @@ test('season standings aggregate sprint and race points with Grand Prix wins and
  ]);
 });
 
+test('season standings preserve team logos when saved race snapshots omit them',()=>{
+ const driver={id:1,name:'Driver A',code:'DRA'};
+ const team={id:'team-a',name:'Team A',logo_normal:'https://example.test/team-a.png'};
+ const standings=calculateStandings([
+  {round:1,raceResults:[{driver:{id:1,name:'Driver A'},team:{id:'team-a',name:'Team A'},position:1,points:25}]}
+ ],[{driver,team}]);
+ assert.equal(standings.drivers[0].team.logo_normal,team.logo_normal);
+});
+
 test('qualifying sets the starting grid and grid penalties move a driver back',()=>{
  const rows=qualify([entry(1),entry(2,{driver:{qualifying:100,speed:90}}),entry(3)],{seed:8,race:circuit,gridPenalties:{2:2}});
  assert.deepEqual(rows.map(row=>row.grid),[1,2,3]);

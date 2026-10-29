@@ -32,6 +32,7 @@ alter table public.teams
   add column if not exists damage_repair_efficiency int;
 
 alter table public.races
+  add column if not exists circuit_image_url text,
   add column if not exists circuit_length_km numeric,
   add column if not exists straight_line_importance numeric,
   add column if not exists high_speed_corner_share numeric,
@@ -51,3 +52,18 @@ alter table public.races
   add column if not exists drs_zones int,
   add column if not exists weekend_format text,
   add column if not exists sprint_affects_grand_prix_grid boolean;
+
+create table if not exists public.tyre_images (
+  id bigserial primary key,
+  compound text not null unique check (compound in ('soft','medium','hard','intermediate','wet')),
+  image_url text not null
+);
+
+alter table public.tyre_images enable row level security;
+drop policy if exists "read" on public.tyre_images;
+create policy "read" on public.tyre_images for select using (true);
+drop policy if exists "admin" on public.tyre_images;
+create policy "admin" on public.tyre_images for all to authenticated using (true) with check (true);
+grant select on public.tyre_images to anon,authenticated;
+grant insert,update,delete on public.tyre_images to authenticated;
+grant usage,select on sequence public.tyre_images_id_seq to authenticated;
