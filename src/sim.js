@@ -695,6 +695,100 @@ export function getWeekendAwards(phases,results,raceRows){
   grandSlamDriverId
  };
 }
+export function calculateTeammateHeadToHead(driverId,lineups,results){
+ const resultByKey=new Map(results.map(row=>[
+  `${row.grid_id}:${row.race_id}:${row.team_id}:${row.session_type}:${row.driver_id}`,
+  row
+ ]));
+ const comparisons=new Map();
+ const slots=['driver_1_id','driver_2_id','reserve_driver_id'];
+ for(const lineup of lineups){
+  const selectedId=String(driverId);
+  const teammateIds=slots.map(slot=>lineup[slot]).filter(id=>id!==null&&id!==undefined&&String(id)!==selectedId);
+  if(!slots.some(slot=>String(lineup[slot])===selectedId))continue;
+  for(const teammateId of teammateIds){
+   const key=`${lineup.team_id}:${teammateId}`;
+   let record=comparisons.get(key);
+   if(!record){
+    record={
+     key,teammateId,teamId:lineup.team_id,teamName:lineup.teams?.name||'Team',
+     teamColor:lineup.teams?.color,years:new Set(),
+     race:{wins:0,losses:0,ties:0},
+     qualifying:{wins:0,losses:0,ties:0},
+     sprint:{wins:0,losses:0,ties:0},
+     sprintQualifying:{wins:0,losses:0,ties:0},
+     driverPoints:0,teammatePoints:0,sharedRaces:0
+    };
+    comparisons.set(key,record);
+   }
+   record.years.add(Number(lineup.year));
+   const sharedRows=results.filter(row=>
+    String(row.team_id)===String(lineup.team_id)&&
+    Number(row.races?.year||row.grids?.year)===Number(lineup.year)&&
+    String(row.driver_id)===selectedId
+   );
+   for(const row of sharedRows){
+    const own=resultByKey.get(`${row.grid_id}:${row.race_id}:${row.team_id}:${row.session_type}:${driverId}`);
+    const teammate=resultByKey.get(`${row.grid_id}:${row.race_id}:${row.team_id}:${row.session_type}:${teammateId}`);
+    if(!own||!teammate)continue;
+    if(row.session_type==='race'||row.session_type==='sprint'){
+     record.driverPoints+=Number(own.points)||0;
+     record.teammatePoints+=Number(teammate.points)||0;
+    }
+    if(row.session_type==='race')record.sharedRaces++;
+    const headToHead=record[row.session_type==='sprintQualifying'?'sprintQualifying':row.session_type==='qualifying'?'qualifying':row.session_type==='sprint'?'sprint':row.session_type==='race'?'race':null];
+    if(!headToHead)continue;
+    if(Number(own.position)<Number(teammate.position))headToHead.wins++;
+    else if(Number(own.position)>Number(teammate.position))headToHead.losses++;
+    else headToHead.ties++;
+   }
+  }
+ }
+ return [...comparisons.values()].map(record=>({...record,years:[...record.years].filter(Number.isFinite).sort((a,b)=>b-a)}))
+  .filter(record=>record.race.wins+record.race.losses+record.race.ties>0||record.qualifying.wins+record.qualifying.losses+record.qualifying.ties>0||record.sprint.wins+record.sprint.losses+record.sprint.ties>0||record.sprintQualifying.wins+record.sprintQualifying.losses+record.sprintQualifying.ties>0)
+  .sort((a,b)=>b.years[0]-a.years[0]||a.teamName.localeCompare(b.teamName));
+}
+export function getBestCareerPositions(results=[]){
+ const bestPosition=rows=>rows.reduce((best,row)=>{
+  const position=Number(row.position);
+  return Number.isInteger(position)&&position>0?Math.min(best,position):best;
+ },Infinity);
+ const grandPrixResults=results.filter(row=>row.session_type==='race'&&!row.retired&&row.status!=='Retired');
+ const qualifyingResults=results.filter(row=>row.session_type==='qualifying');
+ const startingPositions=grandPrixResults.map(row=>Number(row.result?.gridPosition??row.result?.grid))
+  .filter(position=>Number.isInteger(position)&&position>0);
+ return {
+  bestStartingPosition:startingPositions.length?Math.min(...startingPositions):null,
+  bestFinish:Number.isFinite(bestPosition(grandPrixResults))?bestPosition(grandPrixResults):null,
+  bestQualifying:Number.isFinite(bestPosition(qualifyingResults))?bestPosition(qualifyingResults):null
+ };
+}
+export function applyPracticeSubstitutions(entries,lineups,reserveDrivers,substitutions={}){
+ const lineupByTeam=new Map(lineups.map(lineup=>[String(lineup.team_id),lineup]));
+ const reserveById=new Map(reserveDrivers.map(driver=>[String(driver.id),driver]));
+ const occupiedDriverIds=new Set(entries.map(entry=>String(entry.driver?.id)));
+ const selectedReserveIds=new Set();
+ const replacements=new Map();
+ for(const [teamId,targetDriverId] of Object.entries(substitutions)){
+  if(!targetDriverId)continue;
+  const lineup=lineupByTeam.get(String(teamId));
+  const reserveId=lineup?.reserve_driver_id;
+  const reserve=reserveById.get(String(reserveId));
+  if(!lineup||!reserve)continue;
+  if(!entries.some(entry=>String(entry.team?.id)===String(teamId)&&String(entry.driver?.id)===String(targetDriverId)))continue;
+  if(occupiedDriverIds.has(String(reserve.id))||selectedReserveIds.has(String(reserve.id)))continue;
+  selectedReserveIds.add(String(reserve.id));
+  replacements.set(String(targetDriverId),reserve);
+ }
+ return entries.map(entry=>{
+  const reserve=replacements.get(String(entry.driver?.id));
+  if(!reserve)return entry;
+  const ratings=Array.isArray(reserve.driver_ratings)?reserve.driver_ratings[0]:reserve.driver_ratings;
+  return {...entry,driver:reserve,d:ratings||{},substituteFor:{
+   id:entry.driver.id,name:entry.driver.name,code:entry.driver.code,number:entry.driver.number
+  }};
+ });
+}
 export function simulateRace(options){
  let state=createRaceState(options);
  while(!state.done)state=advanceRaceLap(state);

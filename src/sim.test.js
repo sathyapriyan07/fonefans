@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyTeamPerformanceBoosts,calculateStandings,createRaceState,getClassification,getWeekendAwards,qualify,setPitInstruction,setTeamRaceAdjustments,simulateRace,TYRES} from './sim.js';
+import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getClassification,getWeekendAwards,qualify,setPitInstruction,setTeamRaceAdjustments,simulateRace,TYRES} from './sim.js';
 
 function entry(id,{driver={},car={}}={}){
  return {
@@ -87,6 +87,68 @@ test('sprint weekend awards capture sprint pole, win, and fastest lap',()=>{
  assert.deepEqual(getWeekendAwards(phases,results,[]),{
   poleDriverId:1,sprintPoleDriverId:1,fastestLapDriverId:null,
   sprintFastestLapDriverId:2,raceWinnerId:null,sprintWinnerId:2,grandSlamDriverId:null
+ });
+});
+
+test('teammate head-to-head compares only shared team sessions and aggregates points',()=>{
+ const lineups=[{
+  team_id:10,year:2025,driver_1_id:1,driver_2_id:2,reserve_driver_id:3,
+  teams:{name:'Team A',color:'#123456'}
+ }];
+ const rows=[
+  {grid_id:5,race_id:7,team_id:10,driver_id:1,session_type:'qualifying',position:1,points:0,races:{year:2025}},
+  {grid_id:5,race_id:7,team_id:10,driver_id:2,session_type:'qualifying',position:2,points:0,races:{year:2025}},
+  {grid_id:5,race_id:7,team_id:10,driver_id:1,session_type:'race',position:2,points:18,races:{year:2025}},
+  {grid_id:5,race_id:7,team_id:10,driver_id:2,session_type:'race',position:1,points:25,races:{year:2025}},
+  {grid_id:5,race_id:7,team_id:10,driver_id:1,session_type:'sprintQualifying',position:2,points:0,races:{year:2025}},
+  {grid_id:5,race_id:7,team_id:10,driver_id:2,session_type:'sprintQualifying',position:1,points:0,races:{year:2025}},
+  {grid_id:5,race_id:7,team_id:10,driver_id:1,session_type:'sprint',position:1,points:8,races:{year:2025}},
+  {grid_id:5,race_id:7,team_id:10,driver_id:2,session_type:'sprint',position:2,points:7,races:{year:2025}},
+  {grid_id:5,race_id:7,team_id:99,driver_id:1,session_type:'race',position:1,points:25,races:{year:2025}}
+ ];
+ const [record]=calculateTeammateHeadToHead(1,lineups,rows);
+ assert.equal(record.teammateId,2);
+ assert.equal(record.teamName,'Team A');
+ assert.deepEqual(record.qualifying,{wins:1,losses:0,ties:0});
+ assert.deepEqual(record.race,{wins:0,losses:1,ties:0});
+ assert.deepEqual(record.sprintQualifying,{wins:0,losses:1,ties:0});
+ assert.deepEqual(record.sprint,{wins:1,losses:0,ties:0});
+ assert.equal(record.driverPoints,26);
+ assert.equal(record.teammatePoints,32);
+ assert.equal(record.sharedRaces,1);
+});
+
+test('practice substitution replaces only the selected driver and keeps their team car',()=>{
+ const first=entry(1),second=entry(2);
+ const reserve={id:99,name:'Reserve Driver',code:'RSV',number:99,driver_ratings:[{speed:88,race:80}]};
+ const entries=[first,second];
+ const substituted=applyPracticeSubstitutions(entries,[
+  {team_id:'team-1',reserve_driver_id:99}
+ ],[reserve],{'team-1':'1'});
+ assert.equal(substituted[0].driver.id,99);
+ assert.equal(substituted[0].driver.name,'Reserve Driver');
+ assert.equal(substituted[0].team.id,first.team.id);
+ assert.equal(substituted[0].c,first.c);
+ assert.equal(substituted[0].d.speed,88);
+ assert.deepEqual(substituted[0].substituteFor,{id:1,name:'Driver 1',code:undefined,number:undefined});
+ assert.equal(substituted[1],second);
+ assert.equal(entries[0].driver.id,1);
+});
+
+test('best career positions use Grand Prix starts, finishes, and qualifying only',()=>{
+ assert.deepEqual(getBestCareerPositions([
+  {session_type:'race',position:3,result:{gridPosition:6},retired:false,status:'Finished'},
+  {session_type:'race',position:1,result:{gridPosition:4},retired:true,status:'Retired'},
+  {session_type:'race',position:2,result:{gridPosition:2},retired:false,status:'Finished'},
+  {session_type:'sprint',position:1,result:{gridPosition:1},retired:false,status:'Finished'},
+  {session_type:'qualifying',position:2},
+  {session_type:'qualifying',position:5},
+  {session_type:'sprintQualifying',position:1}
+ ]),{
+  bestStartingPosition:2,bestFinish:2,bestQualifying:2
+ });
+ assert.deepEqual(getBestCareerPositions([]),{
+  bestStartingPosition:null,bestFinish:null,bestQualifying:null
  });
 });
 
