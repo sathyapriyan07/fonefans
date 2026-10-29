@@ -676,6 +676,25 @@ export function getClassification(state){
   events:car.events
  }));
 }
+export function getWeekendAwards(phases,results,raceRows){
+ const winnerId=rows=>rows?.reduce((winner,row)=>{
+  const position=Number(row.practicePos??row.position??row.grid??row.pos);
+  return Number.isFinite(position)&&position===1?row.driver?.id??winner:winner;
+ },null)??null;
+ const fastest=(rows=[])=>rows.filter(row=>!row.retired&&Number.isFinite(row.bestLap)).sort((a,b)=>a.bestLap-b.bestLap||stableId(a).localeCompare(stableId(b)))[0]?.driver?.id??null;
+ const sessionWinners=phases.map(phase=>phase==='race'?winnerId(raceRows):phase==='qualifying'||phase==='sprintQualifying'?fastest(results[phase]):winnerId(results[phase]));
+ const leader=raceRows.find(row=>Number(row.position??row.pos)===1);
+ const grandSlamDriverId=leader&&sessionWinners.length&&sessionWinners.every(id=>id!==null&&String(id)===String(leader.driver?.id))?leader.driver.id:null;
+ return {
+  poleDriverId:fastest(results.qualifying),
+  sprintPoleDriverId:fastest(results.sprintQualifying),
+  fastestLapDriverId:fastest(raceRows),
+  sprintFastestLapDriverId:fastest(results.sprint),
+  raceWinnerId:leader?.driver?.id??null,
+  sprintWinnerId:winnerId(results.sprint),
+  grandSlamDriverId
+ };
+}
 export function simulateRace(options){
  let state=createRaceState(options);
  while(!state.done)state=advanceRaceLap(state);

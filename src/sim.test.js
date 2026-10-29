@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyTeamPerformanceBoosts,calculateStandings,createRaceState,getClassification,qualify,setPitInstruction,setTeamRaceAdjustments,simulateRace,TYRES} from './sim.js';
+import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyTeamPerformanceBoosts,calculateStandings,createRaceState,getClassification,getWeekendAwards,qualify,setPitInstruction,setTeamRaceAdjustments,simulateRace,TYRES} from './sim.js';
 
 function entry(id,{driver={},car={}}={}){
  return {
@@ -52,6 +52,42 @@ test('season standings preserve team logos when saved race snapshots omit them',
   {round:1,raceResults:[{driver:{id:1,name:'Driver A'},team:{id:'team-a',name:'Team A'},position:1,points:25}]}
  ],[{driver,team}]);
  assert.equal(standings.drivers[0].team.logo_normal,team.logo_normal);
+});
+
+test('weekend awards identify poles, fastest laps, and a Grand Slam across every session',()=>{
+ const driverA=entry(1).driver,driverB=entry(2).driver;
+ const phases=['practice1','practice2','practice3','qualifying','race'];
+ const results={
+  practice1:[{driver:driverA,practicePos:1},{driver:driverB,practicePos:2}],
+  practice2:[{driver:driverA,practicePos:1},{driver:driverB,practicePos:2}],
+  practice3:[{driver:driverA,practicePos:1},{driver:driverB,practicePos:2}],
+  qualifying:[{driver:driverA,position:2,bestLap:89.9},{driver:driverB,position:1,bestLap:90.1}]
+ };
+ const raceRows=[
+  {driver:driverA,position:1,bestLap:91.2},
+  {driver:driverB,position:2,bestLap:90.8}
+ ];
+ assert.deepEqual(getWeekendAwards(phases,results,raceRows),{
+  poleDriverId:1,sprintPoleDriverId:null,fastestLapDriverId:2,
+  sprintFastestLapDriverId:null,raceWinnerId:1,sprintWinnerId:null,grandSlamDriverId:1
+ });
+ results.practice2=[{driver:driverB,practicePos:1},{driver:driverA,practicePos:2}];
+ assert.equal(getWeekendAwards(phases,results,raceRows).grandSlamDriverId,null);
+});
+
+test('sprint weekend awards capture sprint pole, win, and fastest lap',()=>{
+ const driverA=entry(1).driver,driverB=entry(2).driver;
+ const phases=['practice1','sprintQualifying','sprint','qualifying','race'];
+ const results={
+  practice1:[{driver:driverA,practicePos:1}],
+  sprintQualifying:[{driver:driverA,position:1,bestLap:89.7},{driver:driverB,position:2,bestLap:90.2}],
+  sprint:[{driver:driverB,position:1,bestLap:90.1},{driver:driverA,position:2,bestLap:90.4}],
+  qualifying:[{driver:driverA,position:1,bestLap:89.8}]
+ };
+ assert.deepEqual(getWeekendAwards(phases,results,[]),{
+  poleDriverId:1,sprintPoleDriverId:1,fastestLapDriverId:null,
+  sprintFastestLapDriverId:2,raceWinnerId:null,sprintWinnerId:2,grandSlamDriverId:null
+ });
 });
 
 test('qualifying sets the starting grid and grid penalties move a driver back',()=>{
