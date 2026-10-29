@@ -1,4 +1,4 @@
-import {useEffect,useRef,useState} from 'react';import {Link,useParams} from 'react-router-dom';
+import {Fragment,useEffect,useRef,useState} from 'react';import {Link,useParams} from 'react-router-dom';
 import {sb} from './supabase.js';import {advanceRaceIfRunning,advanceRaceLap,calculateStandings,createRaceState,getClassification,getWeekendPhases,practice,qualify,setPitInstruction} from './sim.js';
 function useQ(fn,deps=[]){
  const [query,setQuery]=useState({data:null,loading:true,error:null});
@@ -92,16 +92,29 @@ export function Drivers(){const d=useQ(()=>sb.from('drivers').select('*,driver_i
 export function Driver(){const {id}=useParams();const d=useQ(()=>sb.from('drivers').select('*,driver_images(*),driver_ratings(*)').eq('id',id).single(),[id]);
  if(d.loading||d.error||!d.data)return <><h2>Driver</h2><QueryStatus query={d}/></>;
  const driver=d.data;const r=one(driver.driver_ratings)||{};
- return <><h2>{driver.name} <small>#{driver.number} {driver.code}</small></h2><p>{driver.nationality_logo&&<img height="16" src={driver.nationality_logo}/>} {driver.nationality}</p><p>{driver.bio}</p>
+ const images=[...(driver.driver_images||[])].sort((a,b)=>b.year-a.year);
+ const heroImage=latestImg(driver,'card_url')||latestImg(driver,'pole_url');
+ const years=[...new Set(images.map(image=>image.year))];
+ const imageLabels={pole_url:'Pole portrait',grid_url:'Grid portrait',card_url:'Driver card'};
+ return <><h2>{driver.name} <small>#{driver.number} {driver.code}</small></h2>
+ {heroImage&&<div className="driver-profile-hero"><img src={heroImage} alt={`${driver.name} portrait`}/></div>}
+ <p>{driver.nationality_logo&&<img height="16" src={driver.nationality_logo} alt=""/>} {driver.nationality}</p><p>{driver.bio}</p>
  <div className="split"><div>{['race','overtaking','speed','experience','qualifying','defence'].map(k=><Bar key={k} l={k} v={r[k]}/>)}</div>
- <div className="grid">{[...(driver.driver_images||[])].sort((a,b)=>b.year-a.year).map(i=><figure key={i.id}><figcaption>{i.year}</figcaption>{['pole_url','grid_url','card_url'].map(k=>i[k]&&<img key={k} src={i[k]}/>)}</figure>)}</div></div></>}
+ <div className="driver-gallery">{years.map(year=><section className="driver-gallery-year" key={year}><h3>{year}</h3><div className="driver-gallery-grid">{images.filter(image=>image.year===year).flatMap(image=>['pole_url','grid_url','card_url'].filter(key=>image[key]).map(key=><figure key={`${image.id}-${key}`}><img src={image[key]} alt={`${driver.name} ${imageLabels[key]}, ${year}`}/><figcaption>{imageLabels[key]}</figcaption></figure>))}</div></section>)}</div></div></>}
 const CarCard=({c,sub,teamLogo,teamName})=><div className="card">{c.image_url&&<img src={c.image_url}/>}<h3>{c.model} <small>{c.year}</small></h3><p className="car-sub">{teamLogo&&<img className="car-team-logo" src={teamLogo} alt={`${teamName||'Team'} logo`} />}{sub}</p>{CAR.map(k=><Bar key={k} l={k} v={c[k]}/>)}</div>;
 export function Cars(){const c=useQ(()=>sb.from('cars').select('*,teams(name,logo_normal)').order('year',{ascending:false}));
  return <><h2>Cars</h2><QueryStatus query={c} empty="No cars yet."/><div className="grid">{c.data?.map(x=><CarCard key={x.id} c={x} teamLogo={x.teams?.logo_normal} teamName={x.teams?.name} sub={x.engine||''}/>)}</div></>}
 export function Teams(){const t=useQ(()=>sb.from('teams').select('*').order('name'));
  return <><h2>Teams</h2><QueryStatus query={t} empty="No teams yet."/><div className="grid">{t.data?.map(x=><Link key={x.id} to={'/teams/'+x.id} className="card team-card" style={{borderTop:'6px solid '+x.color}}><h3>{x.name}</h3>{x.logo_normal&&<img src={x.logo_normal} alt={`${x.name} logo`}/>}</Link>)}</div></>}
-export function Team(){const {id}=useParams();const t=useQ(()=>sb.from('teams').select('*,cars(*)').eq('id',id).single(),[id]);if(t.loading||t.error||!t.data)return <><h2>Team</h2><QueryStatus query={t}/></>;
- const team=t.data;return <><h2 style={{borderLeft:'8px solid '+team.color,paddingLeft:12}}>{team.name}</h2>{team.logo_detailed&&<img height="80" src={team.logo_detailed}/>}
+export function Team(){const {id}=useParams();const t=useQ(()=>sb.from('teams').select('*,cars(*)').eq('id',id).single(),[id]);
+ const lineups=useQ(()=>sb.from('team_driver_lineups').select('*').eq('team_id',id).order('year',{ascending:false}),[id]);
+ const drivers=useQ(()=>sb.from('drivers').select('id,name').order('name'));
+ if(t.loading||t.error||!t.data)return <><h2>Team</h2><QueryStatus query={t}/></>;
+ const team=t.data,driverNames=new Map((drivers.data||[]).map(driver=>[String(driver.id),driver.name]));
+ const lineupSlots=[['driver_1_id','Race driver 1'],['driver_2_id','Race driver 2'],['reserve_driver_id','Reserve driver']];
+ return <><h2 style={{borderLeft:'8px solid '+team.color,paddingLeft:12}}>{team.name}</h2>{team.logo_detailed&&<img height="80" src={team.logo_detailed}/>}
+ <section className="team-lineup-history"><h3>Driver lineups</h3><QueryStatus query={lineups} empty="No driver lineups recorded."/><QueryStatus query={drivers}/>
+ {lineups.data?.map(lineup=><article className="team-lineup-season" key={lineup.year}><h4>{lineup.year}</h4><dl>{lineupSlots.map(([key,label])=><Fragment key={key}><dt>{label}</dt><dd>{lineup[key]?driverNames.get(String(lineup[key]))||`Driver #${lineup[key]}`:'—'}</dd></Fragment>)}</dl></article>)}</section>
  <QueryStatus query={{...t,data:team.cars||[]}} empty="No cars registered for this team."/><div className="grid">{[...(team.cars||[])].sort((a,b)=>b.year-a.year).map(c=><CarCard key={c.id} c={c} sub={c.engine}/>)}</div></>}
 export function Races(){const r=useQ(()=>sb.from('races').select('*').order('year',{ascending:false}).order('round'));
  return <><h2>Races</h2><QueryStatus query={r} empty="No races yet."/><table><tbody>{r.data?.map(x=><tr key={x.id}><td>{x.year}</td><td>R{x.round}</td><td>{x.name}</td><td>{x.circuit}</td><td>{x.date}</td><td>{x.is_sprint&&'Sprint'}</td></tr>)}</tbody></table></>}

@@ -60,9 +60,40 @@ function Import(){const [year,setY]=useState(new Date().getFullYear());const [lo
  return <div className="form"><label>season<input type="number" value={year} onChange={e=>setY(e.target.value)}/></label>
  <div className="row"><button className="btn" onClick={drivers}>Import drivers</button><button className="btn" onClick={teams}>Import teams</button><button className="btn" onClick={races}>Import races</button></div><pre>{log.join('\n')}</pre>
  <p className="muted">Data comes from the Jolpica F1 API. Images, logos, ratings and cars are added by hand in the other tabs.</p></div>}
+function Lineups(){const [year,setYear]=useState(new Date().getFullYear());const [teams,setTeams]=useState([]);const [drivers,setDrivers]=useState([]);const [lineups,setLineups]=useState({});
+ const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [message,setMessage]=useState('');const [savingTeam,setSavingTeam]=useState(null);
+ useEffect(()=>{let active=true;setError('');setMessage('');
+  if(!Number.isInteger(Number(year))||Number(year)<1950||Number(year)>2200){setLoading(false);setError('Enter a season from 1950 through 2200.');return()=>{active=false}}
+  setLoading(true);
+  Promise.all([sb.from('teams').select('id,name').order('name'),sb.from('drivers').select('id,name').order('name'),sb.from('team_driver_lineups').select('*').eq('year',year)])
+   .then(([teamResult,driverResult,lineupResult])=>{for(const result of [teamResult,driverResult,lineupResult])if(result.error)throw result.error;
+    if(!active)return;setTeams(teamResult.data||[]);setDrivers(driverResult.data||[]);
+    const saved=Object.fromEntries((lineupResult.data||[]).map(row=>[String(row.team_id),row]));
+    setLineups(Object.fromEntries((teamResult.data||[]).map(team=>{const row=saved[String(team.id)]||{};return [String(team.id),{driver_1_id:row.driver_1_id?String(row.driver_1_id):'',driver_2_id:row.driver_2_id?String(row.driver_2_id):'',reserve_driver_id:row.reserve_driver_id?String(row.reserve_driver_id):''}]})));
+   }).catch(loadError=>{console.error('Could not load team lineups:',loadError);if(active)setError(loadError instanceof Error?loadError.message:String(loadError))})
+   .finally(()=>{if(active)setLoading(false)});
+  return()=>{active=false};
+ },[year]);
+ const setSlot=(teamId,key,value)=>setLineups(current=>({...current,[String(teamId)]:{...current[String(teamId)],[key]:value}}));
+ const save=async team=>{if(!Number.isInteger(Number(year))||Number(year)<1950||Number(year)>2200){setMessage('Enter a valid season from 1950 through 2200.');return}
+  const lineup=lineups[String(team.id)]||{};const selected=[lineup.driver_1_id,lineup.driver_2_id,lineup.reserve_driver_id].filter(Boolean);
+  if(new Set(selected).size!==selected.length){setMessage(`${team.name}: choose a different driver for each slot.`);return}
+  setSavingTeam(team.id);setMessage('');
+  try{const {error:saveError}=await sb.from('team_driver_lineups').upsert({team_id:team.id,year:Number(year),driver_1_id:lineup.driver_1_id?Number(lineup.driver_1_id):null,driver_2_id:lineup.driver_2_id?Number(lineup.driver_2_id):null,reserve_driver_id:lineup.reserve_driver_id?Number(lineup.reserve_driver_id):null},{onConflict:'team_id,year'});
+   if(saveError)throw saveError;setMessage(`${team.name} lineup saved for ${year}.`);
+  }catch(saveError){console.error('Could not save team lineup:',saveError);setMessage(`Could not save ${team.name}: ${saveError instanceof Error?saveError.message:String(saveError)}`)}
+  finally{setSavingTeam(null)}
+ };
+ const slots=[['driver_1_id','Race driver 1'],['driver_2_id','Race driver 2'],['reserve_driver_id','Reserve driver']];
+ return <section className="lineup-manager"><div className="lineup-season"><label>Season<input type="number" min="1950" max="2200" value={year} onChange={event=>setYear(event.target.value)}/></label><p className="muted">Set two race drivers and one reserve per team. Choose a past year to manage historical lineups.</p></div>
+  {loading&&<p className="query-status" role="status">Loading teams and drivers…</p>}{error&&<p className="query-status query-error" role="alert">Could not load lineups: {error}</p>}
+  {!loading&&!error&&teams.length===0&&<p className="query-status">Add teams before assigning lineups.</p>}
+  {teams.map(team=><article className="lineup-team" key={team.id}><h3>{team.name} <small>{year}</small></h3><div className="lineup-slots">{slots.map(([key,label])=><label key={key}>{label}<select disabled={Boolean(error)||savingTeam!==null} value={lineups[String(team.id)]?.[key]||''} onChange={event=>setSlot(team.id,key,event.target.value)}><option value="">Not assigned</option>{drivers.map(driver=><option key={driver.id} value={driver.id}>{driver.name}</option>)}</select></label>)}</div><div className="row"><button className="btn" disabled={loading||Boolean(error)||savingTeam!==null} onClick={()=>save(team)}>{savingTeam===team.id?'Saving…':'Save lineup'}</button></div></article>)}
+  {message&&<p role="status" className={message.startsWith('Could not')||message.includes('choose a different')||message.startsWith('Enter a valid')?'query-status query-error':'query-status'}>{message}</p>}
+ </section>}
 export default function Admin(){const [s,setS]=useState(null);const [tab,setTab]=useState('import');const [e,setE]=useState({});
  useEffect(()=>{sb.auth.getSession().then(r=>setS(r.data.session));const {data}=sb.auth.onAuthStateChange((_,x)=>setS(x));return()=>data.subscription.unsubscribe()},[]);
  if(!s)return <div className="form"><h2>Admin sign in</h2><label>email<input onChange={x=>setE({...e,email:x.target.value})}/></label><label>password<input type="password" onChange={x=>setE({...e,password:x.target.value})}/></label>
   <button className="btn" onClick={async()=>{const {error}=await sb.auth.signInWithPassword(e);if(error)alert(error.message)}}>Sign in</button></div>;
  return <><div className="row"><h2>Admin</h2><button onClick={()=>sb.auth.signOut()}>Sign out</button></div>
- <div className="tabs">{['import',...Object.keys(T)].map(k=><button key={k} className={k===tab?'on':''} onClick={()=>setTab(k)}>{k.replace('_',' ')}</button>)}</div>{tab==='import'?<Import/>:<Crud table={tab}/>}</>}
+ <div className="tabs">{['import','lineups',...Object.keys(T)].map(k=><button key={k} className={k===tab?'on':''} onClick={()=>setTab(k)}>{k.replace('_',' ')}</button>)}</div>{tab==='import'?<Import/>:tab==='lineups'?<Lineups/>:<Crud table={tab}/>}</>}
