@@ -205,6 +205,8 @@ export function Driver(){const {id}=useParams();const d=useQ(()=>sb.from('driver
  const bestCareerPositions=getBestCareerPositions(history);
  const careerWins=raceFinishes.filter(row=>row.race_win).length;
  const careerPodiums=raceFinishes.filter(row=>row.position<=3).length;
+ const careerP2s=raceFinishes.filter(row=>Number(row.position)===2&&!row.retired&&row.status!=='Retired').length;
+ const careerP3s=raceFinishes.filter(row=>Number(row.position)===3&&!row.retired&&row.status!=='Retired').length;
  const careerSprintWins=history.filter(row=>row.sprint_win).length;
  const careerPoles=history.filter(row=>row.pole_position).length;
  const careerSprintPoles=history.filter(row=>row.sprint_pole).length;
@@ -233,7 +235,7 @@ export function Driver(){const {id}=useParams();const d=useQ(()=>sb.from('driver
    </article>})}</div>}
   </section>
   <section className="race-history"><div className="section-title"><div><h3>Career achievements</h3><p>{careerPoints} points · {raceFinishes.length} Grand Prix starts</p></div></div><div className="career-achievements">
-  {[['GP wins',careerWins],['Sprint wins',careerSprintWins],['Podiums',careerPodiums],['Poles',careerPoles],['Sprint poles',careerSprintPoles],['Fastest laps',careerFastestLaps],['Sprint fastest laps',careerSprintFastestLaps],['Retirements',careerRetirements],['Grand Slams',careerGrandSlams],['Best starting position',bestCareerPositions.bestStartingPosition?`P${bestCareerPositions.bestStartingPosition}`:'—'],['Best finish',Number.isFinite(bestCareerPositions.bestFinish)?`P${bestCareerPositions.bestFinish}`:'—'],['Best qualifying',Number.isFinite(bestCareerPositions.bestQualifying)?`P${bestCareerPositions.bestQualifying}`:'—']].map(([label,count])=><div className="career-achievement" key={label}><strong>{count}</strong><span>{label}</span></div>)}
+  {[['GP wins',careerWins],['P2 finishes',careerP2s],['P3 finishes',careerP3s],['Sprint wins',careerSprintWins],['Podiums',careerPodiums],['Poles',careerPoles],['Sprint poles',careerSprintPoles],['Fastest laps',careerFastestLaps],['Sprint fastest laps',careerSprintFastestLaps],['Retirements',careerRetirements],['Grand Slams',careerGrandSlams],['Best starting position',bestCareerPositions.bestStartingPosition?`P${bestCareerPositions.bestStartingPosition}`:'—'],['Best finish',Number.isFinite(bestCareerPositions.bestFinish)?`P${bestCareerPositions.bestFinish}`:'—'],['Best qualifying',Number.isFinite(bestCareerPositions.bestQualifying)?`P${bestCareerPositions.bestQualifying}`:'—']].map(([label,count])=><div className="career-achievement" key={label}><strong>{count}</strong><span>{label}</span></div>)}
  </div><div className="section-title"><div><h3>Race history</h3><p>All saved sessions and session awards</p></div></div><QueryStatus query={raceResults} empty="No saved race results yet."/>
   {!!weekendHistory.length&&<div className="weekend-history">{weekendHistory.map(weekend=><details className="weekend-history-item" key={weekend.key}>
    <summary className="weekend-history-summary"><span className="weekend-history-year">{weekend.year||'—'}</span><span className="weekend-history-name"><small>ROUND {weekend.round||'—'}</small><strong>{weekend.raceName}</strong></span><span className="weekend-history-count">{weekend.sessions.length} sessions</span><strong className="weekend-history-points">{weekend.pointsTotal} pts</strong></summary>
