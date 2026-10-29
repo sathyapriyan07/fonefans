@@ -20,7 +20,7 @@ test('same seed and inputs reproduce the complete race state',()=>{
 });
 
 test('season standings aggregate sprint and race points with Grand Prix wins and podiums',()=>{
- const driverA={id:1,name:'Driver A'},driverB={id:2,name:'Driver B'};
+ const driverA={id:1,name:'Driver A',code:'DRA'},driverB={id:2,name:'Driver B',code:'DRB'};
  const teamA={id:'team-a',name:'Team A'},teamB={id:'team-b',name:'Team B'};
  const standings=calculateStandings([
   {round:2,sprintResults:[{driver:driverB,team:teamB,pos:1,pts:8}],raceResults:[
@@ -39,6 +39,7 @@ test('season standings aggregate sprint and race points with Grand Prix wins and
  assert.deepEqual(standings.drivers.map(row=>[row.id,row.points,row.wins,row.podiums]),[
   [2,51,1,2],[1,47,1,2],[3,0,0,0]
  ]);
+ assert.deepEqual(standings.drivers.map(row=>row.code),['DRB','DRA','']);
  assert.deepEqual(standings.teams.map(row=>[row.id,row.points,row.wins,row.podiums]),[
   ['team-b',51,1,2],['team-a',47,1,2],['team-c',0,0,0]
  ]);

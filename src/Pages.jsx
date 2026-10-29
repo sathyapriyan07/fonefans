@@ -1,4 +1,4 @@
-import {Fragment,useEffect,useRef,useState} from 'react';import {Link,useParams} from 'react-router-dom';
+import {useEffect,useRef,useState} from 'react';import {Link,useParams} from 'react-router-dom';
 import {sb} from './supabase.js';import {advanceRaceIfRunning,advanceRaceLap,calculateStandings,createRaceState,getClassification,getWeekendPhases,practice,qualify,setPitInstruction} from './sim.js';
 function useQ(fn,deps=[]){
  const [query,setQuery]=useState({data:null,loading:true,error:null});
@@ -90,17 +90,26 @@ export function Home(){const n=useQ(async()=>{const c=async t=>{const {count,err
 export function Drivers(){const d=useQ(()=>sb.from('drivers').select('*,driver_images(*)').order('name'));
  return <><h2>Drivers</h2><QueryStatus query={d} empty="No drivers yet."/><div className="grid">{d.data?.map(x=><Link key={x.id} to={'/drivers/'+x.id} className="card driver-card">{latestImg(x,'pole_url')&&<img className="driver-pole-image" src={latestImg(x,'pole_url')} alt="" aria-hidden="true"/>}<div className="driver-card-copy"><h3>{x.name}</h3><p>{x.code} #{x.number}</p></div></Link>)}</div></>}
 export function Driver(){const {id}=useParams();const d=useQ(()=>sb.from('drivers').select('*,driver_images(*),driver_ratings(*)').eq('id',id).single(),[id]);
+ const lineups=useQ(()=>sb.from('team_driver_lineups').select('*,teams(id,name,logo_normal,color)').or(`driver_1_id.eq.${id},driver_2_id.eq.${id},reserve_driver_id.eq.${id}`).order('year',{ascending:false}),[id]);
+ const rosterDrivers=useQ(()=>sb.from('drivers').select('id,name,code,number,driver_images(pole_url,year)').order('name'));
  if(d.loading||d.error||!d.data)return <><h2>Driver</h2><QueryStatus query={d}/></>;
  const driver=d.data;const r=one(driver.driver_ratings)||{};
  const images=[...(driver.driver_images||[])].sort((a,b)=>b.year-a.year);
  const heroImage=latestImg(driver,'card_url')||latestImg(driver,'pole_url');
  const years=[...new Set(images.map(image=>image.year))];
+ const driverById=new Map((rosterDrivers.data||[]).map(rosterDriver=>[String(rosterDriver.id),rosterDriver]));
+ const lineupSlots=[['driver_1_id','Race driver 1'],['driver_2_id','Race driver 2'],['reserve_driver_id','Reserve driver']];
  const imageLabels={pole_url:'Pole portrait',grid_url:'Grid portrait',card_url:'Driver card'};
- return <><h2>{driver.name} <small>#{driver.number} {driver.code}</small></h2>
- {heroImage&&<div className="driver-profile-hero"><img src={heroImage} alt={`${driver.name} portrait`}/></div>}
+ return <><div className="driver-profile-top"><h2>{driver.name} <small>#{driver.number} {driver.code}</small></h2>
+ {heroImage&&<div className="driver-profile-hero"><img src={heroImage} alt={`${driver.name} portrait`}/></div>}</div>
  <p>{driver.nationality_logo&&<img height="16" src={driver.nationality_logo} alt=""/>} {driver.nationality}</p><p>{driver.bio}</p>
  <div className="split"><div>{['race','overtaking','speed','experience','qualifying','defence'].map(k=><Bar key={k} l={k} v={r[k]}/>)}</div>
- <div className="driver-gallery">{years.map(year=><section className="driver-gallery-year" key={year}><h3>{year}</h3><div className="driver-gallery-grid">{images.filter(image=>image.year===year).flatMap(image=>['pole_url','grid_url','card_url'].filter(key=>image[key]).map(key=><figure key={`${image.id}-${key}`}><img src={image[key]} alt={`${driver.name} ${imageLabels[key]}, ${year}`}/><figcaption>{imageLabels[key]}</figcaption></figure>))}</div></section>)}</div></div></>}
+ <div className="driver-detail-content"><section className="driver-team-history"><h3>Teams &amp; teammates</h3><QueryStatus query={lineups} empty="No team history recorded."/><QueryStatus query={rosterDrivers}/>
+ {lineups.data?.map(lineup=>{const assigned=lineupSlots.map(([key,label])=>({id:lineup[key],label})).filter(slot=>slot.id);const role=assigned.find(slot=>String(slot.id)===String(driver.id))?.label;
+  return <article className="driver-team-season" key={`${lineup.team_id}-${lineup.year}`}><div className="driver-team-season-head"><Link className="driver-team-link" to={`/teams/${lineup.team_id}`}>{lineup.teams?.logo_normal&&<img src={lineup.teams.logo_normal} alt=""/>}<strong>{lineup.teams?.name||'Team'}</strong></Link><span>{lineup.year===new Date().getFullYear()?'Current season':lineup.year}</span>{role&&<small>{role}</small>}</div>
+   <div className="driver-teammates">{assigned.filter(slot=>String(slot.id)!==String(driver.id)).map(slot=>{const teammate=driverById.get(String(slot.id));return <Link key={`${lineup.year}-${slot.id}`} to={`/drivers/${slot.id}`} className="card driver-card driver-teammate-card">{teammate&&latestImg(teammate,'pole_url')&&<img className="driver-pole-image" src={latestImg(teammate,'pole_url')} alt="" aria-hidden="true"/>}<div className="driver-card-copy"><small>{slot.label}</small><h4>{teammate?.name||`Driver #${slot.id}`}</h4></div></Link>})}</div>
+  </article>})}</section>
+ <div className="driver-gallery">{years.map(year=><section className="driver-gallery-year" key={year}><h3>{year}</h3><div className="driver-gallery-grid">{images.filter(image=>image.year===year).flatMap(image=>['pole_url','grid_url','card_url'].filter(key=>image[key]).map(key=><figure key={`${image.id}-${key}`}><img src={image[key]} alt={`${driver.name} ${imageLabels[key]}, ${year}`}/><figcaption>{imageLabels[key]}</figcaption></figure>))}</div></section>)}</div></div></div></>}
 const CarCard=({c,sub,teamLogo,teamName})=><div className="card">{c.image_url&&<img src={c.image_url}/>}<h3>{c.model} <small>{c.year}</small></h3><p className="car-sub">{teamLogo&&<img className="car-team-logo" src={teamLogo} alt={`${teamName||'Team'} logo`} />}{sub}</p>{CAR.map(k=><Bar key={k} l={k} v={c[k]}/>)}</div>;
 export function Cars(){const c=useQ(()=>sb.from('cars').select('*,teams(name,logo_normal)').order('year',{ascending:false}));
  return <><h2>Cars</h2><QueryStatus query={c} empty="No cars yet."/><div className="grid">{c.data?.map(x=><CarCard key={x.id} c={x} teamLogo={x.teams?.logo_normal} teamName={x.teams?.name} sub={x.engine||''}/>)}</div></>}
@@ -108,13 +117,13 @@ export function Teams(){const t=useQ(()=>sb.from('teams').select('*').order('nam
  return <><h2>Teams</h2><QueryStatus query={t} empty="No teams yet."/><div className="grid">{t.data?.map(x=><Link key={x.id} to={'/teams/'+x.id} className="card team-card" style={{borderTop:'6px solid '+x.color}}><h3>{x.name}</h3>{x.logo_normal&&<img src={x.logo_normal} alt={`${x.name} logo`}/>}</Link>)}</div></>}
 export function Team(){const {id}=useParams();const t=useQ(()=>sb.from('teams').select('*,cars(*)').eq('id',id).single(),[id]);
  const lineups=useQ(()=>sb.from('team_driver_lineups').select('*').eq('team_id',id).order('year',{ascending:false}),[id]);
- const drivers=useQ(()=>sb.from('drivers').select('id,name').order('name'));
+ const drivers=useQ(()=>sb.from('drivers').select('id,name,code,number,driver_images(pole_url,year)').order('name'));
  if(t.loading||t.error||!t.data)return <><h2>Team</h2><QueryStatus query={t}/></>;
- const team=t.data,driverNames=new Map((drivers.data||[]).map(driver=>[String(driver.id),driver.name]));
+ const team=t.data,driverById=new Map((drivers.data||[]).map(driver=>[String(driver.id),driver]));
  const lineupSlots=[['driver_1_id','Race driver 1'],['driver_2_id','Race driver 2'],['reserve_driver_id','Reserve driver']];
  return <><h2 style={{borderLeft:'8px solid '+team.color,paddingLeft:12}}>{team.name}</h2>{team.logo_detailed&&<img height="80" src={team.logo_detailed}/>}
  <section className="team-lineup-history"><h3>Driver lineups</h3><QueryStatus query={lineups} empty="No driver lineups recorded."/><QueryStatus query={drivers}/>
- {lineups.data?.map(lineup=><article className="team-lineup-season" key={lineup.year}><h4>{lineup.year}</h4><dl>{lineupSlots.map(([key,label])=><Fragment key={key}><dt>{label}</dt><dd>{lineup[key]?driverNames.get(String(lineup[key]))||`Driver #${lineup[key]}`:'—'}</dd></Fragment>)}</dl></article>)}</section>
+ {lineups.data?.map(lineup=><section className="team-lineup-season" key={lineup.year}><h4>{lineup.year}</h4><div className="grid team-lineup-cards">{lineupSlots.map(([key,label])=>{const driver=lineup[key]?driverById.get(String(lineup[key])):null;return driver?<Link key={key} to={`/drivers/${driver.id}`} className="card driver-card lineup-driver-card">{latestImg(driver,'pole_url')&&<img className="driver-pole-image" src={latestImg(driver,'pole_url')} alt="" aria-hidden="true"/>}<div className="driver-card-copy"><small>{label}</small><h3>{driver.name}</h3><p>{driver.code} #{driver.number}</p></div></Link>:<div key={key} className="card lineup-driver-card lineup-driver-empty"><small>{label}</small><p>Not assigned</p></div>})}</div></section>)}</section>
  <QueryStatus query={{...t,data:team.cars||[]}} empty="No cars registered for this team."/><div className="grid">{[...(team.cars||[])].sort((a,b)=>b.year-a.year).map(c=><CarCard key={c.id} c={c} sub={c.engine}/>)}</div></>}
 export function Races(){const r=useQ(()=>sb.from('races').select('*').order('year',{ascending:false}).order('round'));
  return <><h2>Races</h2><QueryStatus query={r} empty="No races yet."/><table><tbody>{r.data?.map(x=><tr key={x.id}><td>{x.year}</td><td>R{x.round}</td><td>{x.name}</td><td>{x.circuit}</td><td>{x.date}</td><td>{x.is_sprint&&'Sprint'}</td></tr>)}</tbody></table></>}
@@ -286,8 +295,8 @@ export function Simulate(){
    <div className="section-title"><h3>{grid.year} season standings</h3><p>Race and sprint points · wins and podiums count Grand Prix results</p></div>
    <div className="standings-grid">
     {[['Drivers',seasonStandings.drivers],['Constructors',seasonStandings.teams]].map(([title,rows])=><div key={title}>
-     <h4>{title}</h4><div className="scroll"><table><thead><tr><th>POS</th><th>{title==='Drivers'?'DRIVER':'TEAM'}</th>{title==='Drivers'&&<th>TEAM</th>}<th>PTS</th><th>W</th><th>POD</th></tr></thead>
-      <tbody>{rows.map((row,index)=><tr key={row.id}><td>{index+1}</td><td>{row.name}</td>{title==='Drivers'&&<td>{row.team?.name||'—'}</td>}<td><strong>{row.points}</strong></td><td>{row.wins}</td><td>{row.podiums}</td></tr>)}</tbody>
+     <h4>{title}</h4><div className="scroll"><table><thead><tr><th>POS</th><th>{title==='Drivers'?'DRIVER':'TEAM'}</th><th>PTS</th><th>W</th><th>POD</th></tr></thead>
+      <tbody>{rows.map((row,index)=><tr key={row.id}><td>{index+1}</td><td>{title==='Drivers'?<span className="standing-driver"><span className="team-logo">{row.team?.logo_normal&&<img src={row.team.logo_normal} alt=""/>}</span><strong>{row.code||'—'}</strong></span>:row.name}</td><td><strong>{row.points}</strong></td><td>{row.wins}</td><td>{row.podiums}</td></tr>)}</tbody>
      </table></div>
     </div>)}
    </div>
@@ -329,13 +338,13 @@ export function Simulate(){
      {phaseResult&&(phase!=='race'&&phase!=='sprint'||raceState?.done)&&<button className="btn" onClick={advance}>{phaseIndex===phases.length-1?'Finish weekend':'Continue to '+PHASE_LABELS[phases[phaseIndex+1]]}</button>}
     </div>
     {isPractice&&<div className="team-garage"><div className="section-title"><h3>Garage setup</h3><p>Adjust each team’s car before practice.</p></div>
-     {teams.map(team=>{const setup={...DEFAULT_SETUP,...setups[team.id]};return <article className="team-panel" key={team.id} style={{'--team-color':team.color||'#d3202f'}}>
-      <h4>{team.name}</h4>
+     {teams.map(team=>{const setup={...DEFAULT_SETUP,...setups[team.id]};return <details className="team-panel" key={team.id} style={{'--team-color':team.color||'#d3202f'}}>
+      <summary><strong>{team.name}</strong><span>Adjust setup</span></summary>
       <div className="setup-controls">
        {[[ 'aero','Aero balance','Low drag ↔ Downforce'],['suspension','Mechanical grip','Stable ↔ Responsive'],['tyreCare','Tyre management','Attack ↔ Preserve']].map(([key,label,help])=>
         <label key={key}>{label}<span className="range-value">{setup[key]}</span><input type="range" min="0" max="100" value={setup[key]} onChange={e=>setSetup(team.id,key,+e.target.value)}/><small>{help}</small></label>)}
       </div>
-     </article>})}
+     </details>})}
     </div>}
     {(phase==='sprint'||phase==='race')&&<div className="strategy-panel"><div className="section-title"><h3>Race strategy</h3><p>Choose a tyre and pit plan for every team.</p></div>
      <div className="strategy-grid">{teams.map(team=>{const strategy={...DEFAULT_STRATEGY,...strategies[team.id]};return <article className="strategy-card" key={team.id} style={{'--team-color':team.color||'#d3202f'}}>
@@ -402,10 +411,10 @@ export function Simulate(){
      </div>}
     </div>}
     {phaseResult&&phase!=='race'&&phase!=='sprint'&&<div className="results-panel"><div className="section-title"><h3>{PHASE_LABELS[phase]} classification</h3><p>{isPractice?'Practice pace':isQualifying?'Starting grid':'Session results'}</p></div>
-     <div className="scroll"><table className="race-table"><thead><tr><th>POS</th><th>DRIVER</th><th>BEST LAP</th><th>CAR</th></tr></thead>
+     <div className="scroll"><table className="race-table"><thead><tr><th>POS</th><th>DRIVER</th><th>BEST LAP</th>{!isPractice&&<th>CAR</th>}</tr></thead>
       <tbody>{phaseResult.map((entry,index)=><tr key={`${entry.driver.id}-${index}`} className={index===0?'leader':''}>
        <td className="position-cell">{getPosition(entry,index)}</td><td><span className="driver-result"><span className="team-logo">{entry.team.logo_normal&&<img src={entry.team.logo_normal} alt={`${entry.team.name} logo`}/>}</span><strong>{entry.driver.name.trim().split(/\s+/).pop()?.toUpperCase()}</strong></span></td>
-       <td>{formatTime(entry.bestLap)}</td><td>{entry.cars?.model||entry.c.model||'—'}</td>
+       <td>{formatTime(entry.bestLap)}</td>{!isPractice&&<td>{entry.cars?.model||entry.c.model||'—'}</td>}
       </tr>)}</tbody></table></div>
     </div>}
    </>}
