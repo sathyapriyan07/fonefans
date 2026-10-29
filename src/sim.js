@@ -239,6 +239,8 @@ export function createRaceState({
   strategy.tyre=startingTyre;
   return {
    entry:prepared,driverId:entry.driver?.id??null,teamId:entry.team?.id??null,
+   baseRatings:{...rating},
+   teamRaceAdjustments:{performance:0,pace:0,overtake:0,defense:0},
    position:index+1,gridPosition:index+1,lap:0,lapsCompleted:0,totalTime:0,
    lastLap:null,bestLap:null,lastSectors:null,fuelRemaining:Math.max(1,totalLaps*1.72*(1+(circuit.lengthKm-5.2)*0.035)*(1-(rating.fuelEfficiency-50)*0.001)),
    tyre:tyreState(startingTyre),damage:0,pitStops:0,pitHistory:[],penalties:[],
@@ -627,12 +629,42 @@ export function activateDriverBoost(previous,driverId){
  cars[index]=car;
  return {...previous,cars};
 }
+export function setTeamRaceAdjustments(previous,teamId,adjustments={}){
+ if(previous.done)throw new Error('Team performance cannot be changed after the chequered flag.');
+ const matching=previous.cars.filter(car=>String(car.teamId)===String(teamId));
+ if(!matching.length)throw new Error('The selected team is not in this race.');
+ const bounded=value=>clamp(Number.isFinite(Number(value))?Math.round(Number(value)):0,-20,20);
+ const teamRaceAdjustments={
+  performance:bounded(adjustments.performance),
+  pace:bounded(adjustments.pace),
+  overtake:bounded(adjustments.overtake),
+  defense:bounded(adjustments.defense)
+ };
+ const cars=previous.cars.map(car=>{
+  if(String(car.teamId)!==String(teamId))return car;
+  const base=car.baseRatings||car.ratings;
+  const {performance,pace,overtake,defense}=teamRaceAdjustments;
+  const ratings={
+   ...base,
+   carPace:clamp(base.carPace+performance*0.5+pace,0,100),
+   carPerformance:clamp(base.carPerformance+performance,0,100),
+   carRace:clamp(base.carRace+performance+pace,0,100),
+   carQualifying:clamp(base.carQualifying+performance+pace,0,100),
+   carSpeed:clamp(base.carSpeed+performance*0.5+pace,0,100),
+   overtaking:clamp(base.overtaking+overtake,0,100),
+   defence:clamp(base.defence+defense,0,100)
+  };
+  return {...car,ratings,teamRaceAdjustments};
+ });
+ return {...previous,cars};
+}
 export function getClassification(state){
  return rankCars(state.cars).map((car,index)=>({
   ...car.entry,position:index+1,pos:index+1,grid:car.gridPosition,gridPosition:car.gridPosition,
   dnf:car.retired,retired:car.retired,completed:car.completed,status:car.status,
   boostLap:car.boostLap,boostReadyLap:car.boostReadyLap??1,
   boostCooldownLaps:Math.max(0,(car.boostReadyLap??1)-(state.lap+1)),
+  teamRaceAdjustments:car.teamRaceAdjustments,
   lapsCompleted:car.lapsCompleted,totalTime:car.totalTime,
   bestLap:car.bestLap,lastLap:car.lastLap,lastSectors:car.lastSectors,
   fuelRemaining:car.fuelRemaining,damage:car.damage,tyre:car.tyre,pitStops:car.pitStops,pitHistory:car.pitHistory,

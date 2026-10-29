@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyTeamPerformanceBoosts,calculateStandings,createRaceState,getClassification,qualify,setPitInstruction,simulateRace,TYRES} from './sim.js';
+import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyTeamPerformanceBoosts,calculateStandings,createRaceState,getClassification,qualify,setPitInstruction,setTeamRaceAdjustments,simulateRace,TYRES} from './sim.js';
 
 function entry(id,{driver={},car={}}={}){
  return {
@@ -364,4 +364,24 @@ test('team performance boosts improve every team car once and respect the rating
  const regularRace=simulateRace({...raceOptions,entries}).classification;
  const boostedRace=simulateRace({...raceOptions,entries:boosted}).classification;
  assert.ok(boostedRace.find(row=>row.driver.id===1).totalTime<regularRace.find(row=>row.driver.id===1).totalTime);
+});
+
+test('live team adjustments affect both teammates and can boost or reduce race pace',()=>{
+ const entries=[entry(1),{...entry(2),team:{id:'team-1',name:'Team 1'}},entry(3)];
+ const initial=createRaceState({entries,race:{...circuit,laps:5},seed:111,laps:5,strategies:{'team-1':{stops:0},'team-3':{stops:0}}});
+ const adjusted=setTeamRaceAdjustments(initial,'team-1',{performance:8,pace:6,overtake:12,defense:-5});
+ const firstCar=adjusted.cars.find(car=>car.driverId===1),secondCar=adjusted.cars.find(car=>car.driverId===2),otherCar=adjusted.cars.find(car=>car.driverId===3);
+ assert.deepEqual(firstCar.teamRaceAdjustments,{performance:8,pace:6,overtake:12,defense:-5});
+ assert.equal(firstCar.ratings.overtaking,firstCar.baseRatings.overtaking+12);
+ assert.equal(secondCar.ratings.defence,secondCar.baseRatings.defence-5);
+ assert.deepEqual(otherCar.teamRaceAdjustments,{performance:0,pace:0,overtake:0,defense:0});
+ const normalLap=advanceRaceLap(initial).cars.find(car=>car.driverId===1).lastLap;
+ const boostedLap=advanceRaceLap(adjusted).cars.find(car=>car.driverId===1).lastLap;
+ assert.ok(boostedLap<normalLap);
+ const repeated=setTeamRaceAdjustments(adjusted,'team-1',{performance:-8,pace:-6,overtake:-12,defense:5});
+ assert.equal(repeated.cars.find(car=>car.driverId===1).ratings.carRace,Math.max(0,firstCar.baseRatings.carRace-14));
+ assert.equal(repeated.cars.find(car=>car.driverId===1).ratings.overtaking,Math.max(0,firstCar.baseRatings.overtaking-12));
+ assert.equal(getClassification(repeated).find(car=>car.driver.id===1).teamRaceAdjustments.pace,-6);
+ assert.throws(()=>setTeamRaceAdjustments(initial,'missing',{}),/not in this race/);
+ assert.throws(()=>setTeamRaceAdjustments({...initial,done:true},'team-1',{}),/after the chequered flag/);
 });

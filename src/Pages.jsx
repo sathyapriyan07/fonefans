@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState} from 'react';import {Link,useParams} from 'react-router-dom';
-import {sb} from './supabase.js';import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyTeamPerformanceBoosts,calculateStandings,createRaceState,getClassification,getWeekendPhases,practice,qualify,setPitInstruction} from './sim.js';
+import {sb} from './supabase.js';import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyTeamPerformanceBoosts,calculateStandings,createRaceState,getClassification,getWeekendPhases,practice,qualify,setPitInstruction,setTeamRaceAdjustments} from './sim.js';
 function useQ(fn,deps=[]){
  const [query,setQuery]=useState({data:null,loading:true,error:null});
  const [attempt,setAttempt]=useState(0);
@@ -187,7 +187,7 @@ export function Simulate(){
  const [weekendStarted,setWeekendStarted]=useState(false);const [weekendComplete,setWeekendComplete]=useState(false);
  const [results,setResults]=useState({});const [setups,setSetups]=useState({});const [strategies,setStrategies]=useState({});const [performanceBoosts,setPerformanceBoosts]=useState({});const [strategyEnabled,setStrategyEnabled]=useState(false);const [garageSetupEnabled,setGarageSetupEnabled]=useState(false);
  const [seasonStore,setSeasonStore]=useState(loadSeasonStore);
- const [raceState,setRaceState]=useState(null);const [isRunning,setIsRunning]=useState(false);const [simulationSpeed,setSimulationSpeed]=useState(1);const [seed,setSeed]=useState(newSeed);const [weatherMode,setWeatherMode]=useState('dry');const [selectedDriverId,setSelectedDriverId]=useState(null);const [pitCompound,setPitCompound]=useState('medium');const [pitLap,setPitLap]=useState(1);const [pitFeedback,setPitFeedback]=useState('');const [boostFeedback,setBoostFeedback]=useState('');
+ const [raceState,setRaceState]=useState(null);const [isRunning,setIsRunning]=useState(false);const [raceViewTab,setRaceViewTab]=useState('timing');const [raceTeamAdjustments,setRaceTeamAdjustments]=useState({});const [simulationSpeed,setSimulationSpeed]=useState(1);const [seed,setSeed]=useState(newSeed);const [weatherMode,setWeatherMode]=useState('dry');const [selectedDriverId,setSelectedDriverId]=useState(null);const [pitCompound,setPitCompound]=useState('medium');const [pitLap,setPitLap]=useState(1);const [pitFeedback,setPitFeedback]=useState('');const [boostFeedback,setBoostFeedback]=useState('');
  const [nextRaceNotice,setNextRaceNotice]=useState('');
  const completedRaceRef=useRef(null);
  const activeSetups=garageSetupEnabled?setups:{};
@@ -284,7 +284,7 @@ export function Simulate(){
     entries:applyTeamPerformanceBoosts(startRows,performanceBoosts),race:selectedRace,seed,format:isSprint?'sprint':'race',
     strategies:strategyEnabled?strategies:{},setups:activeSetups,weather:weatherMode,laps:isSprint?Math.max(1,Math.round(raceLaps*0.32)):raceLaps
    });
-   setRaceState(state);setBoostFeedback('');setIsRunning(true);setWeekendComplete(false);
+   setRaceState(state);setRaceViewTab('timing');setRaceTeamAdjustments({});setBoostFeedback('');setIsRunning(true);setWeekendComplete(false);
    return;
   }
   let rows;
@@ -314,6 +314,11 @@ export function Simulate(){
    const driver=next.cars.find(car=>String(car.driverId)===String(driverId))?.entry.driver.name||'Driver';
    setBoostFeedback(`${driver} boost armed for lap ${next.lap+1}. Stronger pace for one lap; one-lap cooldown afterward.`);
   }catch(error){setBoostFeedback(error instanceof Error?error.message:String(error))}
+ };
+ const adjustLiveTeam=(teamId,key,rawValue)=>{
+  const adjustments={...raceTeamAdjustments[String(teamId)],[key]:Number(rawValue)};
+  setRaceTeamAdjustments(current=>({...current,[String(teamId)]:adjustments}));
+  setRaceState(current=>current&&!current.done?setTeamRaceAdjustments(current,teamId,adjustments):current);
  };
  const setSetup=(id,key,value)=>updateTeam(setSetups,id,key,value);
  const setStrategy=(id,key,value)=>updateTeam(setStrategies,id,key,value);
@@ -427,9 +432,28 @@ export function Simulate(){
       {!raceState.done&&<button onClick={()=>setIsRunning(value=>!value)}>{isRunning?'Pause':'Resume'}</button>}
       <button onClick={()=>{setIsRunning(false);setRaceState(current=>current&&!current.done?advanceRaceLap(current):current)}} disabled={isRunning||raceState.done}>Advance one lap</button>
       <label>Speed<select value={simulationSpeed} onChange={e=>setSimulationSpeed(Number(e.target.value))}><option value={0.5}>0.5×</option><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option><option value={10}>10×</option></select></label>
-      <button onClick={()=>{const restartSource=phase==='sprint'?'sprintQualifying':phase==='race'&&selectedRace?.sprint_affects_grand_prix_grid?'sprint':'qualifying';const restartEntries=results[restartSource]?.map((entry,index)=>({...entry,grid:restartSource==='sprint'?(entry.position||entry.pos||index+1):entry.grid}));if(!restartEntries?.length)return alert(`Complete ${PHASE_LABELS[restartSource]||restartSource} before restarting.`);setIsRunning(false);setRaceState(createRaceState({entries:applyTeamPerformanceBoosts(restartEntries,performanceBoosts),race:selectedRace,seed,format:phase==='sprint'?'sprint':'race',strategies:strategyEnabled?strategies:{},setups:activeSetups,weather:weatherMode,laps:phase==='sprint'?Math.max(1,Math.round((Number(selectedRace.laps)||57)*0.32)):Number(selectedRace.laps)||57}));setIsRunning(true)}}>Restart same seed</button>
+      <button onClick={()=>{const restartSource=phase==='sprint'?'sprintQualifying':phase==='race'&&selectedRace?.sprint_affects_grand_prix_grid?'sprint':'qualifying';const restartEntries=results[restartSource]?.map((entry,index)=>({...entry,grid:restartSource==='sprint'?(entry.position||entry.pos||index+1):entry.grid}));if(!restartEntries?.length)return alert(`Complete ${PHASE_LABELS[restartSource]||restartSource} before restarting.`);setIsRunning(false);let restarted=createRaceState({entries:applyTeamPerformanceBoosts(restartEntries,performanceBoosts),race:selectedRace,seed,format:phase==='sprint'?'sprint':'race',strategies:strategyEnabled?strategies:{},setups:activeSetups,weather:weatherMode,laps:phase==='sprint'?Math.max(1,Math.round((Number(selectedRace.laps)||57)*0.32)):Number(selectedRace.laps)||57});Object.entries(raceTeamAdjustments).forEach(([teamId,adjustments])=>{restarted=setTeamRaceAdjustments(restarted,teamId,adjustments)});setRaceState(restarted);setRaceViewTab('timing');setIsRunning(true)}}>Restart same seed</button>
       <button onClick={()=>{setSeed(newSeed());setIsRunning(false);setRaceState(null);setSelectedDriverId(null);setPitFeedback('');setResults(current=>{const next={...current};delete next[phase];return next})}}>New seed / reset</button>
      </div>
+      <div className="race-view-tabs" role="tablist" aria-label="Race views">
+       <button type="button" role="tab" aria-selected={raceViewTab==='timing'} className={raceViewTab==='timing'?'on':''} onClick={()=>setRaceViewTab('timing')}>Live timing</button>
+       <button type="button" role="tab" aria-selected={raceViewTab==='performance'} className={raceViewTab==='performance'?'on':''} onClick={()=>setRaceViewTab('performance')}>Team performance</button>
+      </div>
+      {raceViewTab==='performance'?<section className="race-performance-panel">
+       <div className="section-title"><div><h3>Live team performance</h3><p>Changes affect each team’s next lap and remain in effect for the rest of this race.</p></div></div>
+       <div className="performance-team-grid">{teams.map(team=>{
+        const adjustments=raceTeamAdjustments[String(team.id)]||{};
+        const teamDrivers=entries.filter(entry=>String(entry.team.id)===String(team.id));
+        return <article className="performance-team-card" key={team.id} style={{'--team-color':team.color||'#d3202f'}}>
+         <div className="performance-team-heading">{team.logo_normal&&<img src={team.logo_normal} alt=""/>}<div><h4>{team.name}</h4><p>{teamDrivers.map(entry=>entry.driver.code||entry.driver.name).join(' · ')}</p></div></div>
+         <div className="race-performance-controls">{[['performance','Performance'],['pace','Pace'],['overtake','Overtaking'],['defense','Defense']].map(([key,label])=>{
+          const value=adjustments[key]||0;
+          return <label className="performance-boost-control" key={key}><span>{label}<strong>{value>0?'+':''}{value}</strong></span><input type="range" min="-20" max="20" step="1" value={value} disabled={raceState.done} onChange={event=>adjustLiveTeam(team.id,key,event.target.value)}/><small>{value>0?'Boost':value<0?'Reduce':'No change'} this team’s {label.toLowerCase()} rating.</small></label>;
+         })}</div>
+         <button type="button" className="performance-reset" onClick={()=>{setRaceTeamAdjustments(current=>({...current,[String(team.id)]:{performance:0,pace:0,overtake:0,defense:0}}));setRaceState(current=>current&&!current.done?setTeamRaceAdjustments(current,team.id,{}):current)}} disabled={raceState.done||!Object.values(adjustments).some(value=>value!==0)}>Reset live adjustments</button>
+        </article>;
+       })}</div>
+      </section>:<>
      <LiveTrack state={raceState} selectedDriverId={selectedDriverId} onSelect={setSelectedDriverId}/>
      {raceState.done&&<SessionPodium entries={phaseResult} race={selectedRace} phaseLabel={PHASE_LABELS[phase]} raceResult fastestLap={fastestSessionLap}/>}
      <QueryStatus query={tyreImagesQuery}/>
@@ -477,6 +501,7 @@ export function Simulate(){
         <h4>Incidents</h4>{selectedCar.events.filter(event=>event.type!=='overtake'&&event.type!=='attack_defended').length?selectedCar.events.filter(event=>event.type!=='overtake'&&event.type!=='attack_defended').map((event,index)=><p key={`${event.type}-${index}`}>Lap {event.lap}: {event.type.replaceAll('_',' ')}</p>):<p>No incidents recorded.</p>}</div>
       </div>
      </div>}
+     </>}
     </div>}
     {phaseResult&&phase!=='race'&&phase!=='sprint'&&<div className="results-panel"><div className="section-title"><h3>{PHASE_LABELS[phase]} classification</h3><p>{isPractice?'Practice pace':isQualifying?'Starting grid':'Session results'}</p></div>
      {(isPractice||isQualifying)&&<SessionPodium entries={phaseResult} race={selectedRace} phaseLabel={PHASE_LABELS[phase]} fastestLap={fastestSessionLap}/>}
