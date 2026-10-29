@@ -51,7 +51,8 @@ alter table public.races
   add column if not exists circuit_path text,
   add column if not exists drs_zones int,
   add column if not exists weekend_format text,
-  add column if not exists sprint_affects_grand_prix_grid boolean;
+  add column if not exists sprint_affects_grand_prix_grid boolean,
+  add column if not exists mandatory_dry_tyre_compounds boolean;
 
 create table if not exists public.tyre_images (
   id bigserial primary key,

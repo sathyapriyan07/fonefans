@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState} from 'react';import {Link,useParams} from 'react-router-dom';
-import {sb} from './supabase.js';import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getClassification,getWeekendAwards,getWeekendPhases,practice,qualify,setPitInstruction,setTeamRaceAdjustments} from './sim.js';
+import {sb} from './supabase.js';import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getClassification,getWeekendAwards,getWeekendPhases,practice,qualify,requiresMandatoryDryTyreCompounds,setPitInstruction,setTeamRaceAdjustments} from './sim.js';
 function useQ(fn,deps=[]){
  const [query,setQuery]=useState({data:null,loading:true,error:null});
  const [attempt,setAttempt]=useState(0);
@@ -105,17 +105,19 @@ const driverSeasonImage=(driver,year)=>{
 };
 function SessionPodium({entries,race,phaseLabel,fastestLap=Infinity,raceResult=false}){
  const podium=raceResult?entries.filter(entry=>!entry.retired).slice(0,3):entries.slice(0,3);
- const leader=podium[0];
+ const leader=entries.find(entry=>Number(entry.position??entry.pos)===1)||podium[0];
  if(!podium.length)return null;
  return <section className="practice-podium" aria-label={`${phaseLabel} top three`}>
   <div className="practice-podium-heading"><h4>{race?.name||'Race'} · {phaseLabel} top three</h4></div>
   <div className="practice-podium-grid">{podium.map((entry,index)=>{
+   const reportedPosition=Number(entry.position??entry.practicePos??entry.grid??entry.pos);
+   const position=Number.isInteger(reportedPosition)&&reportedPosition>0?reportedPosition:index+1;
    let gap;
-   if(raceResult)gap=index===0?'WINNER':entry.lapsCompleted<leader.lapsCompleted?`+${leader.lapsCompleted-entry.lapsCompleted} LAP`:`+${(entry.totalTime-leader.totalTime).toFixed(3)}`;
+   if(raceResult)gap=position===1?'WINNER':entry.lapsCompleted<leader.lapsCompleted?`+${leader.lapsCompleted-entry.lapsCompleted} LAP`:`+${(entry.totalTime-leader.totalTime).toFixed(3)}`;
    else gap=Number.isFinite(entry.bestLap)&&Number.isFinite(fastestLap)?`+${(entry.bestLap-fastestLap).toFixed(3)}`:'—';
    const portrait=driverSeasonImage(entry.driver,race?.year);
    return <article className={`practice-podium-card practice-podium-${index+1}`} key={entry.driver.id} style={{'--team-color':entry.team.color||'#d3202f'}}>
-    <div className="practice-podium-portrait">{portrait?<img src={portrait} alt={`${entry.driver.name} portrait`}/>:<span>{entry.driver.code||entry.driver.name.trim().split(/\s+/).pop()?.slice(0,1)}</span>}<strong className="practice-podium-position">P{index+1}</strong></div>
+    <div className="practice-podium-portrait">{portrait?<img src={portrait} alt={`${entry.driver.name} portrait`}/>:<span>{entry.driver.code||entry.driver.name.trim().split(/\s+/).pop()?.slice(0,1)}</span>}<strong className="practice-podium-position">P{position}</strong></div>
     <div className="practice-podium-details"><span className="practice-podium-team">{entry.team.logo_normal&&<img src={entry.team.logo_normal} alt=""/>}{entry.team.name}</span><strong className="practice-podium-driver">{entry.driver.name.toUpperCase()}</strong><span className="practice-podium-gap">{gap}</span></div>
    </article>;
   })}</div>
@@ -311,7 +313,7 @@ export function Results(){
  const changeYear=year=>{setSelectedYear(year);setSelectedRaceId('');setSelectedSession('')};
  const changeRace=raceId=>{setSelectedRaceId(raceId);setSelectedSession('')};
  return <section className="results-page">
-  <div className="results-page-heading"><div><p className="eyebrow">OFFICIAL CLASSIFICATION</p><h2>Race results</h2><p>Browse saved results by season, Grand Prix, and session.</p></div></div>
+  <div className="results-page-heading"><div><p className="eyebrow">OFFICIAL CLASSIFICATION</p><h2>Race results</h2><p>Browse saved results by season, Grand Prix, and session.</p></div><button type="button" onClick={results.retry} disabled={results.loading}>Refresh results</button></div>
   <QueryStatus query={results} empty="No saved race results yet. Simulate a race weekend to see the classifications here."/>
   {weekends.length>0&&<><nav className="results-year-nav" aria-label="Results season pages">{years.map(year=><button type="button" key={year} className={year===activeYear?'active':''} aria-current={year===activeYear?'page':undefined} onClick={()=>changeYear(year)}>{year}</button>)}</nav>
   <section className="results-season-page" aria-label={`${activeYear} race results`}>
@@ -404,7 +406,7 @@ export function Simulate(){
  const [weekendStarted,setWeekendStarted]=useState(false);const [weekendComplete,setWeekendComplete]=useState(false);
  const [results,setResults]=useState({});const [setups,setSetups]=useState({});const [strategies,setStrategies]=useState({});const [performanceBoosts,setPerformanceBoosts]=useState({});const [strategyEnabled,setStrategyEnabled]=useState(false);const [garageSetupEnabled,setGarageSetupEnabled]=useState(false);
  const [practiceSubstitutions,setPracticeSubstitutions]=useState({});
- const [resultSaveError,setResultSaveError]=useState('');const [resultSaveFailed,setResultSaveFailed]=useState(false);const [resultSaveSaving,setResultSaveSaving]=useState(false);
+ const [resultSaveError,setResultSaveError]=useState('');const [resultSaveFailed,setResultSaveFailed]=useState(false);const [resultSaveSaving,setResultSaveSaving]=useState(false);const [resultSaveNeedsAuth,setResultSaveNeedsAuth]=useState(false);const [resultSaveSuccess,setResultSaveSuccess]=useState('');
  const [raceState,setRaceState]=useState(null);const [isRunning,setIsRunning]=useState(false);const [raceViewTab,setRaceViewTab]=useState('timing');const [raceTeamAdjustments,setRaceTeamAdjustments]=useState({});const [simulationSpeed,setSimulationSpeed]=useState(1);const [seed,setSeed]=useState(newSeed);const [weatherMode,setWeatherMode]=useState('dry');const [selectedDriverId,setSelectedDriverId]=useState(null);const [pitCompound,setPitCompound]=useState('medium');const [pitLap,setPitLap]=useState(1);const [pitFeedback,setPitFeedback]=useState('');const [boostFeedback,setBoostFeedback]=useState('');
  const [nextRaceNotice,setNextRaceNotice]=useState('');
  const completedRaceRef=useRef(null);
@@ -433,6 +435,7 @@ export function Simulate(){
  const seasonRacesCompleted=Boolean(grid&&races.data?.length&&races.data.every(race=>savedSeason.some(result=>String(result.raceId)===String(race.id)&&result.raceResults.length>0)));
  const seasonStandings=calculateStandings(savedSeason,entries);
  const phase=phases[Math.min(phaseIndex,phases.length-1)];
+ const mandatoryDryTyreCompounds=requiresMandatoryDryTyreCompounds(selectedRace||{},phase==='race'?'race':'sprint',weatherMode);
  const racePhase=phase==='sprint'?'sprint':phase==='race'?'race':null;
  const phaseResult=results[phase]||((racePhase&&raceState?.format===racePhase)?getClassification(raceState):null);
  const fastestSessionLap=phaseResult?Math.min(...phaseResult.map(entry=>entry.bestLap).filter(Number.isFinite)):Infinity;
@@ -449,7 +452,14 @@ export function Simulate(){
   if(resultSaveInFlightRef.current||!resultSaveQueueRef.current.length)return;
   resultSaveInFlightRef.current=true;
   setResultSaveSaving(true);
+  let needsAuth=false;
   try{
+   const {data:authData,error:authError}=await sb.auth.getSession();
+   if(authError)throw authError;
+   if(!authData.session){
+    needsAuth=true;
+    throw new Error('Sign in through Admin before saving results. Your unsaved session results are still queued; sign in, then retry here.');
+   }
    while(resultSaveQueueRef.current.length){
     const pending=resultSaveQueueRef.current[0];
     const {data,error}=await sb.from('race_results')
@@ -460,6 +470,7 @@ export function Simulate(){
      throw new Error(`Supabase confirmed ${data?.length||0} of ${pending.records.length} session results. The batch was kept for retry.`);
     }
     resultSaveQueueRef.current.shift();
+    setResultSaveSuccess(`Saved ${pending.sessionLabel} results to Supabase.`);
     if(String(grid?.id)===String(pending.gridId))seasonResultsQuery.retry();
     if(String(grid?.id)===String(pending.gridId)&&pending.sessionType==='race'){
      const raceIndex=races.data?.findIndex(race=>String(race.id)===String(pending.raceId))??-1;
@@ -467,12 +478,15 @@ export function Simulate(){
      setNextRaceNotice(nextRace?`Round ${pending.round} complete. Round ${nextRace.round}: ${nextRace.name} is ready.`:'Season complete. Final standings are shown above.');
     }
    }
-   setResultSaveError('');setResultSaveFailed(false);
+   setResultSaveError('');setResultSaveFailed(false);setResultSaveNeedsAuth(false);
   }catch(error){
    console.error('Could not save race results to Supabase:',error);
+   const message=error.message||String(error);
+   needsAuth=needsAuth||error.code==='42501'||/row-level security|permission denied/i.test(message);
    setResultSaveFailed(true);
+   setResultSaveNeedsAuth(needsAuth);
    const pending=resultSaveQueueRef.current[0];
-   setResultSaveError(`Could not save ${pending?.sessionLabel||'session'} results to Supabase: ${error.message||String(error)}${resultSaveQueueRef.current.length>1?` ${resultSaveQueueRef.current.length} session save(s) remain queued.`:''}`);
+   setResultSaveError(`Could not save ${pending?.sessionLabel||'session'} results to Supabase: ${message}${resultSaveQueueRef.current.length>1?` ${resultSaveQueueRef.current.length} session save(s) remain queued.`:''}`);
   }finally{
    resultSaveInFlightRef.current=false;
    setResultSaveSaving(false);
@@ -481,6 +495,8 @@ export function Simulate(){
  const enqueueResults=(pending)=>{
   resultSaveQueueRef.current.push(pending);
   setResultSaveFailed(false);
+  setResultSaveNeedsAuth(false);
+  setResultSaveSuccess('');
   setResultSaveError('');
   void saveResults();
  };
@@ -509,7 +525,13 @@ export function Simulate(){
  },[raceState?.done]);
  useEffect(()=>{if(selectedDriverId!==null){setPitLap(current=>current<=raceState?.lap?((raceState?.lap||0)+1):current);setPitFeedback('')}},[selectedDriverId]);
  const updateTeam=(setter,id,key,value)=>setter(current=>({...current,[id]:{...current[id],[key]:value}}));
- const startWeekend=()=>{setNextRaceNotice('');setResultSaveError('');setResultSaveFailed(false);setBoostFeedback('');setWeekendStarted(true);setWeekendComplete(false);setPhaseIndex(0);setResults({});setRaceState(null);setSeed(newSeed())};
+ const startWeekend=()=>{
+  if(resultSaveInFlightRef.current||resultSaveQueueRef.current.length){
+   setResultSaveError('Wait for queued results to save, or retry the pending save, before restarting the weekend.');
+   return;
+  }
+  setNextRaceNotice('');setResultSaveError('');setResultSaveFailed(false);setResultSaveNeedsAuth(false);setResultSaveSuccess('');setBoostFeedback('');setWeekendStarted(true);setWeekendComplete(false);setPhaseIndex(0);setResults({});setRaceState(null);setSeed(newSeed())
+ };
  const resetSeasonStandings=async()=>{
   if(!grid||!window.confirm(`Delete all saved simulated results for ${grid.name} (${grid.year}) from Supabase? This cannot be undone.`))return;
   try{
@@ -545,7 +567,7 @@ export function Simulate(){
   }
   let rows;
   if(phase.startsWith('practice'))rows=practice(practiceEntries,{seed:seed+phaseIndex,race:selectedRace,setups:activeSetups,weather:weatherMode});
-  if(phase==='qualifying'||phase==='sprintQualifying')rows=qualify(performanceEntries,{seed:seed+phaseIndex,race:selectedRace,setups:activeSetups,weather:weatherMode==='wet'?{wetness:0.75}:undefined});
+  if(phase==='qualifying'||phase==='sprintQualifying')rows=qualify(performanceEntries,{seed:seed+phaseIndex,race:selectedRace,setups:activeSetups,weather:weatherMode});
   const completedSessions={...results,[phase]:rows};
   phases.slice(phaseIndex+1).forEach(name=>delete completedSessions[name]);
   setResults(completedSessions);
@@ -601,7 +623,8 @@ export function Simulate(){
   </div>
   <QueryStatus query={grids} empty="Create a grid before viewing the simulation."/>
   {resultSaveSaving&&<p className="query-status" role="status">Saving {resultSaveQueueRef.current[0]?.sessionLabel||'session'} results to Supabase…</p>}
-  {resultSaveError&&<div className="query-status query-error" role="alert"><span>{resultSaveError}</span>{resultSaveFailed&&<button type="button" onClick={()=>void saveResults()}>Retry save</button>}</div>}
+  {!resultSaveSaving&&resultSaveSuccess&&<p className="query-status" role="status">{resultSaveSuccess}</p>}
+  {resultSaveError&&<div className="query-status query-error" role="alert"><span>{resultSaveError}{resultSaveNeedsAuth&&<> <a href="/admin" target="_blank" rel="noreferrer">Sign in via Admin</a>, then return here and retry.</>}</span>{resultSaveFailed&&<button type="button" onClick={()=>void saveResults()}>Retry save</button>}</div>}
   {simulationTab==='standings'?grid?<section className="standings-panel">
    <div className="section-title"><div><h3>{grid.year} season standings</h3><p>Race and sprint points · wins and podiums count Grand Prix results</p></div>{seasonRacesCompleted&&<button type="button" onClick={resetSeasonStandings} disabled={resultSaveSaving||resultSaveQueueRef.current.length>0}>Reset standings</button>}</div>
    <div className="standings-grid">
@@ -638,8 +661,8 @@ export function Simulate(){
   <div className="weekend-select">
    <label>Grand Prix<select value={rid} onChange={e=>{setNextRaceNotice('');setR(e.target.value);setWeekendStarted(false);setWeekendComplete(false);setResults({});setRaceState(null);setIsRunning(false);setPhaseIndex(0);setPracticeSubstitutions({})}} disabled={!grid||races.loading}><option value="">Choose a race</option>{races.data?.map(r=><option key={r.id} value={r.id}>R{r.round} · {r.name}</option>)}</select></label>
    <label>Weather<select value={weatherMode} onChange={e=>setWeatherMode(e.target.value)}><option value="dry">Dry</option><option value="variable">Changeable</option><option value="wet">Wet</option></select></label>
-   <button className="btn weekend-start" disabled={!grid||!selectedRace||entries.length<2} onClick={startWeekend}>
-    {weekendStarted?'Restart weekend':'Start race weekend'}
+   <button className="btn weekend-start" disabled={!grid||!selectedRace||entries.length<2||resultSaveSaving||resultSaveQueueRef.current.length>0} onClick={startWeekend}>
+    {resultSaveSaving?'Saving results…':weekendStarted?'Restart weekend':'Start race weekend'}
    </button>
   </div>
   {nextRaceNotice&&<p className="query-status" role="status">{nextRaceNotice}</p>}
@@ -673,7 +696,7 @@ export function Simulate(){
     <button className="btn" onClick={()=>{setWeekendStarted(false);setWeekendComplete(false);setResults({})}}>Return to race selection</button>
    </div>:<>
     <div className="session-header"><div><p className="eyebrow">SESSION {String(phaseIndex+1).padStart(2,'0')}</p>
-     <h3>{PHASE_LABELS[phase]}</h3><p>{phase==='practice'?'Dial in the car before qualifying.':phase==='qualifying'?'Set the starting order for the weekend.':phase==='sprint'?'A short-format race for extra points.':'Choose your race strategy and go racing.'}</p>
+     <h3>{PHASE_LABELS[phase]}</h3><p>{isPractice?'Dial in the car before qualifying.':phase==='qualifying'?'Set the starting order for the weekend.':phase==='sprint'?'A short-format race for extra points.':'Choose your race strategy and go racing.'}</p>
     </div>
      {phaseResult&&(phase!=='race'&&phase!=='sprint'||raceState?.done)&&<button className="btn" onClick={advance}>{phaseIndex===phases.length-1?'Finish weekend':'Continue to '+PHASE_LABELS[phases[phaseIndex+1]]}</button>}
     </div>
@@ -693,7 +716,7 @@ export function Simulate(){
      <label className="strategy-toggle"><input type="checkbox" checked={strategyEnabled} onChange={e=>setStrategyEnabled(e.target.checked)}/><span>Enable custom race strategy</span></label>
      {strategyEnabled&&<div className="strategy-grid">{teams.map(team=>{const strategy={...DEFAULT_STRATEGY,...strategies[team.id]};return <article className="strategy-card" key={team.id} style={{'--team-color':team.color||'#d3202f'}}>
       <strong>{team.name}</strong><label>Tyre compound<select value={strategy.tyre} onChange={e=>setStrategy(team.id,'tyre',e.target.value)}><option value="auto">Automatic strategy</option><option value="soft">Soft · fastest</option><option value="medium">Medium · balanced</option><option value="hard">Hard · durable</option></select></label>
-      <label>Pit stops<select value={strategy.stops} onChange={e=>setStrategy(team.id,'stops',e.target.value==='auto'?'auto':Number(e.target.value))}><option value="auto">Automatic plan</option><option value={0}>No stop · high wear</option><option value={1}>One stop</option><option value={2}>Two stops</option></select></label>
+      <label>Pit stops<select value={mandatoryDryTyreCompounds&&Number(strategy.stops)===0?1:strategy.stops} onChange={e=>setStrategy(team.id,'stops',e.target.value==='auto'?'auto':Number(e.target.value))}><option value="auto">Automatic plan</option><option value={0} disabled={mandatoryDryTyreCompounds}>No stop · high wear{mandatoryDryTyreCompounds?' (unavailable under dry-race rules)':''}</option><option value={1}>One stop</option><option value={2}>Two stops</option></select></label>
      </article>})}</div>}
     </div>}
     {!phaseResult&&<button className="btn run-session" onClick={runPhase}>{isPractice?`Run ${PHASE_LABELS[phase]}`:phase==='sprintQualifying'?'Start sprint qualifying':phase==='qualifying'?'Start qualifying':phase==='sprint'?'Start sprint':'Start Grand Prix'}</button>}
