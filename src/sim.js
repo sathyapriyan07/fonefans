@@ -216,6 +216,7 @@ export function createRaceState({
    penaltyTime:0,retired:false,retirementReason:null,events:[],strategy,
    ratings:rating,positionHistory:[index+1],lapHistory:[],completed:false,
    automaticStrategy:true,manualPitMode:false,pitInstruction:null,pitStatus:'AUTO',
+   boostLap:null,boostReadyLap:1,
    pitState:null,pitLaneProgress:0,lastTrafficSeconds:0,
    lastPitLap:null,retiredProgress:null,
    pendingCompound:null,plannedStopLap:strategy.plannedPitLap,stayOutDeferredLap:null,
@@ -284,14 +285,15 @@ function calculateLap(car,state,lapNumber,weather,trafficSeconds=0){
  const consistency=Math.max(0.35,(101-rating.driverConsistency)/50);
  const variation=normal(paceRng)*0.12*consistency;
  const startDelta=lapNumber===1?(50-rating.starts)*0.012+(50-carRating(rating.c,'traction',['race']))*0.006:0;
- const baseLap=circuit.baselineLap+carDelta+driverDelta+tyreDelta+fuelDelta+trafficSeconds+weatherDelta+damageDelta+mistakeLoss+punctureLoss+failureLoss+variation+startDelta;
+ const boostDelta=car.boostLap===lapNumber?-1:0;
+ const baseLap=circuit.baselineLap+carDelta+driverDelta+tyreDelta+fuelDelta+trafficSeconds+weatherDelta+damageDelta+mistakeLoss+punctureLoss+failureLoss+variation+startDelta+boostDelta;
  const controlDelta=state.raceControl==='safety_car'?circuit.baselineLap*0.22:0;
  const lapTime=Math.max(35,baseLap+controlDelta);
  const weights=[0.31,0.34,0.35];
  const sectors=[lapTime*weights[0],lapTime*weights[1],lapTime*weights[2]];
  sectors[2]=lapTime-sectors[0]-sectors[1];
  return {
-  lapTime,sectors,fuelPerLap,tyreDegradation:degradation,tyreWearIncrease:degradation*100,retire,mechanicalEvent,puncture,
+  lapTime,sectors,fuelPerLap,tyreDegradation:degradation,tyreWearIncrease:degradation*100,retire,mechanicalEvent,puncture,boostUsed:boostDelta<0,
   mistake,damageIncrease:(mistake?0.03:0)+(puncture?0.015:0)+(mechanicalEvent==='suspension_failure'?0.08:mechanicalEvent==='mechanical_problem'?0.025:0),
   tyreHeat:clamp(0.08+circuit.tyreEnergy*0.18+(100-rating.tyreManagement)*0.0008,0,0.5)
  };
@@ -515,6 +517,7 @@ export function advanceRaceLap(previous){
   const tyre=tyreForWeather(weather,car.tyre.compound);
   if(tyre!==car.tyre.compound){car.strategy={...car.strategy,tyre};car.weatherPitNeeded=true;recordEvent(state,'weather_tyre_change_required',lapNumber,car,{compound:tyre})}
   const lapResult=calculateLap(car,state,lapNumber,weather,traffic);
+  if(lapResult.boostUsed)car.boostLap=null;
   car.lap=lapNumber;car.lapsCompleted+=1;car.lastLap=lapResult.lapTime;car.lastSectors=lapResult.sectors;
   car.bestLap=car.bestLap===null?lapResult.lapTime:Math.min(car.bestLap,lapResult.lapTime);
   car.totalTime+=lapResult.lapTime;car.fuelRemaining=Math.max(0,car.fuelRemaining-lapResult.fuelPerLap);
@@ -522,7 +525,7 @@ export function advanceRaceLap(previous){
   car.vehicleStress=clamp(car.vehicleStress+car.damage*0.008+lapResult.tyreWearIncrease*0.00015,0,1);
   car.mileageKm+=state.circuit.lengthKm;
   updateTyre(car,lapResult,weather);
-  car.lapHistory.push({lap:lapNumber,time:lapResult.lapTime,sectors:lapResult.sectors,tyre:car.tyre.compound,tyreAge:car.tyre.age,tyreWear:car.tyre.wear,tyreState:car.tyre.state,fuel:car.fuelRemaining});
+  car.lapHistory.push({lap:lapNumber,time:lapResult.lapTime,sectors:lapResult.sectors,tyre:car.tyre.compound,tyreAge:car.tyre.age,tyreWear:car.tyre.wear,tyreState:car.tyre.state,fuel:car.fuelRemaining,boosted:lapResult.boostUsed});
   if(lapResult.mechanicalEvent){
    recordEvent(state,lapResult.mechanicalEvent,lapNumber,car);
    if(lapResult.retire)retireCar(state,car,lapNumber,lapResult.mechanicalEvent.replaceAll('_',' '));
@@ -582,10 +585,25 @@ export function advanceRaceLap(previous){
 export function advanceRaceIfRunning(state,running){
  return running&&!state.done?advanceRaceLap(state):state;
 }
+export function activateDriverBoost(previous,driverId){
+ if(previous.done)throw new Error('A driver boost cannot be activated after the chequered flag.');
+ const index=previous.cars.findIndex(car=>String(car.driverId)===String(driverId));
+ if(index<0)throw new Error('The selected driver is not in this race.');
+ const selected=previous.cars[index];
+ if(selected.retired||selected.completed)throw new Error('A retired or finished car cannot use a driver boost.');
+ const targetLap=previous.lap+1;
+ if(selected.boostLap!==null&&selected.boostLap!==undefined)throw new Error('This driver already has a boost armed for the next lap.');
+ if(targetLap<(selected.boostReadyLap??1))throw new Error(`Driver boost is cooling down for ${selected.boostReadyLap-targetLap} more lap${selected.boostReadyLap-targetLap===1?'':'s'}.`);
+ const cars=[...previous.cars],car={...selected,boostLap:targetLap,boostReadyLap:targetLap+2};
+ cars[index]=car;
+ return {...previous,cars};
+}
 export function getClassification(state){
  return rankCars(state.cars).map((car,index)=>({
   ...car.entry,position:index+1,pos:index+1,grid:car.gridPosition,gridPosition:car.gridPosition,
-  dnf:car.retired,retired:car.retired,status:car.status,
+  dnf:car.retired,retired:car.retired,completed:car.completed,status:car.status,
+  boostLap:car.boostLap,boostReadyLap:car.boostReadyLap??1,
+  boostCooldownLaps:Math.max(0,(car.boostReadyLap??1)-(state.lap+1)),
   lapsCompleted:car.lapsCompleted,totalTime:car.totalTime,
   bestLap:car.bestLap,lastLap:car.lastLap,lastSectors:car.lastSectors,
   fuelRemaining:car.fuelRemaining,damage:car.damage,tyre:car.tyre,pitStops:car.pitStops,pitHistory:car.pitHistory,

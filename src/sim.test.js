@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {advanceRaceIfRunning,advanceRaceLap,calculateStandings,createRaceState,getClassification,qualify,setPitInstruction,simulateRace,TYRES} from './sim.js';
+import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,calculateStandings,createRaceState,getClassification,qualify,setPitInstruction,simulateRace,TYRES} from './sim.js';
 
 function entry(id,{driver={},car={}}={}){
  return {
@@ -314,4 +314,34 @@ test('pause blocks lap advancement, resume advances once, and same-seed reset is
  assert.equal(resumed.lap,1);
  assert.deepEqual(createRaceState(options),initial);
  assert.equal(advanceRaceIfRunning(resumed,false),resumed);
+});
+
+test('driver boost improves exactly one lap and reports its cooldown',()=>{
+ const options={entries:[entry(1),entry(2,{driver:{speed:10,race:10},car:{speed:10,race:10,performance:10}})],race:{...circuit,laps:8},seed:73,laps:8,strategies:{'team-1':{stops:0},'team-2':{stops:0}}};
+ const regular=advanceRaceLap(createRaceState(options));
+ const armed=activateDriverBoost(createRaceState(options),1);
+ assert.equal(getClassification(armed).find(row=>row.driver.id===1).boostLap,1);
+ const boosted=advanceRaceLap(armed);
+ const boostedCar=boosted.cars.find(car=>car.driverId===1);
+ const regularCar=regular.cars.find(car=>car.driverId===1);
+ assert.ok(Math.abs((regularCar.lastLap-boostedCar.lastLap)-1)<1e-8);
+ assert.equal(boostedCar.lapHistory[0].boosted,true);
+ const classification=getClassification(boosted).find(row=>row.driver.id===1);
+ assert.equal(classification.boostLap,null);
+ assert.equal(classification.boostCooldownLaps,1);
+ assert.throws(()=>activateDriverBoost(boosted,1),/cooling down for 1 more lap/);
+ let recovered=advanceRaceLap(boosted);
+ assert.equal(getClassification(recovered).find(row=>row.driver.id===1).boostCooldownLaps,0);
+ recovered=activateDriverBoost(recovered,1);
+ assert.equal(getClassification(recovered).find(row=>row.driver.id===1).boostLap,3);
+});
+
+test('driver boost rejects unknown, retired, finished, and completed-race targets',()=>{
+ const state=createRaceState({entries:[entry(1),entry(2)],race:circuit,seed:74,laps:1});
+ assert.throws(()=>activateDriverBoost(state,99),/not in this race/);
+ const retired={...state,cars:state.cars.map(car=>car.driverId===1?{...car,retired:true}:car)};
+ assert.throws(()=>activateDriverBoost(retired,1),/retired or finished/);
+ const completed={...state,cars:state.cars.map(car=>car.driverId===1?{...car,completed:true}:car)};
+ assert.throws(()=>activateDriverBoost(completed,1),/retired or finished/);
+ assert.throws(()=>activateDriverBoost({...state,done:true},1),/after the chequered flag/);
 });
