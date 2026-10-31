@@ -327,7 +327,7 @@ export function Results(){
   {activeWeekend&&activeSession&&<div className="results-classification">
    <header className="results-classification-heading"><div><small>{activeWeekend.year} · ROUND {activeWeekend.round||'—'}</small><h3>{activeWeekend.raceName}</h3><span>{sessionLabel(activeSession.session_type)} classification</span></div>{activeWeekend.sessions.some(session=>session.session_type==='sprint')&&<strong className="results-sprint-tag">SPRINT WEEKEND</strong>}</header>
    <nav className="results-session-nav" aria-label={`${activeWeekend.raceName} sessions`}>{activeWeekend.sessions.map(session=><button type="button" key={session.session_type} className={session.session_type===activeSession.session_type?'active':''} aria-current={session.session_type===activeSession.session_type?'true':undefined} onClick={()=>setSelectedSession(session.session_type)}>{sessionLabel(session.session_type)}</button>)}</nav>
-   <div className="scroll results-table-scroll"><table className="race-table results-table"><thead><tr><th>POS</th><th>DRIVER</th><th>GRID</th><th>STATUS</th><th>LAPS</th><th>TIME</th><th>BEST</th><th>PTS</th><th>AWARDS</th><th>IMAGE</th></tr></thead><tbody>
+   <div className="scroll results-table-scroll"><table className="race-table results-table"><thead><tr><th>POS</th><th>DRIVER</th><th>GRID</th><th>STATUS</th><th>LAPS</th><th>TIME</th><th>BEST</th><th>PTS</th><th>AWARDS</th><th></th></tr></thead><tbody>
     {classification.map((row,index)=>{const saved=row.result||{};const driver=saved.driver||row.drivers||{};const team=saved.team||row.teams||{};const gridPosition=saved.gridPosition??saved.grid??'—';const gridNumber=Number(gridPosition);const positionChange=Number.isFinite(gridNumber)?gridNumber-Number(row.position):0;const time=saved.totalTime??row.total_time;const bestLap=saved.bestLap??row.best_lap;return <tr key={`${row.driver_id}-${index}`} className={index===0?'leader':''} style={{'--team-color':team.color||'#d3202f'}}>
      <td className="position-cell"><span className="position-number">{row.position===1?'P1':row.position}</span>{Number.isFinite(gridNumber)&&<span className={`position-change ${positionChange>0?'up':positionChange<0?'down':'same'}`} title={positionChange>0?`${positionChange} place${positionChange===1?'':'s'} gained`:positionChange<0?`${Math.abs(positionChange)} place${positionChange===-1?'':'s'} lost`:'No position change'}>{positionChange>0?'▲':positionChange<0?'▼':'→'}</span>}</td>
      <td><Link className="results-driver-link" to={`/drivers/${driver.id||row.driver_id}`}><span className="driver-result"><span className="team-logo" title={team.name||'Team'}>{team.logo_normal&&<img src={team.logo_normal} alt=""/>}</span><strong>{driver.code||driver.name||'Driver'}</strong></span><small>{driver.name||`Driver #${row.driver_id}`}{saved.substituteFor?` · SUB for ${saved.substituteFor.code||saved.substituteFor.name}`:''}</small></Link></td>
@@ -356,7 +356,7 @@ export function Grids(){const [tick,setT]=useState(0);const g=useQ(()=>sb.from('
  return <><h2>Grids</h2><p className="muted">A grid is a set of driver and car pairings. Create grids in Admin, then fill them here (sign-in required to edit).</p>
  <QueryStatus query={g} empty="No grids yet."/><QueryStatus query={teams} empty="No teams or cars available."/><QueryStatus query={drivers} empty="No drivers available."/>
  {(g.data||[]).map(x=><div key={x.id} className="card wide"><h3>{x.name} <small>{x.year}</small></h3>
- <ul>{(x.grid_entries||[]).map(e=><li key={e.id}>{e.drivers?.name}: {e.teams?.name} <button onClick={()=>del(e.id)}>remove</button></li>)}</ul>
+ <div className="f1-starting-grid">{(x.grid_entries||[]).map((e,i)=><div key={e.id} className={`f1-grid-slot ${i%2===0?'pole-side':'off-side'}`}><span className="f1-grid-pos">P{i+1}</span><span className="f1-grid-driver">{e.drivers?.name}</span><span className="f1-grid-team">{e.teams?.name}</span><button className="f1-grid-remove" onClick={()=>del(e.id)} title="Remove">×</button></div>)}</div>
  <div className="row"><select onChange={e=>setF({...f,driver:e.target.value})}><option value="">Driver</option>{driverRows.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select>
  <select onChange={e=>setF({...f,car:e.target.value})}><option value="">Car</option>{teamRows.flatMap(t=>(t.cars||[]).map(c=><option key={c.id} value={c.id}>{t.name} {c.model} ({c.year})</option>))}</select>
  <button className="btn" onClick={()=>add(x.id)}>Add to grid</button></div></div>)}</>}
@@ -632,7 +632,7 @@ export function Simulate(){
   {!resultSaveSaving&&resultSaveSuccess&&<p className="query-status" role="status">{resultSaveSuccess}</p>}
   {resultSaveError&&<div className="query-status query-error" role="alert"><span>{resultSaveError}{resultSaveNeedsAuth&&<> <a href="/admin" target="_blank" rel="noreferrer">Sign in via Admin</a>, then return here and retry.</>}</span>{resultSaveFailed&&<button type="button" onClick={()=>void saveResults()}>Retry save</button>}</div>}
   {simulationTab==='standings'?grid?<section className="standings-panel">
-   <div className="section-title"><div><h3>{grid.year} season standings</h3><p>Race and sprint points · wins and podiums count Grand Prix results</p></div>{seasonRacesCompleted&&<button type="button" onClick={resetSeasonStandings} disabled={resultSaveSaving||resultSaveQueueRef.current.length>0}>Reset standings</button>}</div>
+   <div className="section-title"><div><h3>{grid.year} season standings</h3><p>Race and sprint points · wins and podiums count Grand Prix results</p></div>{savedSeason.length>0&&<button type="button" className="btn-danger" onClick={resetSeasonStandings} disabled={resultSaveSaving||resultSaveQueueRef.current.length>0}>Reset / Delete results</button>}</div>
    <div className="standings-grid">
     {[['Drivers',seasonStandings.drivers],['Constructors',seasonStandings.teams]].map(([title,rows])=><div key={title}>
      <h4>{title}</h4><div className="scroll"><table><thead><tr><th>POS</th><th>{title==='Drivers'?'DRIVER':'TEAM'}</th><th>PTS</th><th>W</th><th>POD</th></tr></thead>
@@ -763,7 +763,7 @@ export function Simulate(){
      <QueryStatus query={tyreImagesQuery}/>
      <div className="results-panel"><div className="section-title"><h3>Live timing</h3><p>Seed {raceState.seed} · {raceState.done?'Chequered flag':'Simulation in progress'}</p></div>
       {boostFeedback&&<p className="boost-feedback" role="status">{boostFeedback}</p>}
-      <div className="scroll"><table className="race-table live-timing-table"><thead><tr><th>POS</th><th>DRIVER</th><th>GAP</th><th>INT</th><th>LAST</th><th>BEST</th><th>TYRE</th><th>AGE</th><th>WEAR</th><th>GRIP</th><th>PITS</th><th>FUEL</th><th>PIT COMMAND</th><th>STATUS</th><th>BOOST</th><th>IMAGE</th></tr></thead>
+      <div className="scroll"><table className="race-table live-timing-table"><thead><tr><th>POS</th><th>DRIVER</th><th>GAP</th><th>INT</th><th>LAST</th><th>BEST</th><th>TYRE</th><th>AGE</th><th>WEAR</th><th>GRIP</th><th>PITS</th><th>FUEL</th><th>PIT COMMAND</th><th>STATUS</th><th>BOOST</th><th></th></tr></thead>
        <tbody>{phaseResult.map((entry,index)=>{
         const leader=phaseResult[0],ahead=phaseResult[index-1];
         const gap=entry.lapsCompleted<leader.lapsCompleted?`+${leader.lapsCompleted-entry.lapsCompleted} LAP`:index===0?'—':`+${(entry.totalTime-leader.totalTime).toFixed(3)}`;
@@ -810,7 +810,7 @@ export function Simulate(){
     </div>}
     {phaseResult&&phase!=='race'&&phase!=='sprint'&&<div className="results-panel"><div className="section-title"><h3>{PHASE_LABELS[phase]} classification</h3><p>{isPractice?'Practice pace':isQualifying?'Starting grid':'Session results'}</p></div>
      {(isPractice||isQualifying)&&<SessionPodium entries={phaseResult} race={selectedRace} phaseLabel={PHASE_LABELS[phase]} fastestLap={fastestSessionLap}/>}
-     <div className={`scroll ${isPractice?'practice-classification-scroll':''}`}><table className={`race-table session-classification-table ${isPractice?'practice-classification-table':''}`}><thead><tr><th>POS</th><th>DRIVER</th><th>GAP</th><th>BEST LAP</th>{!isPractice&&<th>CAR</th>}<th>IMAGE</th></tr></thead>
+     <div className={`scroll ${isPractice?'practice-classification-scroll':''}`}><table className={`race-table session-classification-table ${isPractice?'practice-classification-table':''}`}><thead><tr><th>POS</th><th>DRIVER</th><th>GAP</th><th>BEST LAP</th>{!isPractice&&<th>CAR</th>}<th></th></tr></thead>
       <tbody>{phaseResult.map((entry,index)=>{
        const gap=Number.isFinite(entry.bestLap)&&Number.isFinite(fastestSessionLap)&&entry.bestLap>fastestSessionLap?`+${(entry.bestLap-fastestSessionLap).toFixed(3)}`:'—';
        return <tr key={`${entry.driver.id}-${index}`} className={index===0?'leader':''}>
