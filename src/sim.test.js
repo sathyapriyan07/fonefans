@@ -26,22 +26,22 @@ test('season standings aggregate sprint and race points with Grand Prix wins and
   {round:2,sprintResults:[{driver:driverB,team:teamB,pos:1,pts:8}],raceResults:[
    {driver:driverA,team:teamA,pos:1,pts:25},
    {driver:driverB,team:teamB,pos:2,pts:18}
-  ]},
+  ],qualifyingResults:[{driver:driverB,team:teamB,position:1,polePosition:true}]},
   {round:1,sprintResults:[{driver:driverA,team:teamA,pos:2,pts:7}],raceResults:[
    {driver:driverB,team:teamB,pos:1,pts:25},
    {driver:driverA,team:teamA,pos:3,pts:15}
-  ]}
+  ],qualifyingResults:[{driver:driverA,team:teamA,position:1,polePosition:true}]}
  ],[
   {driver:driverA,team:teamA},
   {driver:driverB,team:teamB},
   {driver:{id:3,name:'Driver C'},team:{id:'team-c',name:'Team C'}}
  ]);
- assert.deepEqual(standings.drivers.map(row=>[row.id,row.points,row.wins,row.podiums]),[
-  [2,51,1,2],[1,47,1,2],[3,0,0,0]
+ assert.deepEqual(standings.drivers.map(row=>[row.id,row.points,row.wins,row.podiums,row.poles]),[
+  [2,51,1,2,1],[1,47,1,2,1],[3,0,0,0,0]
  ]);
  assert.deepEqual(standings.drivers.map(row=>row.code),['DRB','DRA','']);
- assert.deepEqual(standings.teams.map(row=>[row.id,row.points,row.wins,row.podiums]),[
-  ['team-b',51,1,2],['team-a',47,1,2],['team-c',0,0,0]
+ assert.deepEqual(standings.teams.map(row=>[row.id,row.points,row.wins,row.podiums,row.poles]),[
+  ['team-b',51,1,2,1],['team-a',47,1,2,1],['team-c',0,0,0,0]
  ]);
 });
 

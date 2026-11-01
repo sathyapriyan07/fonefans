@@ -57,7 +57,7 @@ async function loadSeasonResults(gridId) {
   const rows = [];
   for (let offset = 0; ; offset += 1000) {
     const { data, error } = await sb.from('race_results')
-      .select('grid_id,race_id,session_type,position,points,drivers(id,name,code),teams(id,name,logo_normal,color),races(round,name)')
+      .select('grid_id,race_id,session_type,position,points,pole_position,drivers(id,name,code),teams(id,name,logo_normal,color),races(round,name)')
       .eq('grid_id', gridId)
       .order('race_id').order('session_type').order('position').order('driver_id')
       .range(offset, offset + 999);
@@ -328,7 +328,7 @@ export function Team() {
   const lineupSlots = [['driver_1_id', 'Race driver 1'], ['driver_2_id', 'Race driver 2'], ['reserve_driver_id', 'Reserve driver']];
   return <><h2 style={{ borderLeft: '8px solid ' + team.color, paddingLeft: 12 }}>{team.name}</h2>{team.logo_detailed && <img height="80" src={team.logo_detailed} />}
     <section className="team-lineup-history"><h3>Driver lineups</h3><QueryStatus query={lineups} empty="No driver lineups recorded." /><QueryStatus query={drivers} />
-      {lineups.data?.map(lineup => <section className="team-lineup-season" key={lineup.year}><h4>{lineup.year}</h4><div className="grid team-lineup-cards">{lineupSlots.map(([key, label]) => { const driver = lineup[key] ? driverById.get(String(lineup[key])) : null; return driver ? <Link key={key} to={`/drivers/${driver.id}`} className="card driver-card lineup-driver-card">{latestImg(driver, 'pole_url') && <img className="driver-pole-image" src={latestImg(driver, 'pole_url')} alt="" aria-hidden="true" />}<div className="driver-card-copy"><small>{label}</small><h3>{driver.name}</h3><p>{driver.code} #{driver.number}</p></div></Link> : <div key={key} className="card lineup-driver-card lineup-driver-empty"><small>{label}</small><p>Not assigned</p></div> })}</div></section>)}</section>
+      {lineups.data?.map(lineup => <section className="team-lineup-season" key={lineup.year}><h4>{lineup.year}</h4><div className="grid team-lineup-cards">{lineupSlots.map(([key, label]) => { const driver = lineup[key] ? driverById.get(String(lineup[key])) : null; return driver ? <Link key={key} to={`/drivers/${driver.id}`} className="card driver-card lineup-driver-card"><div className="driver-card-copy"><small>{label}</small><h3>{driver.name}</h3></div></Link> : <div key={key} className="card lineup-driver-card lineup-driver-empty"><small>{label}</small><p>Not assigned</p></div> })}</div></section>)}</section>
     <section className="race-history"><div className="section-title"><div><h3>Team achievements</h3><p>Totals calculated from saved results</p></div></div><div className="career-achievements">
       {[
         ['Points', teamCareerStats.points], ['Avg. points / race', Number.isFinite(teamCareerStats.averagePointsPerRace) ? teamCareerStats.averagePointsPerRace.toFixed(1) : '—'],
@@ -427,7 +427,7 @@ function seasonSnapshots(rows = []) {
   for (const row of rows) {
     const key = String(row.race_id), race = events.get(key) || {
       raceId: row.race_id, round: row.races?.round || 0, raceName: row.races?.name || 'Race',
-      raceResults: [], sprintResults: []
+      raceResults: [], sprintResults: [], qualifyingResults: []
     };
     const saved = row.result || {};
     const record = {
@@ -438,6 +438,7 @@ function seasonSnapshots(rows = []) {
     };
     if (row.session_type === 'sprint') race.sprintResults.push(record);
     if (row.session_type === 'race') race.raceResults.push(record);
+    if (row.session_type === 'qualifying') race.qualifyingResults.push({ ...record, polePosition: row.pole_position });
     events.set(key, race);
   }
   return [...events.values()];
@@ -469,6 +470,7 @@ export function Simulate() {
   const [simulationTab, setSimulationTab] = useState('weekend');
   const [weekendStarted, setWeekendStarted] = useState(false); const [weekendComplete, setWeekendComplete] = useState(false);
   const [results, setResults] = useState({}); const [setups, setSetups] = useState({}); const [strategies, setStrategies] = useState({}); const [performanceBoosts, setPerformanceBoosts] = useState({}); const [strategyEnabled, setStrategyEnabled] = useState(false); const [garageSetupEnabled, setGarageSetupEnabled] = useState(false);
+  const [reserveDriversEnabled, setReserveDriversEnabled] = useState(false);
   const [practiceSubstitutions, setPracticeSubstitutions] = useState({});
   const [resultSaveError, setResultSaveError] = useState(''); const [resultSaveFailed, setResultSaveFailed] = useState(false); const [resultSaveSaving, setResultSaveSaving] = useState(false); const [resultSaveNeedsAuth, setResultSaveNeedsAuth] = useState(false); const [resultSaveSuccess, setResultSaveSuccess] = useState('');
   const [raceState, setRaceState] = useState(null); const [isRunning, setIsRunning] = useState(false); const [raceViewTab, setRaceViewTab] = useState('timing'); const [raceTeamAdjustments, setRaceTeamAdjustments] = useState({}); const [simulationSpeed, setSimulationSpeed] = useState(1); const [seed, setSeed] = useState(newSeed); const [weatherMode, setWeatherMode] = useState('dry'); const [selectedDriverId, setSelectedDriverId] = useState(null); const [pitCompound, setPitCompound] = useState('medium'); const [pitLap, setPitLap] = useState(1); const [pitFeedback, setPitFeedback] = useState(''); const [boostFeedback, setBoostFeedback] = useState('');
@@ -492,7 +494,7 @@ export function Simulate() {
     driver: e.drivers, team: e.teams, d: one(e.drivers.driver_ratings) || {}, c: e.cars
   }));
   const performanceEntries = applyTeamPerformanceBoosts(entries, performanceBoosts);
-  const practiceEntries = applyPracticeSubstitutions(performanceEntries, practiceLineups.data || [], reserveDriversQuery.data || [], practiceSubstitutions);
+  const practiceEntries = applyPracticeSubstitutions(performanceEntries, practiceLineups.data || [], reserveDriversQuery.data || [], reserveDriversEnabled ? practiceSubstitutions : {});
   const phases = getWeekendPhases(selectedRace || {});
   const seasonKey = grid ? `${grid.id}:${grid.year}` : '';
   const savedSeason = seasonSnapshots((seasonResultsQuery.data || []).filter(row => String(row.grid_id) === String(grid?.id)));
@@ -709,8 +711,8 @@ export function Simulate() {
       <div className="section-title"><div><h3>{grid.year} season standings</h3><p>Race and sprint points · wins and podiums count Grand Prix results</p></div>{savedSeason.length > 0 && <button type="button" className="btn-danger" onClick={resetSeasonStandings} disabled={resultSaveSaving || resultSaveQueueRef.current.length > 0}>Reset / Delete results</button>}</div>
       <div className="standings-grid">
         {[['Drivers', seasonStandings.drivers], ['Constructors', seasonStandings.teams]].map(([title, rows]) => <div key={title}>
-          <h4>{title}</h4><div className="scroll"><table className="race-table standings-table"><thead><tr><th>POS</th><th>{title === 'Drivers' ? 'DRIVER' : 'TEAM'}</th><th>PTS</th><th>W</th><th>POD</th></tr></thead>
-            <tbody>{rows.map((row, index) => <tr key={row.id} className={index === 0 ? 'leader' : ''}><td className="position-cell"><span className="position-number">{index + 1}</span></td><td>{title === 'Drivers' ? <span className="driver-result"><span className="team-logo">{row.team?.logo_normal && <img src={row.team.logo_normal} alt="" />}</span><strong>{row.code || '—'}</strong></span> : <span className="driver-result"><span className="team-logo">{row.logo_normal && <img src={row.logo_normal} alt="" />}</span><strong>{row.name}</strong></span>}</td><td><strong>{row.points}</strong></td><td>{row.wins}</td><td>{row.podiums}</td></tr>)}</tbody>
+          <h4>{title}</h4><div className="scroll"><table className="race-table standings-table"><thead><tr><th>POS</th><th>{title === 'Drivers' ? 'DRIVER' : 'TEAM'}</th><th>PTS</th><th>W</th><th>POD</th><th>POLE</th></tr></thead>
+            <tbody>{rows.map((row, index) => <tr key={row.id} className={index === 0 ? 'leader' : ''}><td className="position-cell"><span className="position-number">{index + 1}</span></td><td>{title === 'Drivers' ? <span className="driver-result"><span className="team-logo">{row.team?.logo_normal && <img src={row.team.logo_normal} alt="" />}</span><strong>{row.code || '—'}</strong></span> : <span className="driver-result"><span className="team-logo">{row.logo_normal && <img src={row.logo_normal} alt="" />}</span><strong>{row.name}</strong></span>}</td><td><strong>{row.points}</strong></td><td>{row.wins}</td><td>{row.podiums}</td><td>{row.poles}</td></tr>)}</tbody>
           </table></div>
         </div>)}
       </div>
@@ -783,7 +785,9 @@ export function Simulate() {
           </div>
             {phaseResult && (phase !== 'race' && phase !== 'sprint' || raceState?.done) && <button className="btn" onClick={advance}>{phaseIndex === phases.length - 1 ? 'Finish weekend' : 'Continue to ' + PHASE_LABELS[phases[phaseIndex + 1]]}</button>}
           </div>
-          {isPractice && <section className="practice-substitution"><div><h4>Practice-only reserve substitutions</h4><p>Choose which team driver the assigned reserve replaces for practice sessions. Qualifying and races use the original grid.</p></div>
+          {isPractice && <>
+            <label className="strategy-toggle"><input type="checkbox" checked={reserveDriversEnabled} onChange={event => { setReserveDriversEnabled(event.target.checked); if (!event.target.checked) setPracticeSubstitutions({}) }} /><span>Enable reserve drivers</span></label>
+            {reserveDriversEnabled && <section className="practice-substitution"><div><h4>Practice-only reserve substitutions</h4><p>Choose which team driver the assigned reserve replaces for practice sessions. Qualifying and races use the original grid.</p></div>
             <QueryStatus query={practiceLineups} empty="No season lineups found. Assign reserve drivers in Admin to enable substitutions." />
             {practiceLineups.data?.length > 0 && <QueryStatus query={reserveDriversQuery} empty="No assigned reserve drivers are available." />}
             {!practiceLineups.loading && !practiceLineups.error && <div className="practice-substitution-grid">{practiceSubstitutionOptions.map(({ team, lineup, reserve, targetId, reserveAlreadyEntered, drivers: teamDrivers }) => <label className="practice-substitution-card" key={team.id} style={{ '--team-color': team.color || '#d3202f' }}>
@@ -794,7 +798,8 @@ export function Simulate() {
                     : reserveAlreadyEntered ? <span className="practice-substitution-note">{reserve.name} is already entered in this grid</span>
                       : <><span className="practice-substitution-note">Reserve: {reserve.name}</span><select aria-label={`${team.name} practice substitution`} value={targetId} onChange={event => setPracticeSubstitutions(current => ({ ...current, [team.id]: event.target.value }))}><option value="">No substitution</option>{teamDrivers.map(entry => <option key={entry.driver.id} value={entry.driver.id}>{entry.driver.name}</option>)}</select></>}
             </label>)}</div>}
-          </section>}
+            </section>}
+          </>}
           {(phase === 'sprint' || phase === 'race') && <div className="strategy-panel"><div className="section-title"><h3>Race strategy</h3><p>Off by default: the simulator selects each team’s tyre and pit plan automatically.</p></div>
             <label className="strategy-toggle"><input type="checkbox" checked={strategyEnabled} onChange={e => setStrategyEnabled(e.target.checked)} /><span>Enable custom race strategy</span></label>
             {strategyEnabled && <div className="strategy-grid">{teams.map(team => {

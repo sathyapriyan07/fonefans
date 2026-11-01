@@ -1028,7 +1028,7 @@ export function calculateStandings(completedRaces=[],entries=[]){
   const key=String(id??person?.name??'unknown');
   let standing=map.get(key);
   if(!standing){
-   standing={id, name:person?.name||'Unknown',code:person?.code||'',logo_normal:person?.logo_normal,color:person?.color,team,points:0,wins:0,podiums:0};
+   standing={id, name:person?.name||'Unknown',code:person?.code||'',logo_normal:person?.logo_normal,color:person?.color,team,points:0,wins:0,podiums:0,poles:0};
    map.set(key,standing);
   }else{
    if(person?.code)standing.code=person.code;
@@ -1044,6 +1044,12 @@ export function calculateStandings(completedRaces=[],entries=[]){
  }
  const races=[...completedRaces].sort((a,b)=>(Number(a.round)||0)-(Number(b.round)||0));
  for(const race of races){
+  for(const row of race.qualifyingResults||[]){
+   if(!row.polePosition&&Number(row.position??row.pos)!==1)continue;
+   const driver=makeStanding(drivers,row.driver?.id,row.driver,row.team);
+   const team=makeStanding(teams,row.team?.id,row.team,null);
+   driver.poles++;team.poles++;
+  }
   for(const [rows,isGrandPrix] of [[race.sprintResults||[],false],[race.raceResults||[],true]]){
    for(const row of rows){
     const position=Number(row.position??row.pos);
