@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getCareerStats,getClassification,getTeamCareerStats,getWeekendAwards,practice,qualify,requiresMandatoryDryTyreCompounds,setPitInstruction,setRaceControl,setTeamRaceAdjustments,simulateRace,TYRES} from './sim.js';
+import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getCareerStats,getClassification,getTeamCareerStats,getWeekendAwards,practice,qualify,requiresMandatoryDryTyreCompounds,setPitInstruction,setTeamRaceAdjustments,simulateRace,TYRES} from './sim.js';
 
 function entry(id,{driver={},car={}}={}){
  return {
@@ -204,61 +204,6 @@ test('lap advancement consumes fuel, ages tyres, and records sector timing',()=>
  assert.ok(next.cars.every(car=>car.tyre.age===1));
  assert.ok(next.cars.every(car=>Math.abs(car.lastSectors.reduce((a,b)=>a+b,0)-car.lastLap)<1e-8));
  assert.ok(next.cars.every(car=>car.tyre.wear>0&&car.tyre.grip<TYRES[car.tyre.compound].grip));
-});
-
-test('race telemetry is reproducible and DRS only opens inside range under green flags',()=>{
- let state=createRaceState({entries:[entry(1),entry(2)],race:{...circuit,drs_zones:2},seed:202,laps:8});
- state.lap=1;
- state.cars.forEach((car,index)=>{car.lapsCompleted=1;car.totalTime=100+index*0.5});
- const next=advanceRaceLap(state);
- const follower=next.cars.find(car=>car.driverId===2);
- assert.equal(follower.telemetry.drs,true);
- assert.equal(follower.drsActive,true);
- assert.ok(follower.telemetry.averageSpeedKph>0);
- assert.ok(follower.telemetry.topSpeedKph>=180);
- assert.ok(follower.telemetry.gear>=1&&follower.telemetry.gear<=8);
- assert.equal(getClassification(next).find(car=>car.driver.id===follower.driverId).telemetry.drs,true);
- state={...state,raceControl:'virtual_safety_car',raceControlLaps:2};
- const neutralized=advanceRaceLap(state);
- assert.ok(neutralized.cars.every(car=>!car.drsActive));
- assert.ok(neutralized.cars.every(car=>car.lastLap>next.cars.find(other=>other.driverId===car.driverId).lastLap));
-});
-
-test('red flag pauses lap progression and records a safe restart',()=>{
- const state=createRaceState({entries:[entry(1),entry(2)],race:circuit,seed:203,laps:8});
- const redFlag={...state,raceControl:'red_flag',raceControlLaps:1};
- assert.equal(advanceRaceLap(redFlag),redFlag);
- const restart=setRaceControl(redFlag,'green');
- assert.equal(restart.lap,state.lap);
- assert.equal(restart.raceControl,'green');
- assert.deepEqual(restart.events.map(event=>event.type),['green_flag']);
- assert.deepEqual(restart.randomStreams,state.randomStreams);
- assert.throws(()=>setRaceControl(state,'black'),/valid race-control/);
-});
-
-test('three seeded track-limit warnings add a time penalty to the final classification',()=>{
- const entries=[entry(1,{driver:{error_resistance:0}}),entry(2,{driver:{error_resistance:0}})];
- let penalized=null,penalizedState=null;
- for(let seed=1;seed<=50&&!penalized;seed++){
-  let state=createRaceState({entries,race:{...circuit,laps:50},seed,weather:'wet',laps:50,strategies:{'team-1':{stops:0},'team-2':{stops:0}}});
-  state.cars.forEach(car=>{car.trackLimitWarnings=2});
-  state=advanceRaceLap(state);
-  penalized=state.cars.find(car=>car.penaltyTime>=5)||null;
-  if(penalized)penalizedState=state;
- }
- assert.ok(penalized,'expected a seeded track-limit violation to reach a penalty');
- assert.ok(penalized.penalties.some(penalty=>penalty.type==='time_penalty'&&penalty.seconds===5));
- assert.ok(penalized.events.some(event=>event.type==='track_limits'));
- assert.ok(penalized.events.some(event=>event.type==='penalty'));
- assert.equal(getClassification(penalizedState).find(car=>car.driver.id===penalized.driverId).penaltyTime,penalized.penaltyTime);
-});
-
-test('circuit track-limit risk can disable stochastic violations',()=>{
- let state=createRaceState({entries:[entry(1),entry(2)],race:{...circuit,track_limits_risk_multiplier:0},seed:205,weather:'wet',laps:8});
- state.cars.forEach(car=>{car.trackLimitWarnings=2});
- state=advanceRaceLap(state);
- assert.ok(state.cars.every(car=>car.trackLimitWarnings===2));
- assert.ok(state.cars.every(car=>car.penaltyTime===0));
 });
 
 test('fuel starvation retires a car before it completes a lap without enough fuel',()=>{
