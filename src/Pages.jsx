@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'; import { Link, useParams } from 'react-router-dom';
-import { sb } from './supabase.js'; import { activateDriverBoost, advanceRaceIfRunning, advanceRaceLap, applyPracticeSubstitutions, applyTeamPerformanceBoosts, calculateStandings, calculateTeammateHeadToHead, createRaceState, getBestCareerPositions, getCareerStats, getClassification, getTeamCareerStats, getWeekendAwards, getWeekendPhases, practice, qualify, requiresMandatoryDryTyreCompounds, setPitInstruction, setTeamRaceAdjustments } from './sim.js';
+import { sb } from './supabase.js'; import { activateDriverBoost, advanceRaceIfRunning, advanceRaceLap, applyPracticeSubstitutions, applyTeamPerformanceBoosts, calculateStandings, calculateTeammateHeadToHead, createRaceState, ENGINE_VERSION, getBestCareerPositions, getCareerStats, getClassification, getTeamCareerStats, getWeekendAwards, getWeekendPhases, practice, qualify, requiresMandatoryDryTyreCompounds, setPitInstruction, setRaceControl, setTeamRaceAdjustments } from './sim.js';
 function useQ(fn, deps = []) {
   const [query, setQuery] = useState({ data: null, loading: true, error: null });
   const [attempt, setAttempt] = useState(0);
@@ -146,7 +146,7 @@ const one = x => Array.isArray(x) ? x[0] : x;
 const FALLBACK_TRACK = 'M22 72 33 32 68 20 92 35 127 21 155 38 148 66 164 82 133 94 105 81 77 94 49 81 22 72Z';
 function LiveTrack({ state, selectedDriverId, onSelect }) {
   const pathRef = useRef(null), pitPathRef = useRef(null), displayedRef = useRef([]), frameRef = useRef(null);
-  const [points, setPoints] = useState([]), [filter, setFilter] = useState('all');
+  const [points, setPoints] = useState([]), [sectors, setSectors] = useState([]), [filter, setFilter] = useState('all');
   const path = state.circuit.trackPath || FALLBACK_TRACK;
   useEffect(() => {
     const element = pathRef.current;
@@ -155,11 +155,15 @@ function LiveTrack({ state, selectedDriverId, onSelect }) {
     try {
       const length = element.getTotalLength();
       const pitLength = pitPath.getTotalLength();
+      setSectors([0.17, 0.5, 0.83].map((fraction, index) => {
+        const point = element.getPointAtLength(length * fraction);
+        return { x: point.x, y: point.y, label: `SECTOR ${index + 1}` };
+      }));
       const targets = length > 0 ? state.cars.map(car => {
         const retired = car.retired, progress = retired ? (car.retiredProgress ?? car.trackProgress) : car.trackProgress;
         const inPit = Boolean(car.pitState?.complete && car.pitState.entryLap === state.lap);
         const point = inPit ? pitPath.getPointAtLength(pitLength * car.pitState.progress) : element.getPointAtLength(length * progress);
-        return { id: car.driverId, x: point.x, y: point.y, color: car.entry.team?.color || '#d3202f', name: car.entry.driver?.name || 'Driver', retired, inPit, pitProgress: inPit ? car.pitState.progress : 0, progress, position: car.position, lap: car.lapsCompleted, pitState: car.pitState, pitStatus: car.pitStatus, retirementReason: car.retirementReason };
+        return { id: car.driverId, x: point.x, y: point.y, color: car.entry.team?.color || '#d3202f', name: car.entry.driver?.name || 'Driver', code: car.entry.driver?.code || car.entry.driver?.name?.trim().split(/\s+/).pop()?.slice(0, 3).toUpperCase() || 'DRV', retired, inPit, pitProgress: inPit ? car.pitState.progress : 0, progress, position: car.position, lap: car.lapsCompleted, pitState: car.pitState, pitStatus: car.pitStatus, retirementReason: car.retirementReason };
       }) : [];
       const from = displayedRef.current.length ? displayedRef.current : targets.map(point => ({ ...point }));
       if (frameRef.current) cancelAnimationFrame(frameRef.current);
@@ -188,11 +192,28 @@ function LiveTrack({ state, selectedDriverId, onSelect }) {
   const selected = points.find(point => String(point.id) === String(selectedDriverId));
   return <div className="live-track-panel"><div className="section-title"><div><h3>Live track</h3><p>{state.circuit.trackPath ? 'Admin-defined layout' : 'Illustrative schematic — not geographic'}</p></div>
     <div className="track-controls" role="group" aria-label="Track marker filter">{[['all', 'All'], ['active', 'Racing'], ['retired', 'Retired']].map(([key, label]) => <button key={key} className={filter === key ? 'active' : ''} onClick={() => setFilter(key)}>{label}</button>)}</div></div>
-    <svg className="live-track" viewBox="0 0 180 110" role="img" aria-label="Live track position display">
-      <path ref={pathRef} d={path} fill="none" stroke="currentColor" strokeWidth="6" strokeLinejoin="round" strokeLinecap="round" />
-      <path ref={pitPathRef} d="M 18 105 L 162 105" fill="none" stroke="#777" strokeWidth="2" strokeDasharray="4 3" />
-      <text x="18" y="101" fontSize="4" fill="currentColor">PIT LANE</text>
-      {visible.map(point => <circle key={point.id} cx={point.x} cy={point.y} r={String(point.id) === String(selectedDriverId) ? 4.5 : 3.2} fill={point.retired ? '#777' : point.color} stroke="white" strokeWidth="1.5" role="button" tabIndex="0" aria-label={`${point.name}${point.retired ? ` retired at lap ${point.lap}` : point.inPit ? ' in pit lane' : ''}`} onClick={() => onSelect(point.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') onSelect(point.id) }}><title>{point.name}{point.retired ? ` · retired at lap ${point.lap} · ${point.retirementReason}` : point.inPit ? ` · pit lane ${point.pitState.phase}` : ''}</title></circle>)}
+    <svg className="live-track" viewBox="0 0 180 110" role="group" aria-label="Animated live track position display">
+      <defs><filter id="live-track-glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="1.8" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter></defs>
+      <path className="live-track-road-edge" d={path} />
+      <path className="live-track-road" d={path} />
+      <path className="live-track-centerline" d={path} />
+      <path ref={pathRef} d={path} fill="none" stroke="transparent" strokeWidth="1" />
+      <path ref={pitPathRef} d="M 18 105 L 162 105" fill="none" stroke="#687078" strokeWidth="1.4" strokeDasharray="3 2" />
+      <text className="live-track-pit-label" x="18" y="101">PIT LANE</text>
+      {sectors.map(sector => <text key={sector.label} className="live-track-sector" x={sector.x} y={sector.y}>{sector.label}</text>)}
+      {visible.map(point => {
+        const isSelected = String(point.id) === String(selectedDriverId);
+        const anchor = point.x > 90 ? 'end' : 'start';
+        const labelX = point.x + (anchor === 'end' ? -3.2 : 3.2);
+        const labelY = point.y + (point.position % 2 === 0 ? 3.8 : -3.1);
+        const color = point.retired ? '#858b92' : point.color;
+        return <g key={point.id} className={`live-track-marker${isSelected ? ' selected' : ''}${point.retired ? ' retired' : ''}`} role="button" tabIndex="0" aria-label={`${point.name}, P${point.position}${point.retired ? `, retired at lap ${point.lap}` : point.inPit ? ' in pit lane' : ''}`} onClick={() => onSelect(point.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') onSelect(point.id) }}>
+          <title>{point.name}{point.retired ? ` · retired at lap ${point.lap} · ${point.retirementReason}` : point.inPit ? ` · pit lane ${point.pitState.phase}` : ''}</title>
+          <circle className="live-track-marker-glow" cx={point.x} cy={point.y} r={isSelected ? 5 : 4} fill={color} />
+          <circle className="live-track-marker-dot" cx={point.x} cy={point.y} r={isSelected ? 2.6 : 2.1} fill={color} />
+          <text className="live-track-driver-label" x={labelX} y={labelY} textAnchor={anchor}>{point.code}</text>
+        </g>;
+      })}
     </svg>
     {selected && <div className="track-selected" aria-live="polite"><strong>{selected.name}</strong><span>P{selected.position} · Lap {selected.lap}</span><span>{selected.retired ? `Retired: ${selected.retirementReason} (lap ${selected.lap})` : selected.inPit ? `Pit lane · ${selected.pitState.phase} ${Math.round(selected.pitState.progress * 100)}%` : selected.pitStatus}</span><span>{Math.round(selected.progress * 100)}% track progress</span></div>}
   </div>
@@ -422,6 +443,38 @@ const DEFAULT_SETUP = { aero: 50, suspension: 50, tyreCare: 50 };
 const DEFAULT_STRATEGY = { tyre: 'auto', stops: 'auto' };
 const newSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 const formatTime = seconds => Number.isFinite(seconds) ? `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(3).padStart(6, '0')}` : '—';
+const formatRaceClock = seconds => {
+  const safeSeconds = Math.max(0, Number(seconds) || 0);
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${(safeSeconds % 60).toFixed(1).padStart(4, '0')}`;
+};
+const SIMULATION_STORAGE_KEY = 'fonefans-live-simulation';
+function readSimulationSnapshot() {
+  try {
+    const snapshot = JSON.parse(window.sessionStorage.getItem(SIMULATION_STORAGE_KEY) || 'null');
+    return snapshot?.engineVersion === ENGINE_VERSION && snapshot.raceState?.engineVersion === ENGINE_VERSION ? snapshot : null;
+  } catch (error) {
+    console.error('Could not restore the saved live simulation:', error);
+    return null;
+  }
+}
+function LapPerformanceChart({ car, teammate }) {
+  const rows = car.lapHistory.slice(-12);
+  if (!rows.length) return <p className="muted">Lap chart appears after the first completed lap.</p>;
+  const comparison = teammate?.lapHistory.slice(-12) || [];
+  const times = [...rows, ...comparison].map(lap => lap.time);
+  const min = Math.min(...times), max = Math.max(...times), spread = Math.max(0.1, max - min);
+  const point = (lap, index, length) => `${length === 1 ? 50 : index / (length - 1) * 100},${35 - ((lap.time - min) / spread) * 28}`;
+  return <div className="lap-chart-wrap">
+    <svg className="lap-chart" viewBox="0 0 100 40" role="img" aria-label={`${car.entry.driver.name} lap times${teammate ? ` compared with ${teammate.entry.driver.name}` : ''}`}>
+      <line x1="0" x2="100" y1="35" y2="35" />
+      <polyline className="lap-chart-driver" points={rows.map((lap, index) => point(lap, index, rows.length)).join(' ')} />
+      {comparison.length > 0 && <polyline className="lap-chart-teammate" points={comparison.map((lap, index) => point(lap, index, comparison.length)).join(' ')} />}
+    </svg>
+    <div className="lap-chart-legend"><span>{car.entry.driver.code || car.entry.driver.name}</span>{teammate && <span>{teammate.entry.driver.code || teammate.entry.driver.name}</span>}<small>Last {rows.length} laps · lower is faster</small></div>
+  </div>;
+}
 function seasonSnapshots(rows = []) {
   const events = new Map();
   for (const row of rows) {
@@ -465,17 +518,20 @@ function groupRaceWeekends(rows = []) {
   })).sort((a, b) => b.year - a.year || b.round - a.round);
 }
 export function Simulate() {
+  const [restoreSnapshot] = useState(readSimulationSnapshot);
   const grids = useQ(() => sb.from('grids').select('id,name,year').order('year', { ascending: false }));
-  const [gid, setG] = useState(''); const [rid, setR] = useState(''); const [phaseIndex, setPhaseIndex] = useState(0);
+  const [gid, setG] = useState(restoreSnapshot?.gid || ''); const [rid, setR] = useState(restoreSnapshot?.rid || ''); const [phaseIndex, setPhaseIndex] = useState(restoreSnapshot?.phaseIndex || 0);
   const [simulationTab, setSimulationTab] = useState('weekend');
-  const [weekendStarted, setWeekendStarted] = useState(false); const [weekendComplete, setWeekendComplete] = useState(false);
-  const [results, setResults] = useState({}); const [setups, setSetups] = useState({}); const [strategies, setStrategies] = useState({}); const [performanceBoosts, setPerformanceBoosts] = useState({}); const [strategyEnabled, setStrategyEnabled] = useState(false); const [garageSetupEnabled, setGarageSetupEnabled] = useState(false);
+  const [weekendStarted, setWeekendStarted] = useState(Boolean(restoreSnapshot?.weekendStarted)); const [weekendComplete, setWeekendComplete] = useState(Boolean(restoreSnapshot?.weekendComplete));
+  const [results, setResults] = useState(restoreSnapshot?.results || {}); const [setups, setSetups] = useState({}); const [strategies, setStrategies] = useState({}); const [performanceBoosts, setPerformanceBoosts] = useState({}); const [strategyEnabled, setStrategyEnabled] = useState(false); const [garageSetupEnabled, setGarageSetupEnabled] = useState(false);
   const [reserveDriversEnabled, setReserveDriversEnabled] = useState(false);
   const [practiceSubstitutions, setPracticeSubstitutions] = useState({});
   const [resultSaveError, setResultSaveError] = useState(''); const [resultSaveFailed, setResultSaveFailed] = useState(false); const [resultSaveSaving, setResultSaveSaving] = useState(false); const [resultSaveNeedsAuth, setResultSaveNeedsAuth] = useState(false); const [resultSaveSuccess, setResultSaveSuccess] = useState('');
-  const [raceState, setRaceState] = useState(null); const [isRunning, setIsRunning] = useState(false); const [raceViewTab, setRaceViewTab] = useState('timing'); const [raceTeamAdjustments, setRaceTeamAdjustments] = useState({}); const [simulationSpeed, setSimulationSpeed] = useState(1); const [seed, setSeed] = useState(newSeed); const [weatherMode, setWeatherMode] = useState('dry'); const [selectedDriverId, setSelectedDriverId] = useState(null); const [pitCompound, setPitCompound] = useState('medium'); const [pitLap, setPitLap] = useState(1); const [pitFeedback, setPitFeedback] = useState(''); const [boostFeedback, setBoostFeedback] = useState('');
+  const [raceState, setRaceState] = useState(restoreSnapshot?.raceState || null); const [isRunning, setIsRunning] = useState(false); const [raceViewTab, setRaceViewTab] = useState('timing'); const [raceTeamAdjustments, setRaceTeamAdjustments] = useState(restoreSnapshot?.raceTeamAdjustments || {}); const [simulationSpeed, setSimulationSpeed] = useState(restoreSnapshot?.simulationSpeed || 1); const [seed, setSeed] = useState(restoreSnapshot?.seed ?? newSeed); const [weatherMode, setWeatherMode] = useState(restoreSnapshot?.weatherMode || 'dry'); const [selectedDriverId, setSelectedDriverId] = useState(null); const [pitCompound, setPitCompound] = useState('medium'); const [pitLap, setPitLap] = useState(1); const [pitFeedback, setPitFeedback] = useState(''); const [boostFeedback, setBoostFeedback] = useState('');
+  const [restoredPaused, setRestoredPaused] = useState(Boolean(restoreSnapshot?.raceState && !restoreSnapshot.raceState.done));
   const [nextRaceNotice, setNextRaceNotice] = useState('');
   const completedRaceRef = useRef(null);
+  const restoredSessionRef = useRef(false);
   const resultSaveQueueRef = useRef([]);
   const resultSaveInFlightRef = useRef(false);
   const activeSetups = garageSetupEnabled ? setups : {};
@@ -506,6 +562,7 @@ export function Simulate() {
   const racePhase = phase === 'sprint' ? 'sprint' : phase === 'race' ? 'race' : null;
   const phaseResult = results[phase] || ((racePhase && raceState?.format === racePhase) ? getClassification(raceState) : null);
   const fastestSessionLap = phaseResult ? Math.min(...phaseResult.map(entry => entry.bestLap).filter(Number.isFinite)) : Infinity;
+  const fastestSectors = [0, 1, 2].map(sector => Math.min(...(phaseResult || []).flatMap(entry => (entry.lapHistory || []).map(lap => lap.sectors?.[sector]).filter(Number.isFinite))));
   const selectedCar = raceState?.cars.find(car => String(car.driverId) === String(selectedDriverId));
   const teams = [...new Map(entries.map(e => [e.team.id, e.team])).values()];
   const practiceSubstitutionOptions = teams.map(team => {
@@ -582,7 +639,32 @@ export function Simulate() {
     if (simulationTab !== 'weekend' || !grid || races.loading || seasonResultsQuery.loading || rid || !races.data) return;
     if (upcomingRace) selectRace(upcomingRace.id);
   }, [simulationTab, grid?.id, races.loading, races.data, seasonResultsQuery.loading, seasonResultsQuery.data, rid]);
-  useEffect(() => { setR(''); setWeekendStarted(false); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setRaceState(null); setIsRunning(false); setPracticeSubstitutions({}) }, [gid]);
+  useEffect(() => {
+    if (!restoredSessionRef.current && restoreSnapshot?.gid === gid && restoreSnapshot?.weekendStarted) {
+      restoredSessionRef.current = true;
+      return;
+    }
+    setR(''); setWeekendStarted(false); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setRaceState(null); setIsRunning(false); setPracticeSubstitutions({});
+  }, [gid]);
+  useEffect(() => {
+    if (!gid || !rid || !weekendStarted || !raceState) {
+      try { window.sessionStorage.removeItem(SIMULATION_STORAGE_KEY) }
+      catch (error) { console.error('Could not clear the saved live simulation:', error) }
+      return;
+    }
+    try {
+      window.sessionStorage.setItem(SIMULATION_STORAGE_KEY, JSON.stringify({
+        engineVersion: ENGINE_VERSION, gid, rid, phaseIndex, weekendStarted, weekendComplete,
+        results, raceState, raceTeamAdjustments, simulationSpeed, seed, weatherMode
+      }));
+    } catch (error) { console.error('Could not save the live simulation for refresh recovery:', error) }
+  }, [gid, rid, phaseIndex, weekendStarted, weekendComplete, results, raceState, raceTeamAdjustments, simulationSpeed, seed, weatherMode]);
+  useEffect(() => {
+    if (!selectedDriverId) return undefined;
+    const closeOnEscape = event => { if (event.key === 'Escape') setSelectedDriverId(null) };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [selectedDriverId]);
   useEffect(() => {
     if (!isRunning || !raceState || raceState.done) return;
     const timer = window.setInterval(() => setRaceState(current => current ? advanceRaceIfRunning(current, true) : current), Math.max(100, 1000 / simulationSpeed));
@@ -612,7 +694,7 @@ export function Simulate() {
       setResultSaveError('Wait for queued results to save, or retry the pending save, before restarting the weekend.');
       return;
     }
-    setNextRaceNotice(''); setResultSaveError(''); setResultSaveFailed(false); setResultSaveNeedsAuth(false); setResultSaveSuccess(''); setBoostFeedback(''); setWeekendStarted(true); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setRaceState(null); setSeed(newSeed())
+    setNextRaceNotice(''); setResultSaveError(''); setResultSaveFailed(false); setResultSaveNeedsAuth(false); setResultSaveSuccess(''); setBoostFeedback(''); setRestoredPaused(false); setWeekendStarted(true); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setRaceState(null); setSeed(newSeed())
   };
   const resetSeasonStandings = async () => {
     if (!grid || !window.confirm(`Delete all saved simulated results for ${grid.name} (${grid.year}) from Supabase? This cannot be undone.`)) return;
@@ -644,7 +726,7 @@ export function Simulate() {
         entries: applyTeamPerformanceBoosts(startRows, performanceBoosts), race: selectedRace, seed, format: isSprint ? 'sprint' : 'race',
         strategies: strategyEnabled ? strategies : {}, setups: activeSetups, weather: weatherMode, laps: isSprint ? Math.max(1, Math.round(raceLaps * 0.32)) : raceLaps
       });
-      setRaceState(state); setRaceViewTab('timing'); setRaceTeamAdjustments({}); setBoostFeedback(''); setIsRunning(true); setWeekendComplete(false);
+      setRaceState(state); setRaceViewTab('timing'); setRaceTeamAdjustments({}); setBoostFeedback(''); setRestoredPaused(false); setIsRunning(true); setWeekendComplete(false);
       return;
     }
     let rows;
@@ -707,6 +789,7 @@ export function Simulate() {
     {resultSaveSaving && <p className="query-status" role="status">Saving {resultSaveQueueRef.current[0]?.sessionLabel || 'session'} results to Supabase…</p>}
     {!resultSaveSaving && resultSaveSuccess && <p className="query-status" role="status">{resultSaveSuccess}</p>}
     {resultSaveError && <div className="query-status query-error" role="alert"><span>{resultSaveError}{resultSaveNeedsAuth && <> <a href="/admin" target="_blank" rel="noreferrer">Sign in via Admin</a>, then return here and retry.</>}</span>{resultSaveFailed && <button type="button" onClick={() => void saveResults()}>Retry save</button>}</div>}
+    {restoredPaused && raceState && <p className="query-status" role="status">Live race restored from this tab’s saved session and paused safely. Press Resume to continue.</p>}
     {simulationTab === 'standings' ? grid ? <section className="standings-panel">
       <div className="section-title"><div><h3>{grid.year} season standings</h3><p>Race and sprint points · wins and podiums count Grand Prix results</p></div>{savedSeason.length > 0 && <button type="button" className="btn-danger" onClick={resetSeasonStandings} disabled={resultSaveSaving || resultSaveQueueRef.current.length > 0}>Reset / Delete results</button>}</div>
       <div className="standings-grid">
@@ -812,12 +895,13 @@ export function Simulate() {
           {!phaseResult && <button className="btn run-session" onClick={runPhase}>{isPractice ? `Run ${PHASE_LABELS[phase]}` : phase === 'sprintQualifying' ? 'Start sprint qualifying' : phase === 'qualifying' ? 'Start qualifying' : phase === 'sprint' ? 'Start sprint' : 'Start Grand Prix'}</button>}
           {phaseResult && (phase === 'race' || phase === 'sprint') && raceState && <div className="race-live">
             <div className="race-status">
-              <div><span className="eyebrow">{raceState.format === 'sprint' ? 'SPRINT' : 'GRAND PRIX'}</span><strong>LAP {raceState.lap} / {raceState.totalLaps}</strong></div>
-              <div className={`control-state ${raceState.raceControl === 'safety_car' ? 'yellow' : ''}`}>{raceState.raceControl === 'safety_car' ? 'SAFETY CAR' : 'GREEN FLAG'}</div>
-              <div><span className="eyebrow">TRACK</span><strong>{raceState.weather.wetness >= 0.65 ? 'WET' : raceState.weather.wetness >= 0.3 ? 'DAMP' : 'DRY'}</strong></div>
+              <div><span className="eyebrow">{raceState.format === 'sprint' ? 'SPRINT' : 'GRAND PRIX'} · {PHASE_LABELS[phase]}</span><strong>LAP {raceState.lap} / {raceState.totalLaps}</strong></div>
+              <div className={`control-state flag-${raceState.raceControl}`}>{raceState.raceControl === 'green' ? 'GREEN FLAG' : `${raceState.raceControl.replaceAll('_', ' ').toUpperCase()} FLAG`}</div>
+              <div><span className="eyebrow">WEATHER</span><strong>{raceState.weather.wetness >= 0.65 ? 'WET' : raceState.weather.wetness >= 0.3 ? 'DAMP' : 'DRY'} · {raceState.weather.trackTemperature.toFixed(0)}°C</strong></div>
+              <div><span className="eyebrow">ELAPSED</span><strong>{formatRaceClock(raceState.elapsedSeconds)}</strong></div>
             </div>
             <div className="race-controls">
-              {!raceState.done && <button onClick={() => setIsRunning(value => !value)}>{isRunning ? 'Pause' : 'Resume'}</button>}
+              {!raceState.done && <button onClick={() => { setIsRunning(value => !value); setRestoredPaused(false) }}>{isRunning ? 'Pause' : 'Resume'}</button>}
               <button onClick={() => { setIsRunning(false); setRaceState(current => current && !current.done ? advanceRaceLap(current) : current) }} disabled={isRunning || raceState.done}>Advance one lap</button>
               <label>Speed<select value={simulationSpeed} onChange={e => setSimulationSpeed(Number(e.target.value))}><option value={0.5}>0.5×</option><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option><option value={10}>10×</option></select></label>
               <button onClick={() => { const restartSource = phase === 'sprint' ? 'sprintQualifying' : phase === 'race' && selectedRace?.sprint_affects_grand_prix_grid ? 'sprint' : 'qualifying'; const restartEntries = results[restartSource]?.map((entry, index) => ({ ...entry, grid: restartSource === 'sprint' ? (entry.position || entry.pos || index + 1) : entry.grid })); if (!restartEntries?.length) return alert(`Complete ${PHASE_LABELS[restartSource] || restartSource} before restarting.`); setIsRunning(false); let restarted = createRaceState({ entries: applyTeamPerformanceBoosts(restartEntries, performanceBoosts), race: selectedRace, seed, format: phase === 'sprint' ? 'sprint' : 'race', strategies: strategyEnabled ? strategies : {}, setups: activeSetups, weather: weatherMode, laps: phase === 'sprint' ? Math.max(1, Math.round((Number(selectedRace.laps) || 57) * 0.32)) : Number(selectedRace.laps) || 57 }); Object.entries(raceTeamAdjustments).forEach(([teamId, adjustments]) => { restarted = setTeamRaceAdjustments(restarted, teamId, adjustments) }); setRaceState(restarted); setRaceViewTab('timing'); setIsRunning(true) }}>Restart same seed</button>
@@ -847,12 +931,14 @@ export function Simulate() {
               <QueryStatus query={tyreImagesQuery} />
               <div className="results-panel"><div className="section-title"><h3>Live timing</h3><p>Seed {raceState.seed} · {raceState.done ? 'Chequered flag' : 'Simulation in progress'}</p></div>
                 {boostFeedback && <p className="boost-feedback" role="status">{boostFeedback}</p>}
-                <div className="scroll"><table className="race-table live-timing-table"><thead><tr><th>POS</th><th>DRIVER</th><th>GAP</th><th>INT</th><th>LAST</th><th>BEST</th><th>TYRE</th><th>AGE</th><th>WEAR</th><th>GRIP</th><th>PITS</th><th>FUEL</th><th>PIT COMMAND</th><th>STATUS</th><th>BOOST</th><th></th></tr></thead>
+                <div className="scroll timing-scroll"><table className="race-table live-timing-table"><thead><tr><th>POS</th><th>DRIVER</th><th>TEAM</th><th>GAP</th><th>INT</th><th>S1</th><th>S2</th><th>S3</th><th>LAST</th><th>BEST</th><th>TYRE</th><th>AGE</th><th>DRS</th><th>PIT / STATUS</th><th>BOOST</th></tr></thead>
                   <tbody>{phaseResult.map((entry, index) => {
                     const leader = phaseResult[0], ahead = phaseResult[index - 1];
                     const gap = entry.lapsCompleted < leader.lapsCompleted ? `+${leader.lapsCompleted - entry.lapsCompleted} LAP` : index === 0 ? '—' : `+${(entry.totalTime - leader.totalTime).toFixed(3)}`;
                     const interval = index === 0 ? '—' : entry.lapsCompleted < ahead.lapsCompleted ? `+${ahead.lapsCompleted - entry.lapsCompleted} LAP` : `+${(entry.totalTime - ahead.totalTime).toFixed(3)}`;
-                    return <tr key={`${entry.driver.id}-${index}`} className={index === 0 ? 'leader' : ''}>
+                    const teamColor = entry.team.color || '#d3202f';
+                    const portrait = driverGridImage(entry.driver, selectedRace?.year);
+                    return <tr key={`${entry.driver.id}-${index}`} className={`${index === 0 ? 'leader' : ''}${entry.bestLap === fastestSessionLap ? ' fastest-lap-row' : ''}`} style={{ '--team-color': teamColor }}>
                       <td className="position-cell"><span className="position-number">{entry.retired ? 'RET' : index + 1}</span>{(() => {
                         const change = (entry.gridPosition ?? entry.grid ?? index + 1) - (index + 1);
                         const direction = change > 0 ? 'up' : change < 0 ? 'down' : 'same';
@@ -860,20 +946,39 @@ export function Simulate() {
                         const description = change > 0 ? `${change} place${change === 1 ? '' : 's'} gained` : change < 0 ? `${Math.abs(change)} place${change === -1 ? '' : 's'} lost` : 'no position change';
                         return <span className={`position-change ${direction}`} aria-label={description} title={description}>{symbol}</span>;
                       })()}</td>
-                      <td><button className="driver-select" onClick={() => setSelectedDriverId(entry.driver.id)}><span className="driver-result"><span className="team-logo">{entry.team.logo_normal && <img src={entry.team.logo_normal} alt={`${entry.team.name} logo`} />}</span><strong>{entry.driver.code || entry.driver.name.trim().split(/\s+/).pop()?.toUpperCase()}</strong></span></button></td>
-                      <td>{gap}</td><td>{interval}</td><td>{formatTime(entry.lastLap)}</td><td>{formatTime(entry.bestLap)}</td>
-                      <td className="tyre-compound-cell">{entry.tyre?.compound && tyreImages[entry.tyre.compound] ? <img className="tyre-compound-image" src={tyreImages[entry.tyre.compound]} alt={entry.tyre.compound} title={entry.tyre.compound} /> : entry.tyre?.compound?.toUpperCase() || '—'}</td><td>{entry.tyre?.age ?? '—'}</td><td>{entry.tyre?.wear?.toFixed(0) ?? '—'}%</td><td>{entry.tyre?.state?.toUpperCase() || '—'}</td><td>{entry.pitStops}</td><td>{entry.retired ? '—' : `${entry.fuelRemaining.toFixed(1)} kg`}</td><td>{entry.pitInstruction ? `${entry.pitInstruction.mode.toUpperCase()} · LAP ${entry.pitInstruction.targetLap}` : entry.pitStatus}</td><td>{entry.retired ? `RETIRED · L${entry.retirementLap}` : entry.status}</td>
+                      <td><button className="driver-select" onClick={() => setSelectedDriverId(entry.driver.id)}><span className="driver-result timing-driver">{portrait && <img className="timing-driver-portrait" src={portrait} alt="" />}<strong>{entry.driver.code || entry.driver.name.trim().split(/\s+/).pop()?.toUpperCase()}</strong></span></button></td>
+                      <td className="timing-team"><span className="team-color-swatch" />{entry.team.name}</td>
+                      <td>{gap}</td><td>{interval}</td>
+                      {[0, 1, 2].map(sector => {
+                        const sectorTime = entry.lastSectors?.[sector];
+                        const personalBest = Number.isFinite(sectorTime) && sectorTime === Math.min(...(entry.lapHistory || []).map(lap => lap.sectors?.[sector]).filter(Number.isFinite));
+                        const fastest = Number.isFinite(sectorTime) && sectorTime === fastestSectors[sector];
+                        return <td key={`s${sector + 1}`} className={fastest ? 'timing-fastest' : personalBest ? 'timing-personal-best' : ''}>{formatTime(sectorTime)}</td>;
+                      })}
+                      <td className={entry.lastLap === entry.bestLap ? 'timing-personal-best' : ''}>{formatTime(entry.lastLap)}</td><td className={entry.bestLap === fastestSessionLap ? 'timing-fastest' : ''}>{formatTime(entry.bestLap)}</td>
+                      <td className="tyre-compound-cell">{entry.tyre?.compound && tyreImages[entry.tyre.compound] ? <img className="tyre-compound-image" src={tyreImages[entry.tyre.compound]} alt={entry.tyre.compound} title={entry.tyre.compound} /> : entry.tyre?.compound?.toUpperCase() || '—'}<small>{entry.tyre?.wear?.toFixed(0) ?? '0'}%</small></td>
+                      <td>{entry.tyre?.age ?? '—'}</td><td className={entry.drsActive ? 'drs-active' : ''}>{entry.drsActive ? 'OPEN' : '—'}</td>
+                      <td className="timing-pit-status">{entry.pitInstruction ? `${entry.pitInstruction.mode.toUpperCase()} · LAP ${entry.pitInstruction.targetLap}` : entry.retired ? `RETIRED · L${entry.retirementLap}` : `${entry.pitStatus || entry.status}${entry.plannedPitLap ? ` · BOX L${entry.plannedPitLap}` : ''}`}</td>
                       <td><button className={`driver-boost ${entry.boostLap != null ? 'armed' : ''}`} onClick={() => issueDriverBoost(entry.driver.id)} disabled={raceState.done || entry.retired || entry.completed || entry.boostLap != null || entry.boostCooldownLaps > 0} title={entry.boostLap != null ? `Boost armed for lap ${entry.boostLap}` : entry.boostCooldownLaps > 0 ? `Available in ${entry.boostCooldownLaps} laps` : 'Boost pace for the next lap'}>{entry.boostLap != null ? 'ARMED' : entry.boostCooldownLaps > 0 ? `${entry.boostCooldownLaps}L` : 'BOOST'}</button></td>
-                      <td className="driver-grid-image-cell">{driverGridImage(entry.driver, selectedRace?.year) && <img className="driver-grid-image" src={driverGridImage(entry.driver, selectedRace?.year)} alt={`${entry.driver.name} grid image`} />}</td>
                     </tr>
                   })}</tbody></table></div>
               </div>
-              {!!raceState.events.length && <div className="race-events"><h3>Race control</h3>{raceState.events.slice(-6).reverse().map((event, index) => <p key={`${event.type}-${event.lap}-${index}`}><strong>L{event.lap}</strong> · {event.type.replaceAll('_', ' ')}{event.reason ? ` — ${event.reason}` : ''}</p>)}</div>}
-              {selectedCar && <div className="driver-telemetry">
-                <div className="section-title"><h3>{selectedCar.entry.driver.name} · Car telemetry</h3><button onClick={() => setSelectedDriverId(null)}>Close</button></div>
+              <details className="race-events race-control-panel"><summary><strong>Race control & event timeline</strong><span>{(raceState.eventHistory || raceState.events).length} race event{(raceState.eventHistory || raceState.events).length === 1 ? '' : 's'} · {raceState.raceControl.replaceAll('_', ' ')}</span></summary><div className="race-control-actions">{[['green', 'GREEN'], ['yellow', 'YELLOW'], ['virtual_safety_car', 'VSC'], ['safety_car', 'SAFETY CAR'], ['red_flag', 'RED FLAG']].map(([control, label]) => <button key={control} type="button" className={raceState.raceControl === control ? 'active' : ''} disabled={raceState.done || raceState.raceControl === control} onClick={() => { setIsRunning(false); setRaceState(current => current ? setRaceControl(current, control) : current) }}>{label}</button>)}</div>{(raceState.eventHistory || raceState.events).slice().reverse().slice(0, 40).map((event, index) => <p key={`${event.type}-${event.lap}-${index}`}><strong>L{event.lap}</strong> · {event.type.replaceAll('_', ' ')}{event.reason ? ` — ${event.reason}` : ''}{event.seconds ? ` · +${event.seconds}s` : ''}</p>)}</details>
+              <details className="race-strategy-panel"><summary>Strategy & race notes</summary><p>Track {raceState.circuit.lengthKm.toFixed(2)} km · {raceState.circuit.drsZones} DRS zone{raceState.circuit.drsZones === 1 ? '' : 's'} · {raceState.cars.filter(car => !car.retired).length} active cars</p><p>Weather evolves each lap; pit windows react to tyre wear, strategy, and wet-weather crossovers. Select a driver to compare stint pace and queue a stop.</p></details>
+              {selectedCar && <><button type="button" className="telemetry-scrim" aria-label="Close driver telemetry" onClick={() => setSelectedDriverId(null)} /><aside className="driver-telemetry" role="dialog" aria-modal="true" aria-labelledby="selected-driver-heading">
+                <div className="section-title"><h3 id="selected-driver-heading">{selectedCar.entry.driver.name} · Car telemetry</h3><button onClick={() => setSelectedDriverId(null)}>Close</button></div>
                 <div className="telemetry-facts"><span>Fuel <strong>{selectedCar.fuelRemaining.toFixed(1)} kg</strong></span><span>Damage <strong>{(selectedCar.damage * 100).toFixed(0)}%</strong></span><span>Tyre <strong>{selectedCar.tyre.compound.toUpperCase()} · {selectedCar.tyre.age} laps</strong></span><span>Wear / grip <strong>{selectedCar.tyre.wear.toFixed(1)}% · {(selectedCar.tyre.grip * 100).toFixed(0)}%</strong></span><span>Tyre status <strong>{selectedCar.tyre.state.toUpperCase()} · {selectedCar.tyre.remainingCompetitiveLaps?.toFixed(1) ?? '—'} laps to limit</strong></span><span>Pit stops <strong>{selectedCar.pitStops}</strong></span><span>Position <strong>P{selectedCar.position} ({selectedCar.positionHistory[0] >= selectedCar.position ? '+' + (selectedCar.positionHistory[0] - selectedCar.position) : selectedCar.position - selectedCar.positionHistory[0]} places)</strong></span><span>Command <strong>{selectedCar.pitStatus}</strong></span>{selectedCar.mechanicalFault && <span>Vehicle fault <strong>{selectedCar.mechanicalFault.replaceAll('_', ' ')}</strong></span>}{selectedCar.retired && <span>Retirement <strong>Lap {selectedCar.retirementLap} · {selectedCar.retirementReason}</strong></span>}</div>
-                <div className="pit-command">
-                  <strong>Driver-specific pit command</strong>
+                <div className="telemetry-dashboard">{[
+                  ['AVG SPEED', `${selectedCar.telemetry?.averageSpeedKph?.toFixed(0) ?? '—'} km/h`],
+                  ['TOP SPEED', `${selectedCar.telemetry?.topSpeedKph?.toFixed(0) ?? '—'} km/h`],
+                  ['THROTTLE', `${selectedCar.telemetry?.throttle?.toFixed(0) ?? '—'}%`],
+                  ['BRAKE', `${selectedCar.telemetry?.brake?.toFixed(0) ?? '—'}%`],
+                  ['GEAR / RPM', `${selectedCar.telemetry?.gear ?? '—'} · ${selectedCar.telemetry?.rpm?.toLocaleString() ?? '—'}`],
+                  ['DRS', selectedCar.drsActive ? 'ACTIVE' : 'INACTIVE']
+                ].map(([label, value]) => <div key={label}><small>{label}</small><strong>{value}</strong></div>)}</div>
+                <LapPerformanceChart car={selectedCar} teammate={raceState.cars.find(car => String(car.teamId) === String(selectedCar.teamId) && String(car.driverId) !== String(selectedCar.driverId))} />
+                <details className="pit-command">
+                  <summary>Driver-specific pit strategy</summary>
                   <small>Manual pit plans suppress automatic stops until executed. “Stay out” defers a planned stop one lap; weather and puncture emergencies can force an earlier stop.</small>
                   <label>Next-stop compound<select value={pitCompound} onChange={event => setPitCompound(event.target.value)}>{['soft', 'medium', 'hard', 'intermediate', 'wet'].map(compound => <option key={compound} value={compound}>{compound.toUpperCase()}</option>)}</select></label>
                   <label>Planned pit lap<input type="number" min={raceState.lap + 1} max={raceState.totalLaps - 1} value={pitLap} onChange={event => setPitLap(Number(event.target.value))} /></label>
@@ -885,12 +990,12 @@ export function Simulate() {
                   <button onClick={() => issuePitCommand('auto')} disabled={selectedCar.retired || selectedCar.completed || raceState.done}>Automatic strategy</button>
                   <button onClick={() => issuePitCommand('cancel')} disabled={selectedCar.retired || selectedCar.completed || raceState.done}>Cancel queued instruction</button>
                   {pitFeedback && <span role="status">{pitFeedback}</span>}
-                </div>
+                </details>
                 <div className="telemetry-columns"><div><h4>Recent laps</h4>{selectedCar.lapHistory.slice(-8).reverse().map(lap => <p key={lap.lap}>Lap {lap.lap}: {formatTime(lap.time)} · {lap.tyre.toUpperCase()} ({lap.tyreAge}) · {lap.fuel.toFixed(1)} kg</p>)}</div>
                   <div><h4>Pit history</h4>{selectedCar.pitHistory.length ? selectedCar.pitHistory.map((pit, index) => <p key={`${pit.lap}-${index}`}>Lap {pit.lap}: {pit.from.toUpperCase()} → {pit.to.toUpperCase()} · +{pit.timeLoss.toFixed(1)} sec ({pit.stages.map(stage => `${stage.phase.replaceAll('_', ' ')} ${stage.seconds.toFixed(1)}s`).join(' → ')})</p>) : <p>No pit stops recorded.</p>}
                     <h4>Incidents</h4>{selectedCar.events.filter(event => event.type !== 'overtake' && event.type !== 'attack_defended').length ? selectedCar.events.filter(event => event.type !== 'overtake' && event.type !== 'attack_defended').map((event, index) => <p key={`${event.type}-${index}`}>Lap {event.lap}: {event.type.replaceAll('_', ' ')}</p>) : <p>No incidents recorded.</p>}</div>
                 </div>
-              </div>}
+              </aside></>}
             </>}
           </div>}
           {phaseResult && phase !== 'race' && phase !== 'sprint' && <div className="results-panel"><div className="section-title"><h3>{PHASE_LABELS[phase]} classification</h3><p>{isPractice ? 'Practice pace' : isQualifying ? 'Starting grid' : 'Session results'}</p></div>

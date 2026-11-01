@@ -60,6 +60,7 @@ function makeCircuit(race={}){
   drsZones:Math.max(0,Number(race.drs_zones??(Number(race.year)<2011?0:2))),
   wearMultiplier:Number(race.tyre_wear_multiplier)>0?Number(race.tyre_wear_multiplier):1,
   punctureRisk:Number(race.puncture_risk_multiplier)>0?Number(race.puncture_risk_multiplier):1,
+  trackLimitRisk:Number.isFinite(Number(race.track_limits_risk_multiplier))?Math.max(0,Number(race.track_limits_risk_multiplier)):1,
   overheatingThreshold:Number(race.tyre_overheating_threshold)>0?Number(race.tyre_overheating_threshold):105,
   trackPath:typeof race.circuit_path==='string'?race.circuit_path:'',
   geometrySource:race.geometry_source||'schematic'
@@ -298,7 +299,7 @@ export function createRaceState({
  });
  return {
   engineVersion:ENGINE_VERSION,seed,totalLaps,lap:0,format,done:false,
-  circuit,weather:initialWeather,raceControl:'green',cars,events:[],
+  circuit,weather:initialWeather,raceControl:'green',raceControlLaps:0,elapsedSeconds:0,cars,events:[],eventHistory:[],
   randomStreams:createStreams(seed),rules:effectiveRules,
   tyreConfig:{...TYRE_DEFAULTS,wearMultiplier:circuit.wearMultiplier,punctureRisk:circuit.punctureRisk,overheatingThreshold:circuit.overheatingThreshold,...tyreConfig},
   createdAt:null
@@ -316,7 +317,7 @@ function weatherForLap(state){
  weather.trackTemperature=clamp(weather.trackTemperature+weather.intensity*0.5-0.3,10,60);
  return weather;
 }
-function calculateLap(car,state,lapNumber,weather,trafficSeconds=0){
+function calculateLap(car,state,lapNumber,weather,trafficSeconds=0,drsActive=false){
  const {circuit}=state,rating=car.ratings,compound=car.tyre.compound;
  const tyreModel=TYRES[compound]||TYRES.medium;
  const requiredFuel=fuelPerLap(circuit,rating);
@@ -358,14 +359,26 @@ function calculateLap(car,state,lapNumber,weather,trafficSeconds=0){
  const variation=normal(paceRng)*0.12*consistency;
  const startDelta=lapNumber===1?(50-rating.starts)*0.012+(50-carRating(rating.c,'traction',['race']))*0.006:0;
  const boostDelta=car.boostLap===lapNumber?-1:0;
- const baseLap=circuit.baselineLap+carDelta+driverDelta+tyreDelta+fuelDelta+trafficSeconds+weatherDelta+damageDelta+mistakeLoss+punctureLoss+failureLoss+variation+startDelta+boostDelta;
- const controlDelta=state.raceControl==='safety_car'?circuit.baselineLap*0.22:0;
+ const drsDelta=drsActive?-(0.08+rating.drs*0.001):0;
+ const baseLap=circuit.baselineLap+carDelta+driverDelta+tyreDelta+fuelDelta+trafficSeconds+weatherDelta+damageDelta+mistakeLoss+punctureLoss+failureLoss+variation+startDelta+boostDelta+drsDelta;
+ const controlMultiplier={safety_car:0.22,virtual_safety_car:0.12,yellow:0.07}[state.raceControl]||0;
+ const controlDelta=circuit.baselineLap*controlMultiplier;
  const lapTime=Math.max(35,baseLap+controlDelta);
  const weights=[0.31,0.34,0.35];
  const sectors=[lapTime*weights[0],lapTime*weights[1],lapTime*weights[2]];
  sectors[2]=lapTime-sectors[0]-sectors[1];
+ const averageSpeedKph=circuit.lengthKm/lapTime*3600;
+ const telemetry={
+  averageSpeedKph,
+  topSpeedKph:clamp(240+rating.carSpeed*0.55+circuit.straightImportance*22-circuit.downforce*14,180,370),
+  throttle:clamp(94-weather.wetness*12-trafficSeconds*5-car.tyre.overheating*4,30,100),
+  brake:clamp(12+circuit.highSpeed*10+circuit.braking*8+weather.wetness*10,8,50),
+  gear:clamp(Math.round(averageSpeedKph/42),1,8),
+  rpm:Math.round(clamp(8500+averageSpeedKph*14,8500,15000)),
+  drs:drsActive
+ };
  return {
-  lapTime,sectors,fuelPerLap:requiredFuel,tyreDegradation:degradation,tyreWearIncrease:degradation*Math.pow(age+1,0.16)*100,retire,mechanicalEvent,puncture,boostUsed:boostDelta<0,
+  lapTime,sectors,telemetry,fuelPerLap:requiredFuel,tyreDegradation:degradation,tyreWearIncrease:degradation*Math.pow(age+1,0.16)*100,retire,mechanicalEvent,puncture,boostUsed:boostDelta<0,drsActive,
   mistake,damageIncrease:(mistake?0.03:0)+(puncture?0.015:0)+(mechanicalEvent==='suspension_failure'?0.08:mechanicalEvent==='mechanical_problem'?0.025:0),
   tyreHeat:clamp(0.08+circuit.tyreEnergy*0.18+(100-rating.tyreManagement)*0.0008,0,0.5)
  };
@@ -420,6 +433,7 @@ function pitDecision(car,state,lapNumber,trafficSeconds){
 function recordEvent(state,type,lap,car,details={}){
  const event={type,lap,driverId:car?.driverId??null,teamId:car?.teamId??null,...details};
  state.events.push(event);
+ if(state.eventHistory)state.eventHistory.push(event);
  if(car)car.events.push(event);
 }
 function retireCar(state,car,lapNumber,reason){
@@ -429,7 +443,7 @@ function retireCar(state,car,lapNumber,reason){
  recordEvent(state,'retirement',lapNumber,car,{reason});
 }
 function attemptPasses(state,cars,lapNumber){
- if(state.raceControl==='safety_car')return;
+ if(state.raceControl!=='green')return;
  const rng=stream(state,'racecraft');
  for(let index=1;index<cars.length;index++){
   const order=[...cars].sort((a,b)=>a.position-b.position);
@@ -440,7 +454,7 @@ function attemptPasses(state,cars,lapNumber){
   const advantage=leader.lastLap-follower.lastLap;
   if(advantage<=0)continue;
   const rating=follower.ratings;
-  const drs=state.circuit.drsZones>0&&previousGap<=1?Math.max(0,rating.drs-50)*0.0015+0.12:0;
+  const drs=state.circuit.drsZones>0&&previousGap<=1&&state.raceControl==='green'?Math.max(0,rating.drs-50)*0.0015+0.12:0;
   const chance=clamp(0.12+advantage*0.12+drs+(rating.overtaking-leader.ratings.defence)*0.002-state.circuit.overtakingDifficulty*0.1,0.03,0.78);
   if(rng.next()<chance){
    const currentGap=follower.totalTime-leader.totalTime;
@@ -577,8 +591,9 @@ function handlePit(car,state,lapNumber,teamStops,decision){
 }
 export function advanceRaceLap(previous){
  if(previous.done)return previous;
+ if(previous.raceControl==='red_flag')return previous;
  const state={
-  ...previous,lap:previous.lap+1,events:[],randomStreams:{...previous.randomStreams},
+  ...previous,lap:previous.lap+1,events:[],eventHistory:[...(previous.eventHistory||[])],randomStreams:{...previous.randomStreams},
   weather:{...previous.weather},cars:previous.cars.map(car=>({
    ...car,tyre:{...car.tyre},pitState:null,
    pitStatus:car.lastPitLap!==null&&car.lastPitLap<previous.lap+1&&car.pitStatus.startsWith('PIT EXIT')?'AUTO':car.pitStatus,
@@ -588,8 +603,9 @@ export function advanceRaceLap(previous){
  };
  const lapNumber=state.lap,weather=weatherForLap(state);
  state.weather=weather;
- const underSafetyCar=previous.raceControl==='safety_car';
- state.raceControl=underSafetyCar?'safety_car':'green';
+ const activeRaceControl=previous.raceControl!=='green';
+ state.raceControl=activeRaceControl&&previous.raceControlLaps>1?previous.raceControl:'green';
+ state.raceControlLaps=activeRaceControl?Math.max(0,previous.raceControlLaps-1):0;
  const active=state.cars.filter(car=>!car.retired&&!car.completed);
  const results=new Map();
  for(const car of [...active].sort((a,b)=>stableId(a.entry).localeCompare(stableId(b.entry)))){
@@ -598,7 +614,7 @@ export function advanceRaceLap(previous){
    retireCar(state,car,lapNumber,'fuel starvation');
    continue;
   }
-  const leader=state.cars.find(other=>other.position===car.position-1);
+  const leader=previous.cars.find(other=>other.position===car.position-1);
   let traffic=0;
   if(leader&&!leader.retired&&car.lapsCompleted===leader.lapsCompleted){
    const gap=car.totalTime-leader.totalTime;
@@ -607,16 +623,19 @@ export function advanceRaceLap(previous){
   car.lastTrafficSeconds=traffic;
   const tyre=tyreForWeather(weather,car.tyre.compound);
   if(tyre!==car.tyre.compound){car.strategy={...car.strategy,tyre};car.weatherPitNeeded=true;recordEvent(state,'weather_tyre_change_required',lapNumber,car,{compound:tyre})}
-  const lapResult=calculateLap(car,state,lapNumber,weather,traffic);
+  const drsActive=lapNumber>1&&state.circuit.drsZones>0&&state.raceControl==='green'&&leader&&!leader.retired&&car.lapsCompleted===leader.lapsCompleted&&car.totalTime-leader.totalTime<=1;
+  const lapResult=calculateLap(car,state,lapNumber,weather,traffic,drsActive);
   if(lapResult.boostUsed)car.boostLap=null;
   car.lap=lapNumber;car.lapsCompleted+=1;car.lastLap=lapResult.lapTime;car.lastSectors=lapResult.sectors;
   car.bestLap=car.bestLap===null?lapResult.lapTime:Math.min(car.bestLap,lapResult.lapTime);
   car.totalTime+=lapResult.lapTime;car.fuelRemaining=Math.max(0,car.fuelRemaining-lapResult.fuelPerLap);
+  car.telemetry=lapResult.telemetry;
+  car.drsActive=lapResult.drsActive;
   car.damage=clamp(car.damage+lapResult.damageIncrease,0,1);
   car.vehicleStress=clamp(car.vehicleStress+car.damage*0.008+lapResult.tyreWearIncrease*0.00015,0,1);
   car.mileageKm+=state.circuit.lengthKm;
   updateTyre(car,lapResult,weather);
-  car.lapHistory.push({lap:lapNumber,time:lapResult.lapTime,sectors:lapResult.sectors,tyre:car.tyre.compound,tyreAge:car.tyre.age,tyreWear:car.tyre.wear,tyreState:car.tyre.state,fuel:car.fuelRemaining,boosted:lapResult.boostUsed});
+  car.lapHistory.push({lap:lapNumber,time:lapResult.lapTime,sectors:lapResult.sectors,tyre:car.tyre.compound,tyreAge:car.tyre.age,tyreWear:car.tyre.wear,tyreState:car.tyre.state,fuel:car.fuelRemaining,boosted:lapResult.boostUsed,drs:lapResult.drsActive,telemetry:lapResult.telemetry});
   if(lapResult.mechanicalEvent){
    recordEvent(state,lapResult.mechanicalEvent,lapNumber,car);
    if(lapResult.retire)retireCar(state,car,lapNumber,lapResult.mechanicalEvent.replaceAll('_',' '));
@@ -624,6 +643,16 @@ export function advanceRaceLap(previous){
   }
   if(lapResult.puncture){recordEvent(state,'puncture',lapNumber,car,{wear:car.tyre.wear});car.weatherPitNeeded=true}
   if(lapResult.mistake){recordEvent(state,'driver_mistake',lapNumber,car,{timeLoss:lapResult.lapTime})}
+  const trackLimitChance=(0.004+(100-car.ratings.errorResistance)*0.00035+weather.wetness*0.012)*state.circuit.trackLimitRisk;
+  if(stream(state,'mistakes').next()<trackLimitChance){
+   car.trackLimitWarnings=(car.trackLimitWarnings||0)+1;
+   recordEvent(state,'track_limits',lapNumber,car,{warnings:car.trackLimitWarnings});
+   if(car.trackLimitWarnings%3===0){
+    car.penaltyTime=(car.penaltyTime||0)+5;
+    car.penalties=[...(car.penalties||[]),{lap:lapNumber,type:'time_penalty',seconds:5,reason:'three track-limit violations'}];
+    recordEvent(state,'penalty',lapNumber,car,{seconds:5,reason:'three track-limit violations'});
+   }
+  }
   if(!car.retired&&car.damage>=0.98){
    recordEvent(state,'terminal_damage',lapNumber,car,{damage:car.damage});
    retireCar(state,car,lapNumber,'terminal damage');
@@ -636,10 +665,25 @@ export function advanceRaceLap(previous){
   const decision=pitDecision(car,state,lapNumber,car.lastTrafficSeconds||0);
   if(decision&&!car.retired){car.lastPitReason=decision.reason;handlePit(car,state,lapNumber,teamStops,decision)}
  }
- const incident=state.events.some(event=>['retirement','driver_mistake','mechanical_problem'].includes(event.type));
- const deployed=incident&&stream(state,'racecraft').next()<0.22;
- if(deployed){state.raceControl='safety_car';recordEvent(state,'safety_car',lapNumber,null,{cause:'track incident'})}
- else if(underSafetyCar){state.raceControl='green';recordEvent(state,'safety_car_ended',lapNumber,null)}
+ const incident=state.events.some(event=>['retirement','driver_mistake','mechanical_problem','puncture'].includes(event.type));
+ if(incident&&!activeRaceControl){
+  const deployment=stream(state,'racecraft').next();
+  const severe=state.events.some(event=>['retirement','puncture'].includes(event.type));
+  if(severe&&deployment<0.015){
+   state.raceControl='red_flag';state.raceControlLaps=2;
+   recordEvent(state,'red_flag',lapNumber,null,{cause:'severe track incident'});
+  }else if(deployment<0.12){
+   state.raceControl='safety_car';state.raceControlLaps=2;
+   recordEvent(state,'safety_car',lapNumber,null,{cause:'track incident'});
+  }else if(deployment<0.42){
+   state.raceControl='virtual_safety_car';state.raceControlLaps=2;
+   recordEvent(state,'virtual_safety_car',lapNumber,null,{cause:'track incident'});
+  }else if(deployment<0.72){
+   state.raceControl='yellow';state.raceControlLaps=2;
+   recordEvent(state,'yellow_flag',lapNumber,null,{cause:'track incident'});
+  }
+ }
+ if(activeRaceControl&&state.raceControl==='green')recordEvent(state,`${previous.raceControl}_ended`,lapNumber,null);
  attemptPasses(state,state.cars,lapNumber);
  const ranked=rankCars(state.cars);
  const leader=ranked.find(car=>!car.retired&&!car.completed);
@@ -667,10 +711,26 @@ export function advanceRaceLap(previous){
   car.positionHistory.push(car.position);
   if(car.retired)car.status='Retired';
   else if(car.completed)car.status='Finished';
-  else car.status=state.raceControl==='safety_car'?'Safety Car':'Running';
+  else car.status=state.raceControl==='green'?'Running':state.raceControl.replaceAll('_',' ').toUpperCase();
   return car;
  });
  state.done=state.cars.every(car=>car.completed||car.retired);
+ state.elapsedSeconds=Math.max(0,...state.cars.map(car=>car.totalTime));
+ return state;
+}
+export function setRaceControl(previous,control,durationLaps=2){
+ const allowed=['green','safety_car','virtual_safety_car','yellow','red_flag'];
+ if(!allowed.includes(control))throw new Error('Choose a valid race-control state.');
+ if(previous.done)throw new Error('Race control cannot be changed after the chequered flag.');
+ const state={
+  ...previous,
+  raceControl:control,
+  raceControlLaps:control==='green'||control==='red_flag'?0:Math.max(1,Math.floor(Number(durationLaps)||1)),
+  events:[],
+  eventHistory:[...(previous.eventHistory||[])],
+  cars:previous.cars.map(car=>({...car,events:[...car.events]}))
+ };
+ recordEvent(state,control==='green'?'green_flag':'race_control_deployed',previous.lap,null,{control,durationLaps:control==='red_flag'?null:state.raceControlLaps});
  return state;
 }
 export function advanceRaceIfRunning(state,running){
@@ -727,6 +787,7 @@ export function getClassification(state){
   teamRaceAdjustments:car.teamRaceAdjustments,
   lapsCompleted:car.lapsCompleted,totalTime:car.totalTime,
   bestLap:car.bestLap,lastLap:car.lastLap,lastSectors:car.lastSectors,
+  telemetry:car.telemetry,drsActive:Boolean(car.drsActive),trackLimitWarnings:car.trackLimitWarnings||0,penaltyTime:car.penaltyTime||0,plannedPitLap:car.plannedStopLap||null,
   fuelRemaining:car.fuelRemaining,damage:car.damage,tyre:car.tyre,pitStops:car.pitStops,pitHistory:car.pitHistory,
   lapHistory:car.lapHistory,positionHistory:car.positionHistory,strategy:car.strategy,
   mechanicalFault:car.mechanicalFault,mileageKm:car.mileageKm,vehicleStress:car.vehicleStress,
