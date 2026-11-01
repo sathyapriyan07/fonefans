@@ -275,14 +275,24 @@ export function Driver() {
         </section>
         <div className="driver-gallery">{years.map(year => <section className="driver-gallery-year" key={year}><h3>{year}</h3><div className="driver-gallery-grid">{images.filter(image => image.year === year).flatMap(image => ['pole_url', 'grid_url', 'card_url'].filter(key => image[key]).map(key => <figure key={`${image.id}-${key}`}><img src={image[key]} alt={`${driver.name} ${imageLabels[key]}, ${year}`} /><figcaption>{imageLabels[key]}</figcaption></figure>))}</div></section>)}</div></div></div></>
 }
-const CarCard = ({ c, sub, teamLogo, teamName }) => <div className="card">{c.image_url && <img src={c.image_url} />}<h3>{c.model} <small>{c.year}</small></h3><p className="car-sub">{teamLogo && <img className="car-team-logo" src={teamLogo} alt={`${teamName || 'Team'} logo`} />}{sub}</p>{CAR.map(k => <Bar key={k} l={k} v={c[k]} />)}</div>;
+const CarCard = ({ c, sub, teamLogo, teamName }) => <details className="card car-card">
+  <summary className={`car-card-summary ${c.image_url ? 'has-image' : ''}`}>
+    {c.image_url && <img className="car-card-image" src={c.image_url} alt="" />}
+    <span className="car-card-title"><strong>{c.model}</strong><small>{c.year}</small></span>
+    {(teamLogo || teamName || sub) && <span className="car-card-team">{teamLogo && <img src={teamLogo} alt="" />}{teamName || sub}</span>}
+  </summary>
+  <div className="car-card-details">
+    {teamName && sub && <p className="car-card-engine">{sub}</p>}
+    {CAR.map(k => <Bar key={k} l={k} v={c[k]} />)}
+  </div>
+</details>;
 export function Cars() {
   const c = useQ(() => sb.from('cars').select('*,teams(name,logo_normal)').order('year', { ascending: false }));
   return <><h2>Cars</h2><QueryStatus query={c} empty="No cars yet." /><div className="grid">{c.data?.map(x => <CarCard key={x.id} c={x} teamLogo={x.teams?.logo_normal} teamName={x.teams?.name} sub={x.engine || ''} />)}</div></>
 }
 export function Teams() {
   const t = useQ(() => sb.from('teams').select('*').order('name'));
-  return <><h2>Teams</h2><QueryStatus query={t} empty="No teams yet." /><div className="grid">{t.data?.map(x => <Link key={x.id} to={'/teams/' + x.id} className="card team-card" style={{ borderTop: '6px solid ' + x.color }}><h3>{x.name}</h3>{x.logo_normal && <img src={x.logo_normal} alt={`${x.name} logo`} />}</Link>)}</div></>
+  return <><h2>Teams</h2><QueryStatus query={t} empty="No teams yet." /><div className="grid team-grid">{t.data?.map(x => <Link key={x.id} to={'/teams/' + x.id} className="card team-card" style={{ borderTop: '4px solid ' + x.color }}><h3>{x.name}</h3>{x.logo_normal && <img src={x.logo_normal} alt={`${x.name} logo`} />}</Link>)}</div></>
 }
 export function Team() {
   const { id } = useParams(); const t = useQ(() => sb.from('teams').select('*,cars(*)').eq('id', id).single(), [id]);
@@ -324,7 +334,7 @@ export function Team() {
         </div>
       </details>)}</div>}
     </section>
-    <QueryStatus query={{ ...t, data: team.cars || [] }} empty="No cars registered for this team." /><div className="grid">{[...(team.cars || [])].sort((a, b) => b.year - a.year).map(c => <CarCard key={c.id} c={c} sub={c.engine} />)}</div></>
+    <QueryStatus query={{ ...t, data: team.cars || [] }} empty="No cars registered for this team." /><div className="grid">{[...(team.cars || [])].sort((a, b) => b.year - a.year).map(c => <CarCard key={c.id} c={c} sub={c.engine} teamLogo={team.logo_normal} teamName={team.name} />)}</div></>
 }
 export function Races() {
   const r = useQ(() => sb.from('races').select('*').order('year', { ascending: false }).order('round'));
@@ -429,7 +439,7 @@ function groupRaceWeekends(rows = []) {
     const key = `${row.grid_id}:${row.race_id}`;
     let weekend = weekends.get(key);
     if (!weekend) {
-      weekend = { key, year: Number(row.races?.year || row.grids?.year) || 0, round: Number(row.races?.round) || 0, raceName: row.races?.name || 'Race', sessions: new Map(), pointsTotal: 0 };
+      weekend = { key, raceId: row.race_id, year: Number(row.races?.year || row.grids?.year) || 0, round: Number(row.races?.round) || 0, raceName: row.races?.name || 'Race', sessions: new Map(), pointsTotal: 0 };
       weekends.set(key, weekend);
     }
     const session = weekend.sessions.get(row.session_type) || [];
@@ -474,8 +484,9 @@ export function Simulate() {
   const practiceEntries = applyPracticeSubstitutions(performanceEntries, practiceLineups.data || [], reserveDriversQuery.data || [], practiceSubstitutions);
   const phases = getWeekendPhases(selectedRace || {});
   const seasonKey = grid ? `${grid.id}:${grid.year}` : '';
-  const savedSeason = seasonSnapshots(seasonResultsQuery.data || []);
+  const savedSeason = seasonSnapshots((seasonResultsQuery.data || []).filter(row => String(row.grid_id) === String(grid?.id)));
   const seasonRacesCompleted = Boolean(grid && races.data?.length && races.data.every(race => savedSeason.some(result => String(result.raceId) === String(race.id) && result.raceResults.length > 0)));
+  const upcomingRace = races.data?.find(race => Number(race.year) === Number(grid?.year) && !savedSeason.some(result => String(result.raceId) === String(race.id) && result.raceResults.length > 0));
   const seasonStandings = calculateStandings(savedSeason, entries);
   const phase = phases[Math.min(phaseIndex, phases.length - 1)];
   const mandatoryDryTyreCompounds = requiresMandatoryDryTyreCompounds(selectedRace || {}, phase === 'race' ? 'race' : 'sprint', weatherMode);
@@ -543,6 +554,21 @@ export function Simulate() {
     setResultSaveError('');
     void saveResults();
   };
+  const selectRace = raceId => {
+    setNextRaceNotice('');
+    setR(raceId ? String(raceId) : '');
+    setWeekendStarted(false);
+    setWeekendComplete(false);
+    setResults({});
+    setRaceState(null);
+    setIsRunning(false);
+    setPhaseIndex(0);
+    setPracticeSubstitutions({});
+  };
+  useEffect(() => {
+    if (simulationTab !== 'weekend' || !grid || races.loading || seasonResultsQuery.loading || rid || !races.data) return;
+    if (upcomingRace) selectRace(upcomingRace.id);
+  }, [simulationTab, grid?.id, races.loading, races.data, seasonResultsQuery.loading, seasonResultsQuery.data, rid]);
   useEffect(() => { setR(''); setWeekendStarted(false); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setRaceState(null); setIsRunning(false); setPracticeSubstitutions({}) }, [gid]);
   useEffect(() => {
     if (!isRunning || !raceState || raceState.done) return;
@@ -659,7 +685,7 @@ export function Simulate() {
     <div className="simulation-navigation">
       <label>Season grid<select value={gid} onChange={e => { setNextRaceNotice(''); setG(e.target.value); setR('') }}><option value="">Choose a grid</option>{grids.data?.map(g => <option key={g.id} value={g.id}>{g.name} · {g.year}</option>)}</select></label>
       <div className="tabs" role="tablist" aria-label="Simulation sections">
-        <button type="button" role="tab" aria-selected={simulationTab === 'weekend'} className={simulationTab === 'weekend' ? 'on' : ''} onClick={() => setSimulationTab('weekend')}>Race weekend</button>
+        <button type="button" role="tab" aria-selected={simulationTab === 'weekend'} className={simulationTab === 'weekend' ? 'on' : ''} onClick={() => { setSimulationTab('weekend'); selectRace(upcomingRace?.id) }}>Race weekend</button>
         <button type="button" role="tab" aria-selected={simulationTab === 'standings'} className={simulationTab === 'standings' ? 'on' : ''} onClick={() => setSimulationTab('standings')}>Standings</button>
         <button type="button" role="tab" aria-selected={simulationTab === 'performance'} className={simulationTab === 'performance' ? 'on' : ''} onClick={() => setSimulationTab('performance')}>Performance</button>
       </div>
@@ -704,7 +730,7 @@ export function Simulate() {
       </div>
     </section> : <div className="weekend-empty"><h3>Choose a season grid</h3><p>Select a grid above to manage team performance.</p></div> : <>
       <div className="weekend-select">
-        <label>Grand Prix<select value={rid} onChange={e => { setNextRaceNotice(''); setR(e.target.value); setWeekendStarted(false); setWeekendComplete(false); setResults({}); setRaceState(null); setIsRunning(false); setPhaseIndex(0); setPracticeSubstitutions({}) }} disabled={!grid || races.loading}><option value="">Choose a race</option>{races.data?.map(r => <option key={r.id} value={r.id}>R{r.round} · {r.name}</option>)}</select></label>
+        <label>Grand Prix<select value={rid} onChange={e => selectRace(e.target.value)} disabled={!grid || races.loading}><option value="">Choose a race</option>{races.data?.map(r => <option key={r.id} value={r.id}>R{r.round} · {r.name}</option>)}</select></label>
         <label>Weather<select value={weatherMode} onChange={e => setWeatherMode(e.target.value)}><option value="dry">Dry</option><option value="variable">Changeable</option><option value="wet">Wet</option></select></label>
         <button className="btn weekend-start" disabled={!grid || !selectedRace || entries.length < 2 || resultSaveSaving || resultSaveQueueRef.current.length > 0} onClick={startWeekend}>
           {resultSaveSaving ? 'Saving results…' : weekendStarted ? 'Restart weekend' : 'Start race weekend'}
