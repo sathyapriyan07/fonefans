@@ -952,6 +952,129 @@ export function qualify(entries,noise=0.22,options={}){
  return ranked.map((entry,index)=>({...entry,grid:index+1,position:index+1,gapToPole:entry.bestLap-ranked[0].bestLap}));
 }
 
+function qualifyingWeather(seed,sessionType,round,mode){
+ const weatherRng=makeRandom(`${seed}:${sessionType}:${round}:weather`);
+ return advanceSessionWeather(makeSessionWeather(mode||'dry'),weatherRng);
+}
+function qualifyingLap(entry,round,options,weather,pace,runNumber){
+ const circuit=makeCircuit(options.race||{});
+ const rng=makeRandom(`${options.seed??1}:${options.sessionType||'qualifying'}:${round}:${stableId(entry)}:${runNumber}`);
+ const car=setupAdjustedCar(entry.c||{},options.setups?.[entry.team?.id],circuit);
+ const rating=ratings({...entry,c:car},circuit);
+ const wetness=weather.wetness;
+ const compound=tyreForWeather(weather,'soft');
+ const tyre=TYRES[compound];
+ const execution=normal(rng)*0.22*(101-rating.driverConsistency)/50;
+ const push=pace==='push',conserve=pace==='conserve';
+ const mistake=rng.next()<(0.015+wetness*0.035+(push?0.012:conserve?-0.005:0))*(1-rating.errorResistance/150);
+ const traffic=rng.next()<0.07?0.2+rng.next()*0.9:0;
+ const invalid=rng.next()<0.008;
+ const wetPenalty=Math.abs(wetness-(compound==='wet'?0.95:compound==='intermediate'?0.55:0.05))*2.2;
+ const lapTime=circuit.baselineLap+paceDelta(rating.driverQualifying,0.025)+paceDelta(rating.carQualifying,0.035)+paceDelta(rating.carSpeed,0.008)+tyre.pace+wetPenalty+execution+(mistake?1.2+rng.next()*2.5:0)+traffic+wetness*(2-rating.wetAbility/100)+(push?-0.22:conserve?0.3:0);
+ const sectors=[lapTime*0.31,lapTime*0.34,lapTime*0.35];
+ sectors[2]=lapTime-sectors[0]-sectors[1];
+ return {bestLap:invalid?Infinity:Math.max(35,lapTime),sectors,compound,weather:{...weather},invalidLap:invalid,driverMistake:mistake};
+}
+const qualifyingRoundDuration=12*60;
+export function createQualifyingState({entries,race={},seed=1,sessionType='qualifying',weather='dry',setups={}}={}){
+ if(!Array.isArray(entries)||entries.length<2)throw new Error('Qualifying requires at least two driver entries.');
+ const round='Q1';
+ const roundWeather=qualifyingWeather(seed,sessionType,round,weather);
+ return {
+  seed,sessionType,race,weatherMode:weather,setups,round,timeRemaining:qualifyingRoundDuration,done:false,
+  weather:roundWeather,cars:entries.map(entry=>({
+   entry,driverId:entry.driver?.id??null,teamId:entry.team?.id??null,status:'garage',
+   pace:'balanced',remainingSeconds:0,runNumber:0,lastLap:null,bestLap:Infinity,
+   roundTimes:{},sectors:null,tyreCompound:null,invalidLap:false,driverMistake:false,
+   eliminated:false,timedLaps:0
+  }))
+ };
+}
+export function setQualifyingPace(state,driverId,pace){
+ if(!['push','balanced','conserve'].includes(pace))throw new Error(`Unknown qualifying pace: ${pace}`);
+ const car=state?.cars.find(item=>String(item.driverId)===String(driverId));
+ if(!car)throw new Error('Driver is not entered in this qualifying session.');
+ if(state.done||car.eliminated||car.status!=='garage')throw new Error('Qualifying pace can only be changed for a driver in the garage.');
+ return {...state,cars:state.cars.map(item=>String(item.driverId)===String(driverId)?{...item,pace}:item)};
+}
+export function releaseQualifyingDriver(state,driverId){
+ const car=state?.cars.find(item=>String(item.driverId)===String(driverId));
+ if(!car)throw new Error('Driver is not entered in this qualifying session.');
+ if(state.done||car.eliminated||car.status!=='garage')throw new Error('This driver is not available to leave the garage.');
+ return {...state,cars:state.cars.map(item=>String(item.driverId)===String(driverId)?{...item,status:'outlap',remainingSeconds:25}:item)};
+}
+function finalizeQualifyingRound(state){
+ const round=state.round;
+ const participants=state.cars.filter(car=>!car.eliminated);
+ const ranked=[...participants].sort((a,b)=>a.bestLap-b.bestLap||stableId(a.entry).localeCompare(stableId(b.entry)));
+ const eliminateCount=round==='Q1'?Math.max(0,ranked.length-15):round==='Q2'?Math.max(0,ranked.length-10):0;
+ const eliminatedIds=new Set((eliminateCount?ranked.slice(-eliminateCount):[]).map(car=>String(car.driverId)));
+ let cars=state.cars.map(car=>{
+  if(car.eliminated)return car;
+  const eliminated=eliminatedIds.has(String(car.driverId));
+  return {
+   ...car,round,status:eliminated?'eliminated':'garage',remainingSeconds:0,
+   eliminated,roundTimes:{...car.roundTimes,[round]:car.bestLap},
+   bestLap:Infinity,lastLap:car.lastLap
+  };
+ });
+ if(round==='Q3'){
+  const finalOrder=['Q3','Q2','Q1'].flatMap(stage=>cars
+   .filter(car=>car.round===stage&&car.roundTimes[stage]!==undefined)
+   .sort((a,b)=>a.roundTimes[stage]-b.roundTimes[stage]||stableId(a.entry).localeCompare(stableId(b.entry))));
+  const poleTime=finalOrder[0]?.roundTimes.Q3??Infinity;
+  const classification=finalOrder.map((car,index)=>{
+   const roundBest=car.roundTimes[car.round];
+   return {
+    ...car.entry,q:Number.isFinite(roundBest)?-roundBest:-Infinity,
+    bestLap:roundBest,sectors:car.sectors,tyreCompound:car.tyreCompound,
+    weather:car.weather,invalidLap:car.invalidLap,driverMistake:car.driverMistake,
+    timedLaps:car.timedLaps,round:car.round,eliminated:car.round!=='Q3',
+    grid:index+1,position:index+1,gapToPole:Number.isFinite(roundBest)&&Number.isFinite(poleTime)?roundBest-poleTime:Infinity,
+    pts:0,sessionStatus:car.invalidLap?'Invalid lap':'Complete'
+   };
+  });
+  return {...state,cars,timeRemaining:0,done:true,classification};
+ }
+ const nextRound=round==='Q1'?'Q2':'Q3';
+ cars=cars.map(car=>car.eliminated?car:{...car,round:nextRound});
+ const weather=qualifyingWeather(state.seed,state.sessionType,nextRound,state.weatherMode);
+ return {...state,cars,round:nextRound,timeRemaining:qualifyingRoundDuration,weather};
+}
+export function finishQualifyingRound(state){
+ if(!state||state.done) return state;
+ return finalizeQualifyingRound({...state,timeRemaining:0});
+}
+export function advanceQualifyingTime(state,seconds=1){
+ if(!state||state.done)return state;
+ const elapsed=Math.max(0,Number(seconds)||0);
+ if(!elapsed)return state;
+ const next={...state,timeRemaining:Math.max(0,state.timeRemaining-elapsed),cars:state.cars.map(car=>({...car}))};
+ for(const car of next.cars){
+  if(car.eliminated||car.status==='garage'||car.status==='eliminated')continue;
+  let remaining=elapsed;
+  while(remaining>0&&car.status!=='garage'){
+   const consumed=Math.min(remaining,car.remainingSeconds);
+   car.remainingSeconds-=consumed;
+   remaining-=consumed;
+   if(car.remainingSeconds>0)continue;
+   if(car.status==='outlap'){
+    car.status='flying';car.remainingSeconds=makeCircuit(state.race).baselineLap;
+   }else if(car.status==='flying'){
+    const lap=qualifyingLap(car.entry,state.round,{seed:state.seed,sessionType:state.sessionType,race:state.race,setups:state.setups},state.weather,car.pace,car.runNumber+1);
+    car.runNumber++;car.timedLaps++;car.lastLap=lap.bestLap;
+    car.bestLap=Math.min(car.bestLap,lap.bestLap);car.sectors=lap.sectors;
+    car.tyreCompound=lap.compound;car.weather=lap.weather;
+    car.invalidLap=lap.invalidLap;car.driverMistake=lap.driverMistake;
+    car.status='inlap';car.remainingSeconds=18;
+   }else{
+    car.status='garage';car.remainingSeconds=0;
+   }
+  }
+ }
+ return next.timeRemaining===0?finalizeQualifyingRound(next):next;
+}
+
 // Backward-compatible helper that now uses the same seeded lap model.
 export function race(entries,{sprint=false,strategies={},seed=1,race:raceData={},laps}={}){
  const ordered=entries.map((entry,index)=>({...entry,grid:entry.grid||index+1}));
