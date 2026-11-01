@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {activateDriverBoost,advanceQualifyingTime,advanceRaceIfRunning,advanceRaceLap,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createQualifyingState,createRaceState,finishQualifyingRound,getBestCareerPositions,getClassification,getWeekendAwards,practice,qualify,releaseQualifyingDriver,requiresMandatoryDryTyreCompounds,setPitInstruction,setQualifyingPace,setTeamRaceAdjustments,simulateRace,TYRES} from './sim.js';
+import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getCareerStats,getClassification,getTeamCareerStats,getWeekendAwards,practice,qualify,requiresMandatoryDryTyreCompounds,setPitInstruction,setTeamRaceAdjustments,simulateRace,TYRES} from './sim.js';
 
 function entry(id,{driver={},car={}}={}){
  return {
@@ -158,54 +158,41 @@ test('best career positions use Grand Prix starts, finishes, and qualifying only
  });
 });
 
+test('career stats calculate starts, points, and averages from saved weekend results',()=>{
+ assert.deepEqual(getCareerStats([
+  {grid_id:1,race_id:1,session_type:'race',position:1,points:25,result:{gridPosition:1}},
+  {grid_id:1,race_id:1,session_type:'sprint',position:2,points:7},
+  {grid_id:1,race_id:2,session_type:'qualifying',position:10},
+  {grid_id:1,race_id:2,session_type:'race',position:12,points:0,retired:true,status:'Retired'},
+  {grid_id:1,race_id:3,session_type:'race',position:7,points:6,result:{gridPosition:3}}
+ ]),{
+  starts:3,points:38,averageStartingPosition:14/3,averageFinishingPosition:4,
+  averagePointsPerRace:38/3,frontRowStarts:1,topTenStarts:3,topTenFinishes:2
+ });
+ assert.equal(getCareerStats([]).averagePointsPerRace,null);
+});
+
+test('team career stats calculate points and double results by Grand Prix weekend',()=>{
+ assert.deepEqual(getTeamCareerStats([
+  {grid_id:1,race_id:10,session_type:'race',driver_id:1,position:1,points:25,race_win:true},
+  {grid_id:1,race_id:10,session_type:'race',driver_id:2,position:2,points:18},
+  {grid_id:1,race_id:11,session_type:'race',driver_id:1,position:2,points:18},
+  {grid_id:1,race_id:11,session_type:'race',driver_id:2,position:3,points:15},
+  {grid_id:1,race_id:12,session_type:'race',driver_id:1,position:1,points:0,retired:true},
+  {grid_id:1,race_id:12,session_type:'race',driver_id:2,position:4,points:12},
+  {grid_id:2,race_id:10,session_type:'race',driver_id:3,position:3,points:15},
+  {grid_id:1,race_id:10,session_type:'sprint',driver_id:1,position:2,points:7}
+ ]),{
+  points:110,averagePointsPerRace:110/4,wins:1,podiums:5,oneTwoFinishes:1,doublePodiums:2,doublePoints:2
+ });
+ assert.equal(getTeamCareerStats([]).averagePointsPerRace,null);
+});
+
 test('qualifying sets the starting grid and grid penalties move a driver back',()=>{
  const rows=qualify([entry(1),entry(2,{driver:{qualifying:100,speed:90}}),entry(3)],{seed:8,race:circuit,gridPenalties:{2:2}});
  assert.deepEqual(rows.map(row=>row.grid),[1,2,3]);
  assert.equal(rows.find(row=>row.driver.id===2).grid,3);
  assert.ok(rows.every(row=>Number.isFinite(row.bestLap)&&Math.abs(row.sectors.reduce((a,b)=>a+b,0)-row.bestLap)<1e-8));
-});
-
-test('live qualifying uses manual release, pace selection, and Q1 to Q3 knockouts',()=>{
- const entries=Array.from({length:20},(_,index)=>entry(index+1));
- let state=createQualifyingState({entries,race:circuit,seed:42});
- assert.equal(state.round,'Q1');
- state=setQualifyingPace(state,1,'push');
- state=releaseQualifyingDriver(state,1);
- assert.equal(state.cars[0].status,'outlap');
- state=advanceQualifyingTime(state,150);
- assert.equal(state.cars[0].status,'garage');
- assert.ok(Number.isFinite(state.cars[0].bestLap));
-
- const runAllDrivers=qualifyingState=>{
-  let next=qualifyingState;
-  for(const car of next.cars.filter(item=>!item.eliminated&&item.status==='garage'))next=releaseQualifyingDriver(next,car.driverId);
-  return advanceQualifyingTime(next,150);
- };
- state=runAllDrivers(state);
- state=finishQualifyingRound(state);
- assert.equal(state.round,'Q2');
- assert.equal(state.cars.filter(car=>car.eliminated).length,5);
- state=runAllDrivers(state);
- state=finishQualifyingRound(state);
- assert.equal(state.round,'Q3');
- assert.equal(state.cars.filter(car=>!car.eliminated).length,10);
- state=runAllDrivers(state);
- state=finishQualifyingRound(state);
- assert.equal(state.done,true);
- assert.equal(state.classification.length,20);
- assert.deepEqual(state.classification.map(row=>row.grid),Array.from({length:20},(_,index)=>index+1));
-});
-
-test('live qualifying pace settings affect the timed lap',()=>{
- const entries=[entry(1),entry(2)];
- const runAtPace=pace=>{
-  let state=createQualifyingState({entries,race:circuit,seed:42});
-  state=setQualifyingPace(state,1,pace);
-  state=releaseQualifyingDriver(state,1);
-  return advanceQualifyingTime(state,150).cars[0].bestLap;
- };
- assert.ok(runAtPace('push')<runAtPace('balanced'));
- assert.ok(runAtPace('balanced')<runAtPace('conserve'));
 });
 
 test('lap advancement consumes fuel, ages tyres, and records sector timing',()=>{
