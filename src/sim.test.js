@@ -54,6 +54,12 @@ test('season standings preserve team logos when saved race snapshots omit them',
  assert.equal(standings.drivers[0].team.logo_normal,team.logo_normal);
 });
 
+test('season constructor standings preserve team logos',()=>{
+ const team={id:'team-a',name:'Team A',logo_normal:'https://example.test/team-a.png'};
+ const standings=calculateStandings([], [{driver:{id:1,name:'Driver A'},team}]);
+ assert.equal(standings.teams[0].logo_normal,team.logo_normal);
+});
+
 test('weekend awards identify poles, fastest laps, and a Grand Slam across every session',()=>{
  const driverA=entry(1).driver,driverB=entry(2).driver;
  const phases=['practice1','practice2','practice3','qualifying','race'];

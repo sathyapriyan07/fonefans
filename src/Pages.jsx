@@ -53,6 +53,19 @@ async function loadSavedRaceResults() {
     if (!data || data.length < 1000) return rows;
   }
 }
+async function loadSeasonResults(gridId) {
+  const rows = [];
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await sb.from('race_results')
+      .select('grid_id,race_id,session_type,position,points,drivers(id,name,code),teams(id,name,logo_normal,color),races(round,name)')
+      .eq('grid_id', gridId)
+      .order('race_id').order('session_type').order('position').order('driver_id')
+      .range(offset, offset + 999);
+    if (error) throw error;
+    rows.push(...(data || []));
+    if (!data || data.length < 1000) return rows;
+  }
+}
 function buildResultRecords(grid, race, sessionType, rows, awards) {
   return rows.map(row => {
     const position = Number(row.practicePos ?? row.position ?? row.grid ?? row.pos);
@@ -451,7 +464,7 @@ export function Simulate() {
   const reserveDriverIds = [...new Set((practiceLineups.data || []).map(lineup => lineup.reserve_driver_id).filter(Boolean).map(String))].sort();
   const reserveDriverKey = reserveDriverIds.join(',');
   const reserveDriversQuery = useQ(() => reserveDriverIds.length ? sb.from('drivers').select('*,driver_ratings(*),driver_images(*)').in('id', reserveDriverIds) : Promise.resolve([]), [reserveDriverKey]);
-  const seasonResultsQuery = useQ(() => grid ? sb.from('race_results').select('grid_id,race_id,session_type,position,points,drivers(id,name,code),teams(id,name,logo_normal,color),races(round,name)').eq('grid_id', grid.id) : Promise.resolve({ data: [], error: null }), [grid?.id]);
+  const seasonResultsQuery = useQ(() => grid ? loadSeasonResults(grid.id) : Promise.resolve({ data: [], error: null }), [grid?.id]);
   const selectedRace = races.data?.find(r => String(r.id) === rid);
   const entriesQuery = useQ(() => gid ? sb.from('grid_entries').select('*,drivers(*,driver_ratings(*),driver_images(*)),teams(*),cars(*)').eq('grid_id', gid) : Promise.resolve({ data: [], error: null }), [gid]);
   const entries = (entriesQuery.data || []).filter(e => e.drivers && e.teams && e.cars).map(e => ({
@@ -659,8 +672,8 @@ export function Simulate() {
       <div className="section-title"><div><h3>{grid.year} season standings</h3><p>Race and sprint points · wins and podiums count Grand Prix results</p></div>{savedSeason.length > 0 && <button type="button" className="btn-danger" onClick={resetSeasonStandings} disabled={resultSaveSaving || resultSaveQueueRef.current.length > 0}>Reset / Delete results</button>}</div>
       <div className="standings-grid">
         {[['Drivers', seasonStandings.drivers], ['Constructors', seasonStandings.teams]].map(([title, rows]) => <div key={title}>
-          <h4>{title}</h4><div className="scroll"><table><thead><tr><th>POS</th><th>{title === 'Drivers' ? 'DRIVER' : 'TEAM'}</th><th>PTS</th><th>W</th><th>POD</th></tr></thead>
-            <tbody>{rows.map((row, index) => <tr key={row.id}><td>{index + 1}</td><td>{title === 'Drivers' ? <span className="standing-driver"><span className="team-logo">{row.team?.logo_normal && <img src={row.team.logo_normal} alt="" />}</span><strong>{row.code || '—'}</strong></span> : row.name}</td><td><strong>{row.points}</strong></td><td>{row.wins}</td><td>{row.podiums}</td></tr>)}</tbody>
+          <h4>{title}</h4><div className="scroll"><table className="race-table standings-table"><thead><tr><th>POS</th><th>{title === 'Drivers' ? 'DRIVER' : 'TEAM'}</th><th>PTS</th><th>W</th><th>POD</th></tr></thead>
+            <tbody>{rows.map((row, index) => <tr key={row.id} className={index === 0 ? 'leader' : ''}><td className="position-cell"><span className="position-number">{index + 1}</span></td><td>{title === 'Drivers' ? <span className="driver-result"><span className="team-logo">{row.team?.logo_normal && <img src={row.team.logo_normal} alt="" />}</span><strong>{row.code || '—'}</strong></span> : <span className="driver-result"><span className="team-logo">{row.logo_normal && <img src={row.logo_normal} alt="" />}</span><strong>{row.name}</strong></span>}</td><td><strong>{row.points}</strong></td><td>{row.wins}</td><td>{row.podiums}</td></tr>)}</tbody>
           </table></div>
         </div>)}
       </div>

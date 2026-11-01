@@ -983,10 +983,12 @@ export function calculateStandings(completedRaces=[],entries=[]){
   const key=String(id??person?.name??'unknown');
   let standing=map.get(key);
   if(!standing){
-   standing={id, name:person?.name||'Unknown',code:person?.code||'',team,points:0,wins:0,podiums:0};
+   standing={id, name:person?.name||'Unknown',code:person?.code||'',logo_normal:person?.logo_normal,color:person?.color,team,points:0,wins:0,podiums:0};
    map.set(key,standing);
   }else{
    if(person?.code)standing.code=person.code;
+   if(person?.logo_normal)standing.logo_normal=person.logo_normal;
+   if(person?.color)standing.color=person.color;
    if(team)standing.team={...standing.team,...team};
   }
   return standing;
