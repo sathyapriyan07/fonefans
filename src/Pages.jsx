@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'; import { Link, useParams } from 'react-router-dom';
-import { sb } from './supabase.js'; import { activateDriverBoost, advanceRaceIfRunning, advanceRaceLap, applyPracticeSubstitutions, applyTeamPerformanceBoosts, calculateStandings, calculateTeammateHeadToHead, createRaceState, getBestCareerPositions, getCareerStats, getClassification, getTeamCareerStats, getWeekendAwards, getWeekendPhases, practice, qualify, requiresMandatoryDryTyreCompounds, setPitInstruction, setTeamRaceAdjustments } from './sim.js';
+import { sb } from './supabase.js'; import { activateDriverBoost, advanceRaceIfRunning, advanceRaceLap, applyPracticeSubstitutions, applyTeamPerformanceBoosts, calculateStandings, calculateTeammateHeadToHead, createRaceState, getBestCareerPositions, getCareerChampionships, getCareerStats, getClassification, getTeamCareerStats, getWeekendAwards, getWeekendPhases, practice, qualify, requiresMandatoryDryTyreCompounds, setPitInstruction, setTeamRaceAdjustments } from './sim.js';
 function useQ(fn, deps = []) {
   const [query, setQuery] = useState({ data: null, loading: true, error: null });
   const [attempt, setAttempt] = useState(0);
@@ -51,6 +51,32 @@ async function loadSavedRaceResults() {
     if (error) throw error;
     rows.push(...(data || []));
     if (!data || data.length < 1000) return rows;
+  }
+}
+async function loadCareerChampionshipData(driverResults) {
+  const gridIds = [...new Set(driverResults
+    .filter(row => row.session_type === 'race' && row.grid_id != null)
+    .map(row => String(row.grid_id)))];
+  const years = [...new Set(driverResults
+    .filter(row => row.session_type === 'race')
+    .map(row => Number(row.races?.year ?? row.grids?.year))
+    .filter(Number.isFinite))];
+  if (!gridIds.length || !years.length) return { calendar: [], results: [] };
+  const { data: calendar, error: calendarError } = await sb.from('races')
+    .select('id,year,round')
+    .in('year', years);
+  if (calendarError) throw calendarError;
+  const results = [];
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await sb.from('race_results')
+      .select('grid_id,race_id,driver_id,team_id,session_type,position,points,drivers(id,name,code),teams(id,name,logo_normal,color)')
+      .in('grid_id', gridIds)
+      .in('session_type', ['race', 'sprint'])
+      .order('grid_id').order('race_id').order('session_type').order('position')
+      .range(offset, offset + 999);
+    if (error) throw error;
+    results.push(...(data || []));
+    if (!data || data.length < 1000) return { calendar: calendar || [], results };
   }
 }
 async function loadSeasonResults(gridId) {
@@ -214,6 +240,7 @@ export function Driver() {
   const { id } = useParams(); const d = useQ(() => sb.from('drivers').select('*,driver_images(*),driver_ratings(*)').eq('id', id).single(), [id]);
   const lineups = useQ(() => sb.from('team_driver_lineups').select('*,teams(id,name,logo_normal,color)').or(`driver_1_id.eq.${id},driver_2_id.eq.${id},reserve_driver_id.eq.${id}`).order('year', { ascending: false }), [id]);
   const raceResults = useQ(() => sb.from('race_results').select('grid_id,race_id,session_type,position,points,status,laps_completed,total_time,best_lap,result,pole_position,sprint_pole,race_win,sprint_win,fastest_lap,grand_slam,retired,races(year,round,name),grids(year),teams(id,name,logo_normal,color)').eq('driver_id', id), [id]);
+  const championshipResults = useQ(() => loadCareerChampionshipData(raceResults.data || []), [id, raceResults.data]);
   const teammateIds = [...new Set((lineups.data || []).flatMap(lineup => ['driver_1_id', 'driver_2_id', 'reserve_driver_id'].map(slot => lineup[slot]).filter(teammateId => teammateId !== null && teammateId !== undefined && String(teammateId) !== String(id))).map(String))];
   const teammateKey = teammateIds.slice().sort().join(',');
   const headToHeadResults = useQ(() => teammateIds.length ? loadTeammateResultRows([id, ...teammateIds]) : Promise.resolve([]), [id, teammateKey]);
@@ -232,7 +259,7 @@ export function Driver() {
   const raceFinishes = history.filter(row => row.session_type === 'race');
   const bestCareerPositions = getBestCareerPositions(history);
   const careerWins = raceFinishes.filter(row => row.race_win).length;
-  const careerPodiums = raceFinishes.filter(row => row.position <= 3).length;
+  const careerPodiums = raceFinishes.filter(row => Number(row.position) <= 3 && !row.retired && row.status !== 'Retired').length;
   const careerP2s = raceFinishes.filter(row => Number(row.position) === 2 && !row.retired && row.status !== 'Retired').length;
   const careerP3s = raceFinishes.filter(row => Number(row.position) === 3 && !row.retired && row.status !== 'Retired').length;
   const careerSprintWins = history.filter(row => row.sprint_win).length;
@@ -242,6 +269,10 @@ export function Driver() {
   const careerSprintFastestLaps = history.filter(row => row.session_type === 'sprint' && row.fastest_lap).length;
   const careerRetirements = history.filter(row => row.retired).length;
   const careerGrandSlams = history.filter(row => row.grand_slam).length;
+  const careerChampionships = raceResults.data && !championshipResults.loading && !championshipResults.error
+    ? getCareerChampionships(id, history, championshipResults.data?.results || [], championshipResults.data?.calendar || [])
+    : null;
+  const formatCareerPercentage = value => Number.isFinite(value) ? `${value.toFixed(1)}%` : '—';
   const imageLabels = { pole_url: 'Pole portrait', grid_url: 'Grid portrait', card_url: 'Driver card' };
   return <><div className="driver-profile-top"><h2>{driver.name} <small>#{driver.number} {driver.code}</small></h2>
     {heroImage && <div className="driver-profile-hero"><img src={heroImage} alt={`${driver.name} portrait`} /></div>}</div>
@@ -266,12 +297,16 @@ export function Driver() {
             </article>
           })}</div>}
         </section>
-        <section className="race-history"><div className="section-title"><div><h3>Career achievements</h3><p>Totals and averages calculated from saved results</p></div></div><div className="career-achievements">
+        <section className="race-history"><div className="section-title"><div><h3>Career achievements</h3><p>Totals, rates, and titles calculated from saved results</p></div></div><div className="career-achievements">
           {[
             ['GP starts', careerStats.starts], ['Points', careerStats.points],
             ['Avg. starting pos.', Number.isFinite(careerStats.averageStartingPosition) ? careerStats.averageStartingPosition.toFixed(1) : '—'],
             ['Avg. finishing pos.', Number.isFinite(careerStats.averageFinishingPosition) ? careerStats.averageFinishingPosition.toFixed(1) : '—'],
             ['Avg. points / race', Number.isFinite(careerStats.averagePointsPerRace) ? careerStats.averagePointsPerRace.toFixed(1) : '—'],
+            ['Pole-to-win conversion %', formatCareerPercentage(careerStats.poleToWinConversion)],
+            ['Points finishes %', formatCareerPercentage(careerStats.pointsFinishPercentage)],
+            ['Podium finishes %', formatCareerPercentage(careerStats.podiumPercentage)],
+            ['Championships', careerChampionships ?? '—'],
             ['Front row starts', careerStats.frontRowStarts], ['Top 10 starts', careerStats.topTenStarts], ['Top 10 finishes', careerStats.topTenFinishes],
             ['GP wins', careerWins], ['P2 finishes', careerP2s], ['P3 finishes', careerP3s], ['Sprint wins', careerSprintWins],
             ['Podiums', careerPodiums], ['Poles', careerPoles], ['Sprint poles', careerSprintPoles], ['Fastest laps', careerFastestLaps],
@@ -280,7 +315,7 @@ export function Driver() {
             ['Best finish', Number.isFinite(bestCareerPositions.bestFinish) ? `P${bestCareerPositions.bestFinish}` : '—'],
             ['Best qualifying', Number.isFinite(bestCareerPositions.bestQualifying) ? `P${bestCareerPositions.bestQualifying}` : '—']
           ].map(([label, count]) => <div className="career-achievement" key={label}><strong>{count}</strong><span>{label}</span></div>)}
-        </div><div className="section-title"><div><h3>Race history</h3><p>All saved sessions and session awards</p></div></div><QueryStatus query={raceResults} empty="No saved race results yet." />
+        </div>{championshipResults.error && <QueryStatus query={championshipResults} />}<div className="section-title"><div><h3>Race history</h3><p>All saved sessions and session awards</p></div></div><QueryStatus query={raceResults} empty="No saved race results yet." />
           {!!weekendHistory.length && <div className="weekend-history">{weekendHistory.map(weekend => <details className="weekend-history-item" key={weekend.key}>
             <summary className="weekend-history-summary"><span className="weekend-history-year">{weekend.year || '—'}</span><span className="weekend-history-name"><small>ROUND {weekend.round || '—'}</small><strong>{weekend.raceName}</strong></span><span className="weekend-history-count">{weekend.sessions.length} sessions</span><strong className="weekend-history-points">{weekend.pointsTotal} pts</strong></summary>
             <div className="weekend-history-details"><div className="weekend-history-columns driver-weekend-columns"><span>SESSION</span><span>TEAM</span><span>POS</span><span>PTS</span><span>AWARDS</span><span>TIME</span></div>

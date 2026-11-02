@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getCareerStats,getClassification,getTeamCareerStats,getWeekendAwards,practice,qualify,requiresMandatoryDryTyreCompounds,setPitInstruction,setTeamRaceAdjustments,simulateRace,TYRES} from './sim.js';
+import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getCareerChampionships,getCareerStats,getClassification,getTeamCareerStats,getWeekendAwards,practice,qualify,requiresMandatoryDryTyreCompounds,setPitInstruction,setTeamRaceAdjustments,simulateRace,TYRES} from './sim.js';
 
 function entry(id,{driver={},car={}}={}){
  return {
@@ -160,16 +160,36 @@ test('best career positions use Grand Prix starts, finishes, and qualifying only
 
 test('career stats calculate starts, points, and averages from saved weekend results',()=>{
  assert.deepEqual(getCareerStats([
-  {grid_id:1,race_id:1,session_type:'race',position:1,points:25,result:{gridPosition:1}},
+  {grid_id:1,race_id:1,session_type:'race',position:1,points:25,race_win:true,result:{gridPosition:1}},
   {grid_id:1,race_id:1,session_type:'sprint',position:2,points:7},
+  {grid_id:1,race_id:1,session_type:'qualifying',position:1,pole_position:true},
   {grid_id:1,race_id:2,session_type:'qualifying',position:10},
   {grid_id:1,race_id:2,session_type:'race',position:12,points:0,retired:true,status:'Retired'},
   {grid_id:1,race_id:3,session_type:'race',position:7,points:6,result:{gridPosition:3}}
  ]),{
-  starts:3,points:38,averageStartingPosition:14/3,averageFinishingPosition:4,
+  starts:3,points:38,poleToWinConversion:100,pointsFinishPercentage:2/3*100,podiumPercentage:1/3*100,
+  averageStartingPosition:14/3,averageFinishingPosition:4,
   averagePointsPerRace:38/3,frontRowStarts:1,topTenStarts:3,topTenFinishes:2
  });
  assert.equal(getCareerStats([]).averagePointsPerRace,null);
+});
+
+test('career championships count completed seasons where the driver leads the final standings',()=>{
+ const driverResults=[
+  {grid_id:1,race_id:11,session_type:'race',races:{year:2024}},
+  {grid_id:1,race_id:12,session_type:'race',races:{year:2024}}
+ ];
+ const calendar=[{id:11,year:2024,round:1},{id:12,year:2024,round:2}];
+ const seasonResults=[
+  {grid_id:1,race_id:11,session_type:'race',position:1,points:25,drivers:{id:1,name:'Driver A'},teams:{id:1,name:'Team A'}},
+  {grid_id:1,race_id:11,session_type:'sprint',position:2,points:7,drivers:{id:1,name:'Driver A'},teams:{id:1,name:'Team A'}},
+  {grid_id:1,race_id:11,session_type:'race',position:2,points:18,drivers:{id:2,name:'Driver B'},teams:{id:2,name:'Team B'}},
+  {grid_id:1,race_id:12,session_type:'race',position:1,points:25,drivers:{id:1,name:'Driver A'},teams:{id:1,name:'Team A'}},
+  {grid_id:1,race_id:12,session_type:'race',position:2,points:18,drivers:{id:2,name:'Driver B'},teams:{id:2,name:'Team B'}}
+ ];
+ assert.equal(getCareerChampionships(1,driverResults,seasonResults,calendar),1);
+ assert.equal(getCareerChampionships(2,driverResults,seasonResults,calendar),0);
+ assert.equal(getCareerChampionships(1,driverResults,seasonResults.slice(0,3),calendar),0);
 });
 
 test('team career stats calculate points and double results by Grand Prix weekend',()=>{

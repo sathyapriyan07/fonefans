@@ -833,9 +833,23 @@ export function getCareerStats(results=[]){
  const finishes=raceResults.filter(row=>!row.retired&&row.status!=='Retired')
   .map(row=>Number(row.position)).filter(position=>Number.isInteger(position)&&position>0);
  const points=results.reduce((total,row)=>total+(Number(row.points)||0),0);
+ const poles=results.filter(row=>row.session_type==='qualifying'&&row.pole_position);
+ const raceByWeekend=new Map(raceResults
+  .filter(row=>row.grid_id!=null&&row.race_id!=null)
+  .map(row=>[`${row.grid_id}:${row.race_id}`,row]));
+ const poleWins=poles.filter(row=>{
+  if(row.grid_id==null||row.race_id==null)return false;
+  const race=raceByWeekend.get(`${row.grid_id}:${row.race_id}`);
+  return race&&!race.retired&&race.status!=='Retired'&&(race.race_win||Number(race.position)===1);
+ }).length;
+ const podiums=finishes.filter(position=>position<=3).length;
+ const pointsFinishes=raceResults.filter(row=>(Number(row.points)||0)>0).length;
  return {
   starts:raceResults.length,
   points,
+  poleToWinConversion:poles.length?poleWins/poles.length*100:null,
+  pointsFinishPercentage:raceResults.length?pointsFinishes/raceResults.length*100:null,
+  podiumPercentage:raceResults.length?podiums/raceResults.length*100:null,
   averageStartingPosition:startingPositions.length?startingPositions.reduce((sum,position)=>sum+position,0)/startingPositions.length:null,
   averageFinishingPosition:finishes.length?finishes.reduce((sum,position)=>sum+position,0)/finishes.length:null,
   averagePointsPerRace:raceResults.length?points/raceResults.length:null,
@@ -843,6 +857,51 @@ export function getCareerStats(results=[]){
   topTenStarts:startingPositions.filter(position=>position<=10).length,
   topTenFinishes:finishes.filter(position=>position<=10).length
  };
+}
+export function getCareerChampionships(driverId,driverResults=[],seasonResults=[],calendar=[]){
+ const seasons=new Map();
+ for(const row of driverResults){
+  if(row.session_type!=='race'||row.grid_id==null)continue;
+  const year=Number(row.races?.year??row.grids?.year);
+  if(!Number.isFinite(year))continue;
+  seasons.set(String(row.grid_id),year);
+ }
+ const racesByYear=new Map();
+ for(const race of calendar){
+  const year=Number(race.year);
+  if(!Number.isFinite(year))continue;
+  const races=racesByYear.get(year)||[];
+  races.push(race);
+  racesByYear.set(year,races);
+ }
+ let championships=0;
+ for(const [gridId,year] of seasons){
+  const scheduledRaces=racesByYear.get(year)||[];
+  if(!scheduledRaces.length)continue;
+  const scheduledRaceIds=new Set(scheduledRaces.map(race=>String(race.id)));
+  const gridResults=seasonResults.filter(row=>
+   String(row.grid_id)===gridId&&scheduledRaceIds.has(String(row.race_id))
+  );
+  const completedRaceIds=new Set(gridResults.filter(row=>row.session_type==='race').map(row=>String(row.race_id)));
+  if(!scheduledRaces.every(race=>completedRaceIds.has(String(race.id))))continue;
+  const completedRaces=scheduledRaces.map(race=>{
+   const results=gridResults.filter(row=>String(row.race_id)===String(race.id));
+   const normalize=row=>({
+    driver:row.drivers||{id:row.driver_id},
+    team:row.teams||{id:row.team_id},
+    position:row.position,
+    points:row.points
+   });
+   return {
+    round:race.round,
+    raceResults:results.filter(row=>row.session_type==='race').map(normalize),
+    sprintResults:results.filter(row=>row.session_type==='sprint').map(normalize)
+   };
+  });
+  const standings=calculateStandings(completedRaces).drivers;
+  if(String(standings[0]?.id)===String(driverId))championships++;
+ }
+ return championships;
 }
 export function getTeamCareerStats(results=[]){
  const raceResults=results.filter(row=>row.session_type==='race');
