@@ -344,10 +344,9 @@ export function Teams() {
   const t = useQ(() => sb.from('teams').select('*').order('name'));
   return <><h2>Teams</h2><QueryStatus query={t} empty="No teams yet." /><div className="grid team-grid">{t.data?.map(x => {
     const detailedLogo = Boolean(x.logo_detailed);
-    return <Link key={x.id} to={'/teams/' + x.id} className={`card team-card${detailedLogo ? ' has-detailed-logo' : ' has-normal-logo'}`} style={{ borderTop: '4px solid ' + x.color }} aria-label={x.name}>
-      {detailedLogo
-        ? <img src={x.logo_detailed} alt={`${x.name} logo`} />
-        : <>{x.logo_normal && <img src={x.logo_normal} alt="" />}<h3>{x.name}</h3></>}
+    const logo = x.logo_detailed || x.logo_normal;
+    return <Link key={x.id} to={'/teams/' + x.id} className={`card team-card ${detailedLogo ? 'has-detailed-logo' : 'has-normal-logo'}`} aria-label={x.name}>
+      {logo && <img src={logo} alt={`${x.name} logo`} />}
     </Link>;
   })}</div></>
 }
@@ -368,7 +367,7 @@ export function Team() {
   const teamRetirements = (raceResults.data || []).filter(row => row.retired).length;
   const teamGrandSlams = (raceResults.data || []).filter(row => row.grand_slam).length;
   const lineupSlots = [['driver_1_id', 'Race driver 1'], ['driver_2_id', 'Race driver 2'], ['reserve_driver_id', 'Reserve driver']];
-  return <><h2 style={{ borderLeft: '8px solid ' + team.color, paddingLeft: 12 }}>{team.name}</h2>{team.logo_detailed && <img height="80" src={team.logo_detailed} />}
+  return <><div className="team-profile-heading">{team.logo_normal && <img src={team.logo_normal} alt={`${team.name} logo`} />}<h2>{team.name}</h2></div>
     <section className="team-lineup-history"><h3>Driver lineups</h3><QueryStatus query={lineups} empty="No driver lineups recorded." /><QueryStatus query={drivers} />
       {lineups.data?.map(lineup => <section className="team-lineup-season" key={lineup.year}><h4>{lineup.year}</h4><div className="grid team-lineup-cards">{lineupSlots.map(([key, label]) => { const driver = lineup[key] ? driverById.get(String(lineup[key])) : null; return driver ? <Link key={key} to={`/drivers/${driver.id}`} className="card driver-card lineup-driver-card"><div className="driver-card-copy"><small>{label}</small><h3>{driver.name}</h3></div></Link> : <div key={key} className="card lineup-driver-card lineup-driver-empty"><small>{label}</small><p>Not assigned</p></div> })}</div></section>)}</section>
     <section className="race-history"><div className="section-title"><div><h3>Team achievements</h3><p>Totals calculated from saved results</p></div></div><div className="career-achievements">
