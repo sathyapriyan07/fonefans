@@ -217,7 +217,7 @@ export function Driver() {
   const teammateIds = [...new Set((lineups.data || []).flatMap(lineup => ['driver_1_id', 'driver_2_id', 'reserve_driver_id'].map(slot => lineup[slot]).filter(teammateId => teammateId !== null && teammateId !== undefined && String(teammateId) !== String(id))).map(String))];
   const teammateKey = teammateIds.slice().sort().join(',');
   const headToHeadResults = useQ(() => teammateIds.length ? loadTeammateResultRows([id, ...teammateIds]) : Promise.resolve([]), [id, teammateKey]);
-  const rosterDrivers = useQ(() => sb.from('drivers').select('id,name,code,number,driver_images(pole_url,year)').order('name'));
+  const rosterDrivers = useQ(() => sb.from('drivers').select('id,name,code,number,driver_images(card_url,year)').order('name'));
   if (d.loading || d.error || !d.data) return <><h2>Driver</h2><QueryStatus query={d} /></>;
   const driver = d.data; const r = one(driver.driver_ratings) || {};
   const images = [...(driver.driver_images || [])].sort((a, b) => b.year - a.year);
@@ -251,7 +251,7 @@ export function Driver() {
         {lineups.data?.map(lineup => {
           const assigned = lineupSlots.map(([key, label]) => ({ id: lineup[key], label })).filter(slot => slot.id); const role = assigned.find(slot => String(slot.id) === String(driver.id))?.label;
           return <article className="driver-team-season" key={`${lineup.team_id}-${lineup.year}`}><div className="driver-team-season-head"><Link className="driver-team-link" to={`/teams/${lineup.team_id}`}>{lineup.teams?.logo_normal && <img src={lineup.teams.logo_normal} alt="" />}<strong>{lineup.teams?.name || 'Team'}</strong></Link><span>{lineup.year === new Date().getFullYear() ? 'Current season' : lineup.year}</span>{role && <small>{role}</small>}</div>
-            <div className="driver-teammates">{assigned.filter(slot => String(slot.id) !== String(driver.id)).map(slot => { const teammate = driverById.get(String(slot.id)); return <Link key={`${lineup.year}-${slot.id}`} to={`/drivers/${slot.id}`} className="card driver-card driver-teammate-card">{teammate && latestImg(teammate, 'pole_url') && <img className="driver-pole-image" src={latestImg(teammate, 'pole_url')} alt="" aria-hidden="true" />}<div className="driver-card-copy"><small>{slot.label}</small><h4>{teammate?.name || `Driver #${slot.id}`}</h4></div></Link> })}</div>
+            <div className="driver-teammates">{assigned.filter(slot => String(slot.id) !== String(driver.id)).map(slot => { const teammate = driverById.get(String(slot.id)); return <Link key={`${lineup.year}-${slot.id}`} to={`/drivers/${slot.id}`} className="card driver-card driver-teammate-card">{teammate && latestImg(teammate, 'card_url') && <img className="driver-pole-image" src={latestImg(teammate, 'card_url')} alt="" aria-hidden="true" />}<div className="driver-card-copy"><small>{slot.label}</small><h4>{teammate?.name || `Driver #${slot.id}`}</h4></div></Link> })}</div>
           </article>
         })}</section>
         <section className="teammate-head-to-head"><div className="section-title"><div><h3>Teammate head-to-head</h3><p>Session results from weekends where you shared a team</p></div></div><QueryStatus query={headToHeadResults} />
