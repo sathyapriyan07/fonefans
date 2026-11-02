@@ -342,7 +342,14 @@ export function Cars() {
 }
 export function Teams() {
   const t = useQ(() => sb.from('teams').select('*').order('name'));
-  return <><h2>Teams</h2><QueryStatus query={t} empty="No teams yet." /><div className="grid team-grid">{t.data?.map(x => <Link key={x.id} to={'/teams/' + x.id} className="card team-card" style={{ borderTop: '4px solid ' + x.color }}><h3>{x.name}</h3>{x.logo_normal && <img src={x.logo_normal} alt={`${x.name} logo`} />}</Link>)}</div></>
+  return <><h2>Teams</h2><QueryStatus query={t} empty="No teams yet." /><div className="grid team-grid">{t.data?.map(x => {
+    const detailedLogo = Boolean(x.logo_detailed);
+    return <Link key={x.id} to={'/teams/' + x.id} className={`card team-card${detailedLogo ? ' has-detailed-logo' : ' has-normal-logo'}`} style={{ borderTop: '4px solid ' + x.color }} aria-label={x.name}>
+      {detailedLogo
+        ? <img src={x.logo_detailed} alt={`${x.name} logo`} />
+        : <>{x.logo_normal && <img src={x.logo_normal} alt="" />}<h3>{x.name}</h3></>}
+    </Link>;
+  })}</div></>
 }
 export function Team() {
   const { id } = useParams(); const t = useQ(() => sb.from('teams').select('*,cars(*)').eq('id', id).single(), [id]);
