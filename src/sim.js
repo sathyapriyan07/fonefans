@@ -824,6 +824,69 @@ export function getBestCareerPositions(results=[]){
   bestQualifying:Number.isFinite(bestPosition(qualifyingResults))?bestPosition(qualifyingResults):null
  };
 }
+export function getCareerRecords(results=[]){
+ const seasons=new Map();
+ const qualifyingByWeekend=new Map(results.filter(row=>row.session_type==='qualifying')
+  .map(row=>[`${row.grid_id}:${row.race_id}`,Number(row.position)]));
+ const seasonFor=row=>{
+  const year=Number(row.races?.year??row.grids?.year);
+  return Number.isFinite(year)?year:null;
+ };
+ const increment=(season,key)=>{season[key]++};
+ const topSeasonRecord=counts=>{
+  let record=null;
+  for(const [year,value] of counts){
+   if(!record||value>record.value||(value===record.value&&year>record.year))record={value,year};
+  }
+  return record;
+ };
+ for(const row of results){
+  const year=seasonFor(row);
+  if(year===null)continue;
+  let season=seasons.get(year);
+  if(!season){season={wins:0,podiums:0,poles:0};seasons.set(year,season)}
+  if(row.session_type==='race'&&!row.retired&&row.status!=='Retired'){
+   const position=Number(row.position);
+   if(row.race_win||position===1)increment(season,'wins');
+   if(Number.isInteger(position)&&position>=1&&position<=3)increment(season,'podiums');
+  }
+  if(row.session_type==='qualifying'&&row.pole_position)increment(season,'poles');
+ }
+ const seasonCounts=key=>{
+  const counts=new Map();
+  for(const [year,season] of seasons)counts.set(year,season[key]);
+  return counts;
+ };
+ const mostPositionsGained={value:null,year:null,raceName:null};
+ let furthestWinningPosition=null;
+ for(const row of results){
+  if(row.session_type!=='race'||row.retired||row.status==='Retired')continue;
+  const year=seasonFor(row);
+  const position=Number(row.position);
+  const startingPosition=Number(row.result?.gridPosition??row.result?.grid??qualifyingByWeekend.get(`${row.grid_id}:${row.race_id}`));
+  const isWin=Boolean(row.race_win)||position===1;
+  if(Number.isInteger(position)&&position>0&&Number.isInteger(startingPosition)&&startingPosition>0){
+   const gained=Math.max(0,startingPosition-position);
+   if(mostPositionsGained.value===null||gained>mostPositionsGained.value){
+    mostPositionsGained.value=gained;
+    mostPositionsGained.year=year;
+    mostPositionsGained.raceName=row.races?.name||null;
+   }
+   if(isWin&&(!furthestWinningPosition||furthestWinningPosition.position===null||startingPosition>furthestWinningPosition.position)){
+    furthestWinningPosition={position:startingPosition,year,raceName:row.races?.name||null};
+   }
+  }else if(isWin&&!furthestWinningPosition){
+   furthestWinningPosition={position:null,year,raceName:row.races?.name||null};
+  }
+ }
+ return {
+  mostWinsInSeason:topSeasonRecord(seasonCounts('wins')),
+  mostPodiumsInSeason:topSeasonRecord(seasonCounts('podiums')),
+  mostPolesInSeason:topSeasonRecord(seasonCounts('poles')),
+  mostPositionsGained,
+  furthestWinningPosition
+ };
+}
 export function getCareerStats(results=[]){
  const raceResults=results.filter(row=>row.session_type==='race');
  const qualifyingByWeekend=new Map(results.filter(row=>row.session_type==='qualifying')

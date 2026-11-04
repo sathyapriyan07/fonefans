@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'; import { Link, useParams } from 'react-router-dom';
-import { sb } from './supabase.js'; import { activateDriverBoost, advanceRaceIfRunning, advanceRaceLap, applyPracticeSubstitutions, applyTeamPerformanceBoosts, calculateStandings, calculateTeammateHeadToHead, createRaceState, getBestCareerPositions, getCareerChampionships, getCareerStats, getClassification, getTeamCareerStats, getWeekendAwards, getWeekendPhases, practice, qualify, requiresMandatoryDryTyreCompounds, setPitInstruction, setTeamRaceAdjustments } from './sim.js';
+import { sb } from './supabase.js'; import { activateDriverBoost, advanceRaceIfRunning, advanceRaceLap, applyPracticeSubstitutions, applyTeamPerformanceBoosts, calculateStandings, calculateTeammateHeadToHead, createRaceState, getBestCareerPositions, getCareerChampionships, getCareerRecords, getCareerStats, getClassification, getTeamCareerStats, getWeekendAwards, getWeekendPhases, practice, qualify, requiresMandatoryDryTyreCompounds, setPitInstruction, setTeamRaceAdjustments } from './sim.js';
 function useQ(fn, deps = []) {
   const [query, setQuery] = useState({ data: null, loading: true, error: null });
   const [attempt, setAttempt] = useState(0);
@@ -256,6 +256,7 @@ export function Driver() {
   const history = [...(raceResults.data || [])].sort(resultOrder);
   const weekendHistory = groupRaceWeekends(history);
   const careerStats = getCareerStats(history);
+  const careerRecords = getCareerRecords(history);
   const raceFinishes = history.filter(row => row.session_type === 'race');
   const bestCareerPositions = getBestCareerPositions(history);
   const careerWins = raceFinishes.filter(row => row.race_win).length;
@@ -311,9 +312,13 @@ export function Driver() {
             ['GP wins', careerWins], ['P2 finishes', careerP2s], ['P3 finishes', careerP3s], ['Sprint wins', careerSprintWins],
             ['Podiums', careerPodiums], ['Poles', careerPoles], ['Sprint poles', careerSprintPoles], ['Fastest laps', careerFastestLaps],
             ['Sprint fastest laps', careerSprintFastestLaps], ['Retirements', careerRetirements], ['Grand Slams', careerGrandSlams],
-            ['Best starting position', bestCareerPositions.bestStartingPosition ? `P${bestCareerPositions.bestStartingPosition}` : '—'],
             ['Best finish', Number.isFinite(bestCareerPositions.bestFinish) ? `P${bestCareerPositions.bestFinish}` : '—'],
-            ['Best qualifying', Number.isFinite(bestCareerPositions.bestQualifying) ? `P${bestCareerPositions.bestQualifying}` : '—']
+            ['Best qualifying', Number.isFinite(bestCareerPositions.bestQualifying) ? `P${bestCareerPositions.bestQualifying}` : '—'],
+            [`Most wins in a season${careerRecords.mostWinsInSeason ? ` (${careerRecords.mostWinsInSeason.year})` : ''}`, careerRecords.mostWinsInSeason?.value ?? '—'],
+            [`Most podiums in a season${careerRecords.mostPodiumsInSeason ? ` (${careerRecords.mostPodiumsInSeason.year})` : ''}`, careerRecords.mostPodiumsInSeason?.value ?? '—'],
+            [`Most poles in a season${careerRecords.mostPolesInSeason ? ` (${careerRecords.mostPolesInSeason.year})` : ''}`, careerRecords.mostPolesInSeason?.value ?? '—'],
+            [`Most positions gained in a race${careerRecords.mostPositionsGained.year ? ` (${careerRecords.mostPositionsGained.year}${careerRecords.mostPositionsGained.raceName ? ` · ${careerRecords.mostPositionsGained.raceName}` : ''})` : ''}`, careerRecords.mostPositionsGained.value === null ? '—' : careerRecords.mostPositionsGained.value],
+            [`Furthest-back winning start${careerRecords.furthestWinningPosition?.year ? ` (${careerRecords.furthestWinningPosition.year}${careerRecords.furthestWinningPosition.raceName ? ` · ${careerRecords.furthestWinningPosition.raceName}` : ''})` : ''}`, careerRecords.furthestWinningPosition?.position ? `P${careerRecords.furthestWinningPosition.position}` : '—']
           ].map(([label, count]) => <div className="career-achievement" key={label}><strong>{count}</strong><span>{label}</span></div>)}
         </div>{championshipResults.error && <QueryStatus query={championshipResults} />}<div className="section-title"><div><h3>Race history</h3><p>All saved sessions and session awards</p></div></div><QueryStatus query={raceResults} empty="No saved race results yet." />
           {!!weekendHistory.length && <div className="weekend-history">{weekendHistory.map(weekend => <details className="weekend-history-item" key={weekend.key}>
