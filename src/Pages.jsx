@@ -298,7 +298,7 @@ export function Driver() {
             </article>
           })}</div>}
         </section>
-        <section className="race-history"><div className="section-title"><div><h3>Career achievements</h3><p>Totals, rates, and titles calculated from saved results</p></div></div><div className="career-achievements">
+        <section className="race-history"><details className="career-achievements-panel" open><summary className="career-achievements-toggle"><span><strong>Career achievements</strong><small>Totals, rates, and titles calculated from saved results</small></span></summary><div className="career-achievements">
           {[
             ['GP starts', careerStats.starts], ['Points', careerStats.points],
             ['Avg. starting pos.', Number.isFinite(careerStats.averageStartingPosition) ? careerStats.averageStartingPosition.toFixed(1) : '—'],
@@ -320,7 +320,7 @@ export function Driver() {
             [`Most positions gained in a race${careerRecords.mostPositionsGained.year ? ` (${careerRecords.mostPositionsGained.year}${careerRecords.mostPositionsGained.raceName ? ` · ${careerRecords.mostPositionsGained.raceName}` : ''})` : ''}`, careerRecords.mostPositionsGained.value === null ? '—' : careerRecords.mostPositionsGained.value],
             [`Furthest-back winning start${careerRecords.furthestWinningPosition?.year ? ` (${careerRecords.furthestWinningPosition.year}${careerRecords.furthestWinningPosition.raceName ? ` · ${careerRecords.furthestWinningPosition.raceName}` : ''})` : ''}`, careerRecords.furthestWinningPosition?.position ? `P${careerRecords.furthestWinningPosition.position}` : '—']
           ].map(([label, count]) => <div className="career-achievement" key={label}><strong>{count}</strong><span>{label}</span></div>)}
-        </div>{championshipResults.error && <QueryStatus query={championshipResults} />}<div className="section-title"><div><h3>Race history</h3><p>All saved sessions and session awards</p></div></div><QueryStatus query={raceResults} empty="No saved race results yet." />
+        </div></details>{championshipResults.error && <QueryStatus query={championshipResults} />}<div className="section-title"><div><h3>Race history</h3><p>All saved sessions and session awards</p></div></div><QueryStatus query={raceResults} empty="No saved race results yet." />
           {!!weekendHistory.length && <div className="weekend-history">{weekendHistory.map(weekend => <details className="weekend-history-item" key={weekend.key}>
             <summary className="weekend-history-summary"><span className="weekend-history-year">{weekend.year || '—'}</span><span className="weekend-history-name"><small>ROUND {weekend.round || '—'}</small><strong>{weekend.raceName}</strong></span><span className="weekend-history-count">{weekend.sessions.length} sessions</span><strong className="weekend-history-points">{weekend.pointsTotal} pts</strong></summary>
             <div className="weekend-history-details"><div className="weekend-history-columns driver-weekend-columns"><span>SESSION</span><span>TEAM</span><span>POS</span><span>PTS</span><span>AWARDS</span><span>TIME</span></div>
