@@ -25,7 +25,19 @@ function QueryStatus({ query, empty }) {
   if (empty && Array.isArray(query.data) && query.data.length === 0) return <p className="query-status">{empty}</p>;
   return null;
 }
-const Bar = ({ l, v }) => <div className="bar"><span>{l}</span><i><b style={{ width: (v ?? 0) + '%' }} /></i><em>{v ?? '–'}</em></div>;
+const Bar = ({ l, v, average }) => {
+  const rated = v !== null && v !== undefined && Number.isFinite(Number(v));
+  return <div className="bar" role="meter" aria-label={`${l} rating`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={rated ? Number(v) : undefined} aria-valuetext={rated ? `${v} out of 100${Number.isFinite(average) ? `; grid average ${average.toFixed(0)}` : ''}` : 'Not rated'}>
+    <span>{l}{Number.isFinite(average) && <small>avg {average.toFixed(0)}</small>}</span>
+    <i title={Number.isFinite(average) ? `Grid average: ${average.toFixed(0)}` : undefined}><b style={{ width: `${rated ? Number(v) : 0}%` }} />{Number.isFinite(average) && <span className="bar-average-marker" style={{ left: `${average}%` }} />}</i>
+    <em>{rated ? v : '–'}</em>
+  </div>;
+};
+function FallbackImage({ src, alt, className, loading = 'lazy' }) {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) return <span className={`image-fallback ${className || ''}`} role="img" aria-label={`${alt} unavailable`}>Image unavailable</span>;
+  return <img className={className} src={src} alt={alt} loading={loading} decoding="async" onError={() => setFailed(true)} />;
+}
 const PHASE_LABELS = { practice1: 'Practice 1', practice2: 'Practice 2', practice3: 'Practice 3', sprintQualifying: 'Sprint Qualifying', sprint: 'Sprint', qualifying: 'Qualifying', race: 'Grand Prix' };
 const sessionLabel = session => PHASE_LABELS[session] || session;
 async function loadTeammateResultRows(driverIds) {
@@ -237,20 +249,60 @@ export function Drivers() {
   })}</div></>
 }
 export function Driver() {
-  const { id } = useParams(); const d = useQ(() => sb.from('drivers').select('*,driver_images(*),driver_ratings(*)').eq('id', id).single(), [id]);
+  const { id } = useParams();
+  const [activeSection, setActiveSection] = useState('overview');
+  const [historyLimit, setHistoryLimit] = useState(8);
+  const [galleryLimit, setGalleryLimit] = useState(12);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [galleryExpanded, setGalleryExpanded] = useState(false);
+  useEffect(() => {
+    setHistoryLimit(8);
+    setGalleryLimit(12);
+    setHistoryExpanded(false);
+    setGalleryExpanded(false);
+  }, [id]);
+  const d = useQ(() => sb.from('drivers').select('*,driver_images(*),driver_ratings(*)').eq('id', id).single(), [id]);
   const lineups = useQ(() => sb.from('team_driver_lineups').select('*,teams(id,name,logo_normal,color)').or(`driver_1_id.eq.${id},driver_2_id.eq.${id},reserve_driver_id.eq.${id}`).order('year', { ascending: false }), [id]);
   const raceResults = useQ(() => sb.from('race_results').select('grid_id,race_id,session_type,position,points,status,laps_completed,total_time,best_lap,result,pole_position,sprint_pole,race_win,sprint_win,fastest_lap,grand_slam,retired,races(year,round,name),grids(year),teams(id,name,logo_normal,color)').eq('driver_id', id), [id]);
   const championshipResults = useQ(() => loadCareerChampionshipData(raceResults.data || []), [id, raceResults.data]);
   const teammateIds = [...new Set((lineups.data || []).flatMap(lineup => ['driver_1_id', 'driver_2_id', 'reserve_driver_id'].map(slot => lineup[slot]).filter(teammateId => teammateId !== null && teammateId !== undefined && String(teammateId) !== String(id))).map(String))];
   const teammateKey = teammateIds.slice().sort().join(',');
   const headToHeadResults = useQ(() => teammateIds.length ? loadTeammateResultRows([id, ...teammateIds]) : Promise.resolve([]), [id, teammateKey]);
-  const rosterDrivers = useQ(() => sb.from('drivers').select('id,name,code,number,driver_images(card_url,year)').order('name'));
-  if (d.loading || d.error || !d.data) return <><h2>Driver</h2><QueryStatus query={d} /></>;
+  const rosterDrivers = useQ(() => sb.from('drivers').select('id,name,code,number,driver_images(card_url,year),driver_ratings(race,overtaking,speed,experience,qualifying,defence)').order('name'));
+  useEffect(() => {
+    setActiveSection('overview');
+    const sectionIds = ['overview', 'teammates', 'career', 'races', 'gallery'];
+    const sections = sectionIds.map(sectionId => document.getElementById(sectionId)).filter(Boolean);
+    if (!sections.length || !('IntersectionObserver' in window)) return undefined;
+    const observer = new IntersectionObserver(entries => {
+      const visible = entries.filter(entry => entry.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+      if (visible[0]) setActiveSection(visible[0].target.id);
+    }, { rootMargin: '-96px 0px -65% 0px', threshold: 0 });
+    sections.forEach(section => observer.observe(section));
+    return () => observer.disconnect();
+  }, [id, Boolean(d.data)]);
+  if (d.loading) return <section className="driver-skeleton" role="status" aria-label="Loading driver profile"><span /><span /><span /></section>;
+  if (d.error || !d.data) return <><h2>Driver</h2><QueryStatus query={d} /></>;
   const driver = d.data; const r = one(driver.driver_ratings) || {};
   const images = [...(driver.driver_images || [])].sort((a, b) => b.year - a.year);
   const heroImage = latestImg(driver, 'card_url') || latestImg(driver, 'pole_url');
-  const years = [...new Set(images.map(image => image.year))];
   const driverById = new Map((rosterDrivers.data || []).map(rosterDriver => [String(rosterDriver.id), rosterDriver]));
+  const ratingKeys = ['race', 'overtaking', 'speed', 'experience', 'qualifying', 'defence'];
+  const ratingAverages = Object.fromEntries(ratingKeys.map(key => {
+    const values = (rosterDrivers.data || []).map(rosterDriver => Number(one(rosterDriver.driver_ratings)?.[key])).filter(value => Number.isFinite(value));
+    return [key, values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null];
+  }));
+  const currentTeam = lineups.data?.find(lineup => Number(lineup.year) === new Date().getFullYear())?.teams;
+  const careerTimeline = [];
+  for (const lineup of [...(lineups.data || [])].sort((a, b) => Number(a.year) - Number(b.year))) {
+    const previous = careerTimeline[careerTimeline.length - 1];
+    if (previous && String(previous.teamId) === String(lineup.team_id) && Number(lineup.year) === previous.toYear + 1) {
+      previous.toYear = Number(lineup.year);
+      previous.lineups.push(lineup);
+    } else {
+      careerTimeline.push({ teamId: lineup.team_id, team: lineup.teams, fromYear: Number(lineup.year), toYear: Number(lineup.year), lineups: [lineup] });
+    }
+  }
   const teammateHeadToHead = calculateTeammateHeadToHead(id, lineups.data || [], headToHeadResults.data || []);
   const lineupSlots = [['driver_1_id', 'Race driver 1'], ['driver_2_id', 'Race driver 2'], ['reserve_driver_id', 'Reserve driver']];
   const history = [...(raceResults.data || [])].sort(resultOrder);
@@ -275,17 +327,39 @@ export function Driver() {
     : null;
   const formatCareerPercentage = value => Number.isFinite(value) ? `${value.toFixed(1)}%` : '—';
   const imageLabels = { pole_url: 'Pole portrait', grid_url: 'Grid portrait', card_url: 'Driver card' };
-  return <><div className="driver-profile-top"><h2>{driver.name} <small>#{driver.number} {driver.code}</small></h2>
-    {heroImage && <div className="driver-profile-hero"><img src={heroImage} alt={`${driver.name} portrait`} /></div>}</div>
-    <p>{driver.nationality_logo && <img height="16" src={driver.nationality_logo} alt="" />} {driver.nationality}</p><p>{driver.bio}</p>
-    <div className="split"><div>{['race', 'overtaking', 'speed', 'experience', 'qualifying', 'defence'].map(k => <Bar key={k} l={k} v={r[k]} />)}</div>
-      <div className="driver-detail-content"><section className="driver-team-history"><h3>Teams &amp; teammates</h3><QueryStatus query={lineups} empty="No team history recorded." /><QueryStatus query={rosterDrivers} />
-        {lineups.data?.map(lineup => {
-          const assigned = lineupSlots.map(([key, label]) => ({ id: lineup[key], label })).filter(slot => slot.id); const role = assigned.find(slot => String(slot.id) === String(driver.id))?.label;
-          return <article className="driver-team-season" key={`${lineup.team_id}-${lineup.year}`}><div className="driver-team-season-head"><Link className="driver-team-link" to={`/teams/${lineup.team_id}`}>{lineup.teams?.logo_normal && <img src={lineup.teams.logo_normal} alt="" />}<strong>{lineup.teams?.name || 'Team'}</strong></Link><span>{lineup.year === new Date().getFullYear() ? 'Current season' : lineup.year}</span>{role && <small>{role}</small>}</div>
-            <div className="driver-teammates">{assigned.filter(slot => String(slot.id) !== String(driver.id)).map(slot => { const teammate = driverById.get(String(slot.id)); return <Link key={`${lineup.year}-${slot.id}`} to={`/drivers/${slot.id}`} className="card driver-card driver-teammate-card">{teammate && latestImg(teammate, 'card_url') && <img className="driver-pole-image" src={latestImg(teammate, 'card_url')} alt="" aria-hidden="true" />}<div className="driver-card-copy"><small>{slot.label}</small><h4>{teammate?.name || `Driver #${slot.id}`}</h4></div></Link> })}</div>
-          </article>
-        })}</section>
+  const galleryItems = images.flatMap(image => ['pole_url', 'grid_url', 'card_url'].filter(key => image[key]).map(key => ({ image, key })));
+  const visibleWeekends = weekendHistory.slice(0, historyLimit);
+  const visibleGalleryItems = galleryItems.slice(0, galleryLimit);
+  const visibleGalleryYears = [...new Set(visibleGalleryItems.map(({ image }) => image.year))];
+  return <div className="driver-page" style={{ '--team-color': currentTeam?.color || '#d3202f' }}>
+    <nav className="driver-section-nav" aria-label="Driver page sections">{[['overview', 'Overview'], ['teammates', 'Teammates'], ['career', 'Career'], ['races', 'Races'], ['gallery', 'Gallery']].map(([sectionId, label]) => <a key={sectionId} href={`#${sectionId}`} className={activeSection === sectionId ? 'active' : undefined} aria-current={activeSection === sectionId ? 'location' : undefined}>{label}</a>)}</nav>
+    <section id="overview" className="driver-overview">
+      <header className="driver-overview-heading"><h2>{driver.name} <small>#{driver.number} {driver.code}</small></h2><p>{driver.nationality_logo && <img height="16" src={driver.nationality_logo} alt="" />} {driver.nationality || 'Nationality not recorded'}</p>{driver.bio && <p>{driver.bio}</p>}</header>
+      <div className="driver-overview-content">
+        <div className="driver-profile-hero">{heroImage ? <FallbackImage className="driver-profile-portrait" src={heroImage} alt={`${driver.name} portrait`} loading="eager" /> : <div className="driver-profile-placeholder" aria-hidden="true">{driver.code || driver.number || 'F1'}</div>}</div>
+        <div className="driver-overview-facts">
+          <div className="driver-hero-stats" aria-label="Career highlights">
+            {[['Titles', careerChampionships ?? '—'], ['Wins', careerWins], ['Podiums', careerPodiums], ['Poles', careerPoles]].map(([label, value]) => <div key={label}><strong>{value}</strong><span>{label}</span></div>)}
+          </div>
+          <section className="driver-ratings" aria-label="Driver ratings">{ratingKeys.map(key => <Bar key={key} l={key} v={r[key]} average={ratingAverages[key]} />)}<p className="driver-rating-legend"><i /> Grid average</p></section>
+        </div>
+      </div>
+    </section>
+    <section id="teammates" className="driver-team-history driver-page-section"><h3>Career timeline</h3><QueryStatus query={lineups} empty="No team history recorded yet." /><QueryStatus query={rosterDrivers} />
+      {!!careerTimeline.length && <div className="driver-career-timeline">{careerTimeline.map((tenure, index) => <article className="driver-career-entry" key={`${tenure.teamId}-${tenure.fromYear}-${index}`}>
+        <div className="driver-career-year">{tenure.fromYear === tenure.toYear ? tenure.fromYear : `${tenure.fromYear}–${tenure.toYear}`}</div>
+        <div className="driver-career-card"><div className="driver-career-team">{tenure.team?.logo_normal && <FallbackImage src={tenure.team.logo_normal} alt="" className="driver-career-logo" />}<div><Link to={`/teams/${tenure.teamId}`}>{tenure.team?.name || 'Team'}</Link>{tenure.toYear === new Date().getFullYear() && <small>Current team</small>}</div></div>
+          <div className="driver-career-teammates">{tenure.lineups.flatMap(lineup => lineupSlots.filter(([key]) => String(lineup[key]) !== String(driver.id) && lineup[key]).map(([key, role]) => {
+            const teammate = driverById.get(String(lineup[key]));
+            return <Link key={`${lineup.year}-${key}`} className="driver-career-teammate" to={`/drivers/${lineup[key]}`} aria-label={`${teammate?.name || `Driver ${lineup[key]}`}, ${lineup.year}`}>
+              {teammate && latestImg(teammate, 'card_url') ? <FallbackImage src={latestImg(teammate, 'card_url')} alt="" className="driver-career-avatar" /> : <span className="driver-career-avatar driver-career-avatar-fallback" aria-hidden="true">{teammate?.code || '?'}</span>}
+              <span><strong>{teammate?.name || `Driver #${lineup[key]}`}</strong><small>{lineup.year} · {role.replace('Race driver', 'Driver')}</small></span>
+            </Link>;
+          }))}</div>
+        </div>
+      </article>)}</div>}
+    </section>
+    <div className="driver-detail-content">
         <section className="teammate-head-to-head"><div className="section-title"><div><h3>Teammate head-to-head</h3><p>Session results from weekends where you shared a team</p></div></div><QueryStatus query={headToHeadResults} />
           {!headToHeadResults.loading && !headToHeadResults.error && !teammateHeadToHead.length && <p className="muted">No shared teammate results saved yet.</p>}
           {!!teammateHeadToHead.length && <div className="teammate-head-to-head-grid">{teammateHeadToHead.map(record => {
@@ -294,11 +368,12 @@ export function Driver() {
               <div className="teammate-h2h-stats">
                 {[['Grand Prix qualifying', record.qualifying], ['Grand Prix races', record.race], ['Sprint qualifying', record.sprintQualifying], ['Sprint races', record.sprint]].map(([label, score]) => <div className="teammate-h2h-stat" key={label}><span>{label}</span><strong>{score.wins}–{score.losses}{score.ties ? `–${score.ties}` : ''}</strong></div>)}
               </div>
+              {!record.sprint.wins && !record.sprint.losses && !record.sprint.ties && !record.sprintQualifying.wins && !record.sprintQualifying.losses && !record.sprintQualifying.ties && <p className="driver-empty-note">No sprint comparison data for this teammate yet.</p>}
               <footer className="teammate-h2h-points"><span>Shared Grand Prix starts <strong>{record.sharedRaces}</strong></span><span>Points <strong>{record.driverPoints}–{record.teammatePoints}</strong></span></footer>
             </article>
           })}</div>}
         </section>
-        <section className="race-history"><details className="career-achievements-panel" open><summary className="career-achievements-toggle"><span><strong>Career achievements</strong><small>Totals, rates, and titles calculated from saved results</small></span></summary><div className="career-achievements">
+        <section id="career" className="race-history driver-page-section"><details className="career-achievements-panel" open><summary className="career-achievements-toggle"><span><strong>Career achievements</strong><small>Totals, rates, and titles calculated from saved results</small></span></summary><div className="career-achievements">
           {[
             ['GP starts', careerStats.starts], ['Points', careerStats.points],
             ['Avg. starting pos.', Number.isFinite(careerStats.averageStartingPosition) ? careerStats.averageStartingPosition.toFixed(1) : '—'],
@@ -320,15 +395,28 @@ export function Driver() {
             [`Most positions gained in a race${careerRecords.mostPositionsGained.year ? ` (${careerRecords.mostPositionsGained.year}${careerRecords.mostPositionsGained.raceName ? ` · ${careerRecords.mostPositionsGained.raceName}` : ''})` : ''}`, careerRecords.mostPositionsGained.value === null ? '—' : careerRecords.mostPositionsGained.value],
             [`Furthest-back winning start${careerRecords.furthestWinningPosition?.year ? ` (${careerRecords.furthestWinningPosition.year}${careerRecords.furthestWinningPosition.raceName ? ` · ${careerRecords.furthestWinningPosition.raceName}` : ''})` : ''}`, careerRecords.furthestWinningPosition?.position ? `P${careerRecords.furthestWinningPosition.position}` : '—']
           ].map(([label, count]) => <div className="career-achievement" key={label}><strong>{count}</strong><span>{label}</span></div>)}
-        </div></details>{championshipResults.error && <QueryStatus query={championshipResults} />}<div className="section-title"><div><h3>Race history</h3><p>All saved sessions and session awards</p></div></div><QueryStatus query={raceResults} empty="No saved race results yet." />
-          {!!weekendHistory.length && <div className="weekend-history">{weekendHistory.map(weekend => <details className="weekend-history-item" key={weekend.key}>
+        </div></details>{championshipResults.error && <QueryStatus query={championshipResults} />}</section>
+        <details id="races" className="driver-history-panel driver-page-section" onToggle={event => setHistoryExpanded(event.currentTarget.open)}><summary className="driver-disclosure-summary" aria-expanded={historyExpanded}><span><strong>Race history</strong><small>All saved sessions and session awards</small></span><span className="driver-disclosure-count">{weekendHistory.length} weekends</span></summary>
+          <div className="driver-disclosure-content"><QueryStatus query={raceResults} empty="No race results saved for this driver yet." />
+          {!raceResults.loading && !raceResults.error && !!weekendHistory.length && !history.some(row => row.session_type === 'sprint') && <p className="driver-empty-note">No sprint results have been saved for this driver yet.</p>}
+          {!!visibleWeekends.length && <div className="weekend-history">{visibleWeekends.map(weekend => <details className="weekend-history-item" key={weekend.key}>
             <summary className="weekend-history-summary"><span className="weekend-history-year">{weekend.year || '—'}</span><span className="weekend-history-name"><small>ROUND {weekend.round || '—'}</small><strong>{weekend.raceName}</strong></span><span className="weekend-history-count">{weekend.sessions.length} sessions</span><strong className="weekend-history-points">{weekend.pointsTotal} pts</strong></summary>
             <div className="weekend-history-details"><div className="weekend-history-columns driver-weekend-columns"><span>SESSION</span><span>TEAM</span><span>POS</span><span>PTS</span><span>AWARDS</span><span>TIME</span></div>
               {weekend.sessions.map(session => session.rows.map(row => <div className="weekend-history-row driver-weekend-row" key={`${session.session_type}-${row.driver_id}`}><span data-label="Session">{sessionLabel(session.session_type)}</span><span data-label="Team"><Link to={`/teams/${row.teams?.id}`}>{row.teams?.name || 'Team'}</Link></span><span data-label="Position">{row.position === 1 ? 'P1' : `P${row.position}`}{row.retired ? ' · DNF' : ''}</span><span data-label="Points">{row.points}</span><span data-label="Awards">{resultAwards(row).join(' · ') || '—'}</span><span data-label="Time">{row.total_time !== null && Number.isFinite(Number(row.total_time)) ? formatTime(Number(row.total_time)) : '—'}</span></div>))}
             </div>
           </details>)}</div>}
-        </section>
-        <div className="driver-gallery">{years.map(year => <section className="driver-gallery-year" key={year}><h3>{year}</h3><div className="driver-gallery-grid">{images.filter(image => image.year === year).flatMap(image => ['pole_url', 'grid_url', 'card_url'].filter(key => image[key]).map(key => <figure key={`${image.id}-${key}`}><img src={image[key]} alt={`${driver.name} ${imageLabels[key]}, ${year}`} /><figcaption>{imageLabels[key]}</figcaption></figure>))}</div></section>)}</div></div></div></>
+          {weekendHistory.length > historyLimit && <button className="driver-show-more" onClick={() => setHistoryLimit(limit => limit + 8)}>Show 8 more weekends</button>}
+          {historyLimit > 8 && weekendHistory.length > 8 && <button className="driver-show-more driver-show-less" onClick={() => setHistoryLimit(8)}>Show fewer</button>}
+          </div>
+        </details>
+        <details id="gallery" className="driver-gallery-panel driver-page-section" onToggle={event => setGalleryExpanded(event.currentTarget.open)}><summary className="driver-disclosure-summary" aria-expanded={galleryExpanded}><span><strong>Gallery</strong><small>Driver photos by season</small></span><span className="driver-disclosure-count">{galleryItems.length} photos</span></summary>
+          <div className="driver-disclosure-content">{!galleryItems.length ? <p className="driver-empty-note">No gallery images are available for this driver yet.</p> : visibleGalleryYears.map(year => <section className="driver-gallery-year" key={year}><h3>{year}</h3><div className="driver-gallery-grid">{visibleGalleryItems.filter(item => item.image.year === year).map(({ image, key }) => <figure key={`${image.id}-${key}`}><FallbackImage src={image[key]} alt={`${driver.name} ${imageLabels[key]}, ${year}`} /><figcaption>{imageLabels[key]}</figcaption></figure>)}</div></section>)}
+          {galleryItems.length > galleryLimit && <button className="driver-show-more" onClick={() => setGalleryLimit(limit => limit + 12)}>Show 12 more photos</button>}
+          {galleryLimit > 12 && galleryItems.length > 12 && <button className="driver-show-more driver-show-less" onClick={() => setGalleryLimit(12)}>Show fewer</button>}
+          </div>
+        </details>
+      </div>
+    </div>
 }
 const CarCard = ({ c, sub, teamLogo, teamName }) => <details className="card car-card">
   <summary className={`car-card-summary ${c.image_url ? 'has-image' : ''}`}>
@@ -374,7 +462,7 @@ export function Team() {
   const lineupSlots = [['driver_1_id', 'Race driver 1'], ['driver_2_id', 'Race driver 2'], ['reserve_driver_id', 'Reserve driver']];
   return <><div className="team-profile-heading">{team.logo_normal && <img src={team.logo_normal} alt={`${team.name} logo`} />}<h2>{team.name}</h2></div>
     <section className="team-lineup-history"><h3>Driver lineups</h3><QueryStatus query={lineups} empty="No driver lineups recorded." /><QueryStatus query={drivers} />
-      {lineups.data?.map(lineup => <section className="team-lineup-season" key={lineup.year}><h4>{lineup.year}</h4><div className="grid team-lineup-cards">{lineupSlots.map(([key, label]) => { const driver = lineup[key] ? driverById.get(String(lineup[key])) : null; return driver ? <Link key={key} to={`/drivers/${driver.id}`} className="card driver-card lineup-driver-card"><div className="driver-card-copy"><small>{label}</small><h3>{driver.name}</h3></div></Link> : <div key={key} className="card lineup-driver-card lineup-driver-empty"><small>{label}</small><p>Not assigned</p></div> })}</div></section>)}</section>
+      {lineups.data?.map(lineup => <section className="team-lineup-season" key={lineup.year}><h4>{lineup.year}</h4><div className="grid team-lineup-cards">{lineupSlots.map(([key, label]) => { const driver = lineup[key] ? driverById.get(String(lineup[key])) : null; const content = <div className="lineup-driver-copy"><small>{label}</small><strong>{driver?.name || 'Not assigned'}</strong></div>; return driver ? <Link key={key} to={`/drivers/${driver.id}`} className="card lineup-driver-card">{content}</Link> : <div key={key} className="card lineup-driver-card">{content}</div> })}</div></section>)}</section>
     <section className="race-history"><div className="section-title"><div><h3>Team achievements</h3><p>Totals calculated from saved results</p></div></div><div className="career-achievements">
       {[
         ['Points', teamCareerStats.points], ['Avg. points / race', Number.isFinite(teamCareerStats.averagePointsPerRace) ? teamCareerStats.averagePointsPerRace.toFixed(1) : '—'],
