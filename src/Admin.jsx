@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react';import {sb} from './supabase.js';
+import {useEffect,useState} from 'react';import {sb} from './supabase.js';import {formatDriverName} from './driverName.js';
 const RAT=['race','overtaking','speed','experience','qualifying','defence','overall','consistency','tyre_management','wet_weather','starts','braking','error_resistance','adaptability','racecraft'],CAR=['speed','race','overtaking','defence','performance','qualifying','reliability','straight_line_speed','aerodynamic_efficiency','high_speed_cornering','medium_speed_cornering','low_speed_cornering','downforce','mechanical_grip','traction','braking','tyre_preservation','fuel_efficiency','wet_performance','drs_effectiveness'];
 const n=k=>({k,t:'number'}),t=k=>({k,t:'text'}),img=k=>({k,t:'image'}),select=(k,options)=>({k,t:'select',options}),ref=(k,table,label='name')=>({k,t:'ref',table,label}),optionalBool=k=>({k,t:'optionalBool'});
 const T={
@@ -33,8 +33,9 @@ function Crud({table}){const F=T[table];const [rows,setRows]=useState([]);const 
   if(error)return alert(error.message);setForm({});load();
  }catch(error){alert(`Save failed: ${error instanceof Error?error.message:String(error)}`)}finally{setSaving(false)}};
  const del=async id=>{if(confirm('Delete this row?')){const {error}=await sb.from(table).delete().eq('id',id);if(error)alert(error.message);load()}};
- const show=(r,f)=>f.t==='ref'?(opts[f.k]?.find(o=>o.id===r[f.k])?.[f.label]??r[f.k]):f.t==='optionalBool'?r[f.k]===true?'Required':r[f.k]===false?'Not required':'Season default':String(r[f.k]??'');
- return <><div className="form">{F.map(f=><label key={f.k}>{f.k}{f.t==='ref'?<select value={form[f.k]||''} onChange={e=>set(f.k,e.target.value)}><option value="">none</option>{opts[f.k]?.map(o=><option key={o.id} value={o.id}>{o[f.label]}</option>)}</select>
+ const formatRefLabel=(f,value)=>f.table==='drivers'?formatDriverName(value):value;
+ const show=(r,f)=>f.t==='ref'?formatRefLabel(f,opts[f.k]?.find(o=>o.id===r[f.k])?.[f.label]??r[f.k]):f.t==='optionalBool'?r[f.k]===true?'Required':r[f.k]===false?'Not required':'Season default':String(r[f.k]??'');
+ return <><div className="form">{F.map(f=><label key={f.k}>{f.k}{f.t==='ref'?<select value={form[f.k]||''} onChange={e=>set(f.k,e.target.value)}><option value="">none</option>{opts[f.k]?.map(o=><option key={o.id} value={o.id}>{formatRefLabel(f,o[f.label])}</option>)}</select>
   :f.t==='area'?<textarea value={form[f.k]||''} onChange={e=>set(f.k,e.target.value)}/>
   :f.t==='bool'?<input type="checkbox" checked={!!form[f.k]} onChange={e=>set(f.k,e.target.checked)}/>
   :f.t==='optionalBool'?<select value={form[f.k]===true?'true':form[f.k]===false?'false':''} onChange={e=>set(f.k,e.target.value===''?null:e.target.value==='true')}><option value="">Season default</option><option value="true">Required</option><option value="false">Not required</option></select>
@@ -91,7 +92,7 @@ function Lineups(){const [year,setYear]=useState(new Date().getFullYear());const
  return <section className="lineup-manager"><div className="lineup-season"><label>Season<input type="number" min="1950" max="2200" value={year} onChange={event=>setYear(event.target.value)}/></label><p className="muted">Set two race drivers and one reserve per team. Choose a past year to manage historical lineups.</p></div>
   {loading&&<p className="query-status" role="status">Loading teams and drivers…</p>}{error&&<p className="query-status query-error" role="alert">Could not load lineups: {error}</p>}
   {!loading&&!error&&teams.length===0&&<p className="query-status">Add teams before assigning lineups.</p>}
-  {teams.map(team=><article className="lineup-team" key={team.id}><h3>{team.name} <small>{year}</small></h3><div className="lineup-slots">{slots.map(([key,label])=><label key={key}>{label}<select disabled={Boolean(error)||savingTeam!==null} value={lineups[String(team.id)]?.[key]||''} onChange={event=>setSlot(team.id,key,event.target.value)}><option value="">Not assigned</option>{drivers.map(driver=><option key={driver.id} value={driver.id}>{driver.name}</option>)}</select></label>)}</div><div className="row"><button className="btn" disabled={loading||Boolean(error)||savingTeam!==null} onClick={()=>save(team)}>{savingTeam===team.id?'Saving…':'Save lineup'}</button></div></article>)}
+  {teams.map(team=><article className="lineup-team" key={team.id}><h3>{team.name} <small>{year}</small></h3><div className="lineup-slots">{slots.map(([key,label])=><label key={key}>{label}<select disabled={Boolean(error)||savingTeam!==null} value={lineups[String(team.id)]?.[key]||''} onChange={event=>setSlot(team.id,key,event.target.value)}><option value="">Not assigned</option>{drivers.map(driver=><option key={driver.id} value={driver.id}>{formatDriverName(driver.name)}</option>)}</select></label>)}</div><div className="row"><button className="btn" disabled={loading||Boolean(error)||savingTeam!==null} onClick={()=>save(team)}>{savingTeam===team.id?'Saving…':'Save lineup'}</button></div></article>)}
   {message&&<p role="status" className={message.startsWith('Could not')||message.includes('choose a different')||message.startsWith('Enter a valid')?'query-status query-error':'query-status'}>{message}</p>}
  </section>}
 export default function Admin(){const [s,setS]=useState(null);const [tab,setTab]=useState('import');const [e,setE]=useState({});

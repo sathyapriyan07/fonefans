@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getCareerChampionships,getCareerRecords,getCareerStats,getClassification,getTeamCareerStats,getWeekendAwards,practice,qualify,qualifyRound,requiresMandatoryDryTyreCompounds,setPitInstruction,setTeamRaceAdjustments,simulateRace,TYRES} from './sim.js';
+import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getCareerChampionships,getCareerRecords,getCareerStats,getClassification,getQualifyingClassification,getTeamCareerStats,getWeekendAwards,practice,qualify,qualifyRound,requiresMandatoryDryTyreCompounds,setPitInstruction,setTeamRaceAdjustments,simulateRace,TYRES} from './sim.js';
 
 function entry(id,{driver={},car={}}={}){
  return {
@@ -247,6 +247,23 @@ test('individual qualifying rounds keep their round label and expose determinist
  assert.ok(q2.every(row=>row.sectors.length===3&&row.sectors.every(Number.isFinite)));
  assert.ok(q2.every(row=>!Number.isFinite(row.bestLap)||Math.abs(row.sectors.reduce((sum,sector)=>sum+sector,0)-row.bestLap)<1e-8));
  assert.deepEqual(q2,qualifyRound(entries,{seed:31,roundLabel:'Q2',race:circuit}));
+});
+
+test('knockout qualifying classification orders Q3 then Q2 and Q1 results into a complete grid',()=>{
+ const makeRows=(count,round,offset)=>Array.from({length:count},(_,index)=>({
+  driver:{id:`${round}-${index}`},bestLap:offset+index,round
+ }));
+ const classification=getQualifyingClassification([
+  makeRows(20,'Q1',90),makeRows(15,'Q2',80),makeRows(10,'Q3',70)
+ ],20);
+ assert.equal(classification.length,20);
+ assert.ok(classification.slice(0,10).every(row=>row.round==='Q3'));
+ assert.ok(classification.slice(10,15).every(row=>row.round==='Q2'));
+ assert.ok(classification.slice(15).every(row=>row.round==='Q1'));
+ assert.deepEqual(classification.map(row=>row.grid),Array.from({length:20},(_,index)=>index+1));
+ assert.equal(getQualifyingClassification([
+  makeRows(8,'Q1',90),makeRows(8,'Q2',80),makeRows(8,'Q3',70)
+ ],8).length,8);
 });
 
 test('lap advancement consumes fuel, ages tyres, and records sector timing',()=>{

@@ -1121,6 +1121,17 @@ export function qualify(entries,noise=0.22,options={}){
 export function qualifyRound(entries,options={}){
  return qualify(entries,{...options,knockout:false,roundLabel:options.roundLabel||'Q1'});
 }
+export function getQualifyingClassification(rounds=[],entryCount=0){
+ const [q1Rows=[],q2Rows=[],q3Rows=[]]=rounds;
+ const lapOrder=(a,b)=>a.bestLap-b.bestLap||stableId(a).localeCompare(stableId(b));
+ const q1=[...q1Rows].sort(lapOrder),q2=[...q2Rows].sort(lapOrder),q3=[...q3Rows].sort(lapOrder);
+ const cut=Math.max(0,Math.floor((entryCount-10)/2));
+ return [
+  ...q3,
+  ...(cut?q2.slice(Math.max(0,q2.length-cut)):[]),
+  ...(cut?q1.slice(Math.max(0,q1.length-cut)):[])
+ ].map((entry,index)=>({...entry,grid:index+1,position:index+1,eliminated:false}));
+}
 
 // Backward-compatible helper that now uses the same seeded lap model.
 export function race(entries,{sprint=false,strategies={},seed=1,race:raceData={},laps}={}){
