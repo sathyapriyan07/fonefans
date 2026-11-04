@@ -174,6 +174,36 @@ table{border-collapse:collapse;width:100%;background:#fff}td,th{padding:6px 10px
 :root[data-theme=dark] .driver-boost:disabled{background:#3b4146;color:#a6afb7}
 :root[data-theme=dark] .control-state.yellow{color:#171717}
 :root[data-theme=dark] .race-table th,:root[data-theme=dark] .results-table.race-table th,:root[data-theme=dark] .weekend-history-columns{color:#fff}
+:root[data-theme=dark] .track-path-editor,:root[data-theme=dark] .track-path-tools,:root[data-theme=dark] .track-path-markers,:root[data-theme=dark] .track-test-mode,:root[data-theme=dark] .live-track-options,:root[data-theme=dark] .track-top-five{background:var(--surface);color:var(--text)}
+.form>.track-path-editor{grid-column:1/-1}.track-path-editor{display:grid;gap:12px;width:100%;margin:16px 0;padding:14px;background:var(--surface);border:1px solid var(--line)}
+.track-path-editor-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.track-path-editor-heading h3{margin:0}.track-path-editor-heading p{margin:4px 0;color:var(--muted-text);font-size:.8rem}
+.track-path-mode{display:flex;gap:4px;flex-shrink:0}.track-path-mode button.active{background:var(--ink);color:#fff}
+.track-path-auto-controls{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:9px 11px;background:var(--surface-muted);font-size:.75rem}.track-path-auto-controls p{margin:0;color:var(--muted-text)}
+.track-path-editor-heading>label,.track-path-tools label{display:grid;gap:5px;font-size:.75rem;font-weight:700}
+.track-path-tools{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;padding:9px;background:var(--surface-muted)}
+.track-path-tools button{padding:7px 9px;font-size:.72rem}.track-path-tools label{min-width:145px}.track-path-tools .track-direction{min-width:132px}
+.track-path-markers{display:flex;gap:8px 18px;flex-wrap:wrap;padding:8px;background:var(--surface-muted);font-size:.7rem}
+.track-path-marker-help{margin:0;color:var(--muted-text);font-size:.68rem}
+.track-path-canvas-wrap{position:relative;width:100%;overflow:hidden;background:#e8e9e9;border:1px solid var(--line)}
+.track-path-background{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.track-path-no-image{position:absolute;inset:0;display:grid;place-items:center;padding:20px;color:#555;text-align:center;font-size:.85rem}
+.track-path-editor-canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}.track-path-editor-canvas.adding-points{cursor:crosshair}
+.track-path-editor-canvas circle{cursor:grab}.track-path-editor-canvas circle:active{cursor:grabbing}
+.track-path-error{margin:0;padding:8px 10px;background:#fff0f0;color:#a21c27;font-size:.78rem}
+.track-path-raw{display:grid;gap:8px;font-size:.78rem}.track-path-raw summary{width:fit-content;cursor:pointer;font-weight:700}.track-path-raw label{display:grid;gap:6px}.track-path-raw textarea{min-height:120px;font-family:Consolas,monospace;font-size:.75rem}
+.live-track-stage{position:relative;width:100%;overflow:hidden;background:var(--surface-muted);border:1px solid var(--line)}
+.live-track-background,.live-track-canvas{position:absolute;inset:0;width:100%;height:100%}
+.live-track-background{object-fit:contain}.live-track-canvas{cursor:pointer;touch-action:manipulation}
+.track-safety-banner{margin:8px 0;padding:7px 10px;background:#f0c431;color:#171717;font-size:.72rem;font-weight:900;text-align:center}
+.track-test-mode{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0;padding:8px;background:var(--surface-muted);font-size:.7rem}
+.track-test-mode button{padding:6px 9px;font-size:.7rem}.track-test-mode [role=status]{color:var(--muted-text)}
+.live-track-options,.track-top-five{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0}
+.live-track-options label{display:flex;align-items:center;gap:4px;font-size:.7rem}.live-track-options input{accent-color:var(--red)}
+.track-top-five button{display:flex;align-items:center;gap:5px;padding:4px 7px;font-size:.68rem}
+.track-top-five button>span{display:grid;place-items:center;width:20px;height:20px;background:var(--team-color);color:#fff;font-weight:900}
+.track-top-five button.selected{outline:2px solid var(--purple)}
+@media(max-width:600px){.track-path-editor{padding:9px}.track-path-editor-heading{flex-direction:column}.track-path-tools{align-items:stretch}.track-path-tools label{min-width:min(100%,130px);flex:1}.track-path-mode{width:100%}.track-path-mode button{flex:1}.track-path-auto-controls{align-items:flex-start;flex-direction:column}.track-test-mode{align-items:flex-start;flex-direction:column}}
+:root[data-theme=dark] .track-path-error{background:#3a2529;color:#f0b9bd}
 :root[data-theme=dark] .race-history .section-title p,:root[data-theme=dark] .teammate-h2h-stat span,:root[data-theme=dark] .teammate-h2h-points,:root[data-theme=dark] .circuit-panel p,:root[data-theme=dark] .weekend-empty p,:root[data-theme=dark] .telemetry-facts span,:root[data-theme=dark] .practice-podium-team,:root[data-theme=dark] .career-achievement span,:root[data-theme=dark] .career-achievements-toggle small,:root[data-theme=dark] .driver-grid .driver-card-copy p,:root[data-theme=dark] .results-page-heading p,:root[data-theme=dark] .results-classification-heading span{color:var(--muted-text)}
 :root[data-theme=dark] .teammate-h2h-points strong,:root[data-theme=dark] .telemetry-facts strong,:root[data-theme=dark] .circuit-map{color:var(--text)}
 :root[data-theme=dark] td,:root[data-theme=dark] th{border-color:var(--line)}

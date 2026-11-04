@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react';import {sb} from './supabase.js';
+import {useEffect,useState} from 'react';import {sb} from './supabase.js';import TrackPathEditor from './TrackPathEditor.jsx';import {stringifyCircuitTrackPath} from './trackPath.js';
 const RAT=['race','overtaking','speed','experience','qualifying','defence','overall','consistency','tyre_management','wet_weather','starts','braking','error_resistance','adaptability','racecraft'],CAR=['speed','race','overtaking','defence','performance','qualifying','reliability','straight_line_speed','aerodynamic_efficiency','high_speed_cornering','medium_speed_cornering','low_speed_cornering','downforce','mechanical_grip','traction','braking','tyre_preservation','fuel_efficiency','wet_performance','drs_effectiveness'];
 const n=k=>({k,t:'number'}),t=k=>({k,t:'text'}),img=k=>({k,t:'image'}),select=(k,options)=>({k,t:'select',options}),ref=(k,table,label='name')=>({k,t:'ref',table,label}),optionalBool=k=>({k,t:'optionalBool'});
 const T={
@@ -13,12 +13,41 @@ const T={
  races:[n('year'),n('round'),t('name'),t('circuit'),t('country'),img('circuit_image_url'),{k:'date',t:'date'},{k:'is_sprint',t:'bool'},optionalBool('mandatory_dry_tyre_compounds'),n('laps'),n('circuit_length_km'),n('straight_line_importance'),n('high_speed_corner_share'),n('medium_speed_corner_share'),n('low_speed_corner_share'),n('braking_demand'),n('traction_demand'),n('downforce_requirement'),n('tyre_energy'),n('overtaking_difficulty'),n('pit_lane_loss_seconds'),n('baseline_lap_seconds'),n('drs_zones'),n('tyre_wear_multiplier'),n('puncture_risk_multiplier'),n('tyre_overheating_threshold'),{k:'circuit_path',t:'area'},t('weekend_format'),{k:'sprint_affects_grand_prix_grid',t:'bool'}]};
 const IMAGE_TYPES=['image/png','image/jpeg','image/webp','image/gif','image/svg+xml','image/avif','image/x-icon'];
 const MAX_IMAGE_SIZE=10*1024*1024;
+const RACE_NUMBER_DEFAULTS={
+ laps:'57',circuit_length_km:'5.2',straight_line_importance:'0.5',
+ high_speed_corner_share:'0.33',medium_speed_corner_share:'0.34',low_speed_corner_share:'0.33',
+ braking_demand:'0.5',traction_demand:'0.5',downforce_requirement:'0.5',tyre_energy:'0.5',
+ overtaking_difficulty:'0.5',pit_lane_loss_seconds:'19.5',tyre_wear_multiplier:'1',
+ puncture_risk_multiplier:'1',tyre_overheating_threshold:'105'
+};
+function raceNumberPlaceholder(key,form){
+ if(key==='baseline_lap_seconds'){
+  const length=Number(form.circuit_length_km)||5.2;
+  return `${(90*length/5.2).toFixed(2)} s · calculated from circuit length`;
+ }
+ if(key==='drs_zones'){
+  const year=Number(form.year);
+  return Number.isFinite(year)&&year<2011?'0':'2';
+ }
+ return RACE_NUMBER_DEFAULTS[key]||'';
+}
 function Crud({table}){const F=T[table];const [rows,setRows]=useState([]);const [opts,setOpts]=useState({});const [form,setForm]=useState({});const [saving,setSaving]=useState(false);
  const load=async()=>{setRows((await sb.from(table).select('*').order('id',{ascending:false}).limit(200)).data||[]);
   const o={};for(const f of F.filter(f=>f.t==='ref'))o[f.k]=(await sb.from(f.table).select('*')).data||[];setOpts(o)};
  useEffect(()=>{setForm({});load()},[table]);
  const set=(k,v)=>setForm({...form,[k]:v});
  const save=async()=>{setSaving(true);try{const p={...form};
+  if(table==='races'&&typeof p.circuit_path==='string'&&p.circuit_path.trim()){
+   let parsed;
+   try{parsed=JSON.parse(p.circuit_path)}catch(error){
+    if(!/^\s*M(?:\s|[-+.\d])/i.test(p.circuit_path))throw new Error(`circuit_path must be valid track-path JSON: ${error.message}`);
+   }
+   if(parsed!==undefined){
+    if(!parsed||typeof parsed!=='object'||!Array.isArray(parsed.points)||typeof parsed.closed!=='boolean')
+     throw new Error('circuit_path must be valid track-path JSON with points and closed fields.');
+    p.circuit_path=stringifyCircuitTrackPath(parsed);
+   }
+  }
   for(const f of F.filter(f=>f.t==='image'))if(p[f.k] instanceof File){const file=p[f.k];
    if(!IMAGE_TYPES.includes(file.type))return alert('Choose a supported image file.');
    if(file.size>MAX_IMAGE_SIZE)return alert('Images must be 10 MB or smaller.');
@@ -34,7 +63,7 @@ function Crud({table}){const F=T[table];const [rows,setRows]=useState([]);const 
  }catch(error){alert(`Save failed: ${error instanceof Error?error.message:String(error)}`)}finally{setSaving(false)}};
  const del=async id=>{if(confirm('Delete this row?')){const {error}=await sb.from(table).delete().eq('id',id);if(error)alert(error.message);load()}};
  const show=(r,f)=>f.t==='ref'?(opts[f.k]?.find(o=>o.id===r[f.k])?.[f.label]??r[f.k]):f.t==='optionalBool'?r[f.k]===true?'Required':r[f.k]===false?'Not required':'Season default':String(r[f.k]??'');
- return <><div className="form">{F.map(f=><label key={f.k}>{f.k}{f.t==='ref'?<select value={form[f.k]||''} onChange={e=>set(f.k,e.target.value)}><option value="">none</option>{opts[f.k]?.map(o=><option key={o.id} value={o.id}>{o[f.label]}</option>)}</select>
+ return <><div className="form">{F.filter(f=>!(table==='races'&&f.k==='circuit_path')).map(f=><label key={f.k}>{f.k}{f.t==='ref'?<select value={form[f.k]||''} onChange={e=>set(f.k,e.target.value)}><option value="">none</option>{opts[f.k]?.map(o=><option key={o.id} value={o.id}>{o[f.label]}</option>)}</select>
   :f.t==='area'?<textarea value={form[f.k]||''} onChange={e=>set(f.k,e.target.value)}/>
   :f.t==='bool'?<input type="checkbox" checked={!!form[f.k]} onChange={e=>set(f.k,e.target.checked)}/>
   :f.t==='optionalBool'?<select value={form[f.k]===true?'true':form[f.k]===false?'false':''} onChange={e=>set(f.k,e.target.value===''?null:e.target.value==='true')}><option value="">Season default</option><option value="true">Required</option><option value="false">Not required</option></select>
@@ -47,7 +76,8 @@ function Crud({table}){const F=T[table];const [rows,setRows]=useState([]);const 
    {typeof form[f.k]==='string'&&form[f.k]&&<img className="image-preview" src={form[f.k]} alt={`${f.k} preview`}/>}
    {form[f.k] instanceof File&&<span className="muted">{form[f.k].name}</span>}
    {form[f.k]&&<button type="button" onClick={()=>set(f.k,null)}>Remove image</button>}</>
-  :<input type={f.t==='number'?'number':f.t==='date'?'date':'text'} value={form[f.k]??''} onChange={e=>set(f.k,e.target.value)}/>}</label>)}
+  :<input type={f.t==='number'?'number':f.t==='date'?'date':'text'} value={form[f.k]??''} placeholder={table==='races'&&f.t==='number'?raceNumberPlaceholder(f.k,form):undefined} onChange={e=>set(f.k,e.target.value)}/>}</label>)}
+  {table==='races'&&<TrackPathEditor key={form.id||'new-race'} race={form} value={form.circuit_path||''} image={form.circuit_image_url} onChange={value=>set('circuit_path',value)}/>}
   <div className="row"><button className="btn" onClick={save} disabled={saving}>{saving?'Saving…':form.id?'Update':'Create'}</button>{form.id&&<button onClick={()=>setForm({})}>Cancel</button>}</div></div>
   <div className="scroll"><table><thead><tr>{F.map(f=><th key={f.k}>{f.k}</th>)}<th/></tr></thead><tbody>{rows.map(r=><tr key={r.id}>{F.map(f=><td key={f.k}>{show(r,f)}</td>)}<td><button onClick={()=>setForm(r)}>edit</button> <button onClick={()=>del(r.id)}>delete</button></td></tr>)}</tbody></table></div></>}
 const J='https://api.jolpi.ca/ergast/f1/';

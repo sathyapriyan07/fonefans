@@ -33,6 +33,7 @@ alter table public.teams
 
 alter table public.races
   add column if not exists circuit_image_url text,
+  add column if not exists track_map jsonb not null default '{}'::jsonb,
   add column if not exists circuit_length_km numeric,
   add column if not exists straight_line_importance numeric,
   add column if not exists high_speed_corner_share numeric,

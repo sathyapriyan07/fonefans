@@ -1105,20 +1105,19 @@ export function simulateQualifyingSession(entries,options={}){
  const redClockTime=addedSeconds?Math.floor(clockDuration*0.48):Infinity;
  const wallTime=clock=>clock+(addedSeconds&&clock>=redClockTime?addedSeconds:0);
  const field=[...entries].sort((a,b)=>stableId(a).localeCompare(stableId(b)));
- const earlyCount=Math.max(1,Math.ceil(field.length*0.7));
- const early=field.slice(0,earlyCount),late=field.slice(earlyCount);
  const plan=[];
- for(const [index,entry] of early.entries()){
+ for(const [index,entry] of field.entries()){
   const runs=qualifyingRunCount(entry,session,options);
   for(let run=0;run<runs;run++){
-   let clock=run===0?Math.min(clockDuration-180,index*3):run===1?Math.max(100,clockDuration*0.35+index*2):Math.max(150,clockDuration-230+index);
+   const fieldProgress=index/Math.max(1,field.length-1);
+   const lateRunWindow=Math.min(300,clockDuration*0.25);
+   const clock=run===0
+    ?Math.min(clockDuration-180,index*3)
+    :run===1
+     ?Math.max(100,clockDuration*0.35+index*2)
+     :clockDuration-lateRunWindow+fieldProgress*Math.max(0,lateRunWindow-60);
    plan.push({entry,run,clock});
   }
- }
- for(const [index,entry] of late.entries()){
-  const runs=qualifyingRunCount(entry,session,options);
-  plan.push({entry,run:0,clock:Math.max(0,clockDuration-95+index*2)});
-  if(runs>1&&clockDuration-95+index*2<clockDuration-260)plan.push({entry,run:1,clock:Math.max(100,clockDuration*0.43+index*2)});
  }
  plan.sort((a,b)=>a.clock-b.clock||stableId(a.entry).localeCompare(stableId(b.entry))||a.run-b.run);
  const bestByDriver=new Map(field.map(entry=>[String(entry.driver?.id),{

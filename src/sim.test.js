@@ -274,6 +274,24 @@ test('qualifying counts laps started before the flag even when they finish after
  assert.ok(completions.every(event=>starts.some(start=>String(start.driverId)===String(event.driverId)&&start.clock<session.clockDuration)));
 });
 
+test('all qualifying drivers get an early pit exit and later runs are staggered',()=>{
+ const entries=Array.from({length:20},(_,index)=>entry(index+1));
+ const session=simulateQualifyingSession(entries,{
+  session:'Q1',seed:'pit-exit-stagger',runCounts:Object.fromEntries(entries.map(row=>[row.driver.id,3])),redFlag:false
+ });
+ const exits=session.timeline.filter(event=>event.type==='pitExit');
+ const firstExitByDriver=new Map();
+ for(const event of exits){
+  if(!firstExitByDriver.has(String(event.driverId)))firstExitByDriver.set(String(event.driverId),event);
+ }
+ assert.equal(firstExitByDriver.size,entries.length);
+ assert.ok([...firstExitByDriver.values()].every(event=>event.clock<3*60));
+ const finalFiveMinuteExits=exits.filter(event=>event.clock>=session.clockDuration-5*60);
+ assert.ok(finalFiveMinuteExits.length>0);
+ assert.ok(new Set(finalFiveMinuteExits.map(event=>event.driverId)).size>1);
+ assert.ok(exits.every(event=>event.clock<session.clockDuration));
+});
+
 test('qualifying handles red, yellow, and weather-change events deterministically',()=>{
  const entries=Array.from({length:6},(_,index)=>entry(index+1));
  const options={session:'Q1',seed:'control-flags',weather:'variable',redFlag:true,yellowFlag:true,weatherChange:true};

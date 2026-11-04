@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'; import { Link, useParams } from 'react-router-dom';
 import { sb } from './supabase.js'; import { activateDriverBoost, advanceRaceIfRunning, advanceRaceLap, applyPracticeSubstitutions, applyTeamPerformanceBoosts, calculateStandings, calculateTeammateHeadToHead, createRaceState, getBestCareerPositions, getCareerChampionships, getCareerRecords, getCareerStats, getClassification, getTeamCareerStats, getWeekendAwards, getWeekendPhases, practice, requiresMandatoryDryTyreCompounds, setPitInstruction, setTeamRaceAdjustments, simulateQualifyingWeekend } from './sim.js';
+import LiveTrackMap from './LiveTrackMap.jsx';
+import {buildTrackPath,getDirectionalTrackPoints,getLapProgress,getTrackDisplayPoint,hasUsableTrackPath,interpolateLapProgress,parseCircuitTrackPath} from './trackPath.js';
 function useQ(fn, deps = []) {
   const [query, setQuery] = useState({ data: null, loading: true, error: null });
   const [attempt, setAttempt] = useState(0);
@@ -178,60 +180,6 @@ function SessionPodium({ entries, race, phaseLabel, fastestLap = Infinity, raceR
 }
 const CAR = ['speed', 'race', 'overtaking', 'defence', 'performance', 'qualifying', 'reliability'];
 const one = x => Array.isArray(x) ? x[0] : x;
-const FALLBACK_TRACK = 'M22 72 33 32 68 20 92 35 127 21 155 38 148 66 164 82 133 94 105 81 77 94 49 81 22 72Z';
-function LiveTrack({ state, selectedDriverId, onSelect }) {
-  const pathRef = useRef(null), pitPathRef = useRef(null), displayedRef = useRef([]), frameRef = useRef(null);
-  const [points, setPoints] = useState([]), [filter, setFilter] = useState('all');
-  const path = state.circuit.trackPath || FALLBACK_TRACK;
-  useEffect(() => {
-    const element = pathRef.current;
-    const pitPath = pitPathRef.current;
-    if (!element || !pitPath) return;
-    try {
-      const length = element.getTotalLength();
-      const pitLength = pitPath.getTotalLength();
-      const targets = length > 0 ? state.cars.map(car => {
-        const retired = car.retired, progress = retired ? (car.retiredProgress ?? car.trackProgress) : car.trackProgress;
-        const inPit = Boolean(car.pitState?.complete && car.pitState.entryLap === state.lap);
-        const point = inPit ? pitPath.getPointAtLength(pitLength * car.pitState.progress) : element.getPointAtLength(length * progress);
-        return { id: car.driverId, x: point.x, y: point.y, color: car.entry.team?.color || '#d3202f', name: car.entry.driver?.name || 'Driver', retired, inPit, pitProgress: inPit ? car.pitState.progress : 0, progress, position: car.position, lap: car.lapsCompleted, pitState: car.pitState, pitStatus: car.pitStatus, retirementReason: car.retirementReason };
-      }) : [];
-      const from = displayedRef.current.length ? displayedRef.current : targets.map(point => ({ ...point }));
-      if (frameRef.current) cancelAnimationFrame(frameRef.current);
-      const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-      const duration = reducedMotion ? 0 : 260, start = performance.now();
-      const byId = new Map(from.map(point => [String(point.id), point]));
-      const animate = now => {
-        const amount = duration ? Math.min(1, (now - start) / duration) : 1;
-        const next = targets.map(target => {
-          const previous = byId.get(String(target.id)) || target;
-          if (target.inPit) {
-            const pitProgress = amount * target.pitProgress;
-            const location = pitPath.getPointAtLength(pitLength * pitProgress);
-            return { ...target, x: location.x, y: location.y, pitProgress };
-          }
-          return { ...target, x: previous.x + (target.x - previous.x) * amount, y: previous.y + (target.y - previous.y) * amount };
-        });
-        displayedRef.current = next; setPoints(next);
-        if (amount < 1) frameRef.current = requestAnimationFrame(animate);
-      };
-      frameRef.current = requestAnimationFrame(animate);
-    } catch (error) { console.error('Could not render circuit geometry:', error); setPoints([]) }
-    return () => { if (frameRef.current) cancelAnimationFrame(frameRef.current) };
-  }, [path, state.cars, state.lap]);
-  const visible = points.filter(point => filter === 'all' || (filter === 'retired' ? point.retired : !point.retired));
-  const selected = points.find(point => String(point.id) === String(selectedDriverId));
-  return <div className="live-track-panel"><div className="section-title"><div><h3>Live track</h3><p>{state.circuit.trackPath ? 'Admin-defined layout' : 'Illustrative schematic — not geographic'}</p></div>
-    <div className="track-controls" role="group" aria-label="Track marker filter">{[['all', 'All'], ['active', 'Racing'], ['retired', 'Retired']].map(([key, label]) => <button key={key} className={filter === key ? 'active' : ''} onClick={() => setFilter(key)}>{label}</button>)}</div></div>
-    <svg className="live-track" viewBox="0 0 180 110" role="img" aria-label="Live track position display">
-      <path ref={pathRef} d={path} fill="none" stroke="currentColor" strokeWidth="6" strokeLinejoin="round" strokeLinecap="round" />
-      <path ref={pitPathRef} d="M 18 105 L 162 105" fill="none" stroke="#777" strokeWidth="2" strokeDasharray="4 3" />
-      <text x="18" y="101" fontSize="4" fill="currentColor">PIT LANE</text>
-      {visible.map(point => <circle key={point.id} cx={point.x} cy={point.y} r={String(point.id) === String(selectedDriverId) ? 4.5 : 3.2} fill={point.retired ? '#777' : point.color} stroke="white" strokeWidth="1.5" role="button" tabIndex="0" aria-label={`${point.name}${point.retired ? ` retired at lap ${point.lap}` : point.inPit ? ' in pit lane' : ''}`} onClick={() => onSelect(point.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') onSelect(point.id) }}><title>{point.name}{point.retired ? ` · retired at lap ${point.lap} · ${point.retirementReason}` : point.inPit ? ` · pit lane ${point.pitState.phase}` : ''}</title></circle>)}
-    </svg>
-    {selected && <div className="track-selected" aria-live="polite"><strong>{selected.name}</strong><span>P{selected.position} · Lap {selected.lap}</span><span>{selected.retired ? `Retired: ${selected.retirementReason} (lap ${selected.lap})` : selected.inPit ? `Pit lane · ${selected.pitState.phase} ${Math.round(selected.pitState.progress * 100)}%` : selected.pitStatus}</span><span>{Math.round(selected.progress * 100)}% track progress</span></div>}
-  </div>
-}
 export function Home() {
   const n = useQ(async () => { const c = async t => { const { count, error } = await sb.from(t).select('*', { count: 'exact', head: true }); if (error) throw error; return count }; const [drivers, teams, races] = await Promise.all([c('drivers'), c('teams'), c('races')]); return { drivers, teams, races } });
   return <section className="hero"><h1>Build the grid. Run the season.</h1><p>Set up your cars, manage race strategy, and take your custom grid through a full race weekend.</p>
@@ -530,6 +478,7 @@ export function Simulate() {
   const [practiceSubstitutions, setPracticeSubstitutions] = useState({});
   const [resultSaveError, setResultSaveError] = useState(''); const [resultSaveFailed, setResultSaveFailed] = useState(false); const [resultSaveSaving, setResultSaveSaving] = useState(false); const [resultSaveNeedsAuth, setResultSaveNeedsAuth] = useState(false); const [resultSaveSuccess, setResultSaveSuccess] = useState('');
   const [raceState, setRaceState] = useState(null); const [isRunning, setIsRunning] = useState(false); const [raceViewTab, setRaceViewTab] = useState('timing'); const [raceTeamAdjustments, setRaceTeamAdjustments] = useState({}); const [simulationSpeed, setSimulationSpeed] = useState(1); const [weatherMode, setWeatherMode] = useState('dry'); const [selectedDriverId, setSelectedDriverId] = useState(null); const [pitCompound, setPitCompound] = useState('medium'); const [pitLap, setPitLap] = useState(1); const [pitFeedback, setPitFeedback] = useState(''); const [boostFeedback, setBoostFeedback] = useState('');
+  const [trackTestFeedback,setTrackTestFeedback]=useState('');
   const [nextRaceNotice, setNextRaceNotice] = useState('');
   const completedRaceRef = useRef(null);
   const resultSaveQueueRef = useRef([]);
@@ -672,6 +621,7 @@ export function Simulate() {
   };
   const selectRace = raceId => {
     setNextRaceNotice('');
+    setTrackTestFeedback('');
     setR(raceId ? String(raceId) : '');
     setWeekendStarted(false);
     setWeekendComplete(false);
@@ -686,7 +636,7 @@ export function Simulate() {
     if (simulationTab !== 'weekend' || !grid || races.loading || seasonResultsQuery.loading || rid || !races.data) return;
     if (upcomingRace) selectRace(upcomingRace.id);
   }, [simulationTab, grid?.id, races.loading, races.data, seasonResultsQuery.loading, seasonResultsQuery.data, rid]);
-  useEffect(() => { setR(''); setWeekendStarted(false); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setQualifyingSimulation(null); setRaceState(null); setIsRunning(false); setPracticeSubstitutions({}) }, [gid]);
+  useEffect(() => { setR(''); setWeekendStarted(false); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setQualifyingSimulation(null); setRaceState(null); setIsRunning(false); setPracticeSubstitutions({}); setTrackTestFeedback('') }, [gid]);
   useEffect(() => {
     if (!isRunning || !raceState || raceState.done) return;
     const timer = window.setInterval(() => setRaceState(current => current ? advanceRaceIfRunning(current, true) : current), Math.max(100, 1000 / simulationSpeed));
@@ -726,7 +676,7 @@ export function Simulate() {
       setResultSaveError('Wait for queued results to save, or retry the pending save, before restarting the weekend.');
       return;
     }
-    setNextRaceNotice(''); setResultSaveError(''); setResultSaveFailed(false); setResultSaveNeedsAuth(false); setResultSaveSuccess(''); setBoostFeedback(''); setWeekendStarted(true); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setQualifyingSimulation(null); setRaceState(null)
+    setNextRaceNotice(''); setResultSaveError(''); setResultSaveFailed(false); setResultSaveNeedsAuth(false); setResultSaveSuccess(''); setBoostFeedback(''); setTrackTestFeedback(''); setWeekendStarted(true); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setQualifyingSimulation(null); setRaceState(null)
   };
   const resetSeasonStandings = async () => {
     if (!grid || !window.confirm(`Delete all saved simulated results for ${grid.name} (${grid.year}) from Supabase? This cannot be undone.`)) return;
@@ -793,6 +743,57 @@ export function Simulate() {
     }
     setQualifyingSimulation(null);
     persistPhaseResults(phase,currentQualifying.results);
+  };
+  const runTrackPathTest=()=>{
+    const trackMap=selectedRace?.track_map||{};
+    const circuitPath=parseCircuitTrackPath(selectedRace?.circuit_path);
+    const hasCircuitPath=typeof selectedRace?.circuit_path==='string'&&selectedRace.circuit_path.trim().startsWith('{');
+    const points=hasCircuitPath?circuitPath.points:trackMap.pathPoints||[];
+    if(hasCircuitPath?points.length<3:!hasUsableTrackPath(trackMap)){setTrackTestFeedback('Test unavailable: save a closed track path first.');return}
+    const originalRandom=Math.random;
+    try{
+      let randomState=(Number(selectedRace.id)||1)>>>0;
+      Math.random=()=>{randomState=(Math.imul(randomState,1664525)+1013904223)>>>0;return randomState/4294967296};
+      const direction=hasCircuitPath?circuitPath.direction:trackMap.drivingDirection==='counterclockwise'?-1:1;
+      const startIndex=hasCircuitPath?circuitPath.startFinishIndex:trackMap.startFinishIndex;
+      const directional=getDirectionalTrackPoints(points,startIndex??0,direction);
+      const path=buildTrackPath(directional.points,{closed:true,width:trackMap.imageWidth||1200,height:trackMap.imageHeight||800});
+      const displayMap={...trackMap,pitLanePoints:hasCircuitPath?circuitPath.pitLanePoints:trackMap.pitLanePoints};
+      let testState=createRaceState({
+        entries:performanceEntries.map((entry,index)=>({...entry,grid:index+1})),
+        race:selectedRace,setups:activeSetups,weather:weatherMode,
+        laps:Number(selectedRace.laps)||57
+      });
+      const shown=new Map(testState.cars.map(car=>[String(car.driverId),getLapProgress(car.trackProgress,testState.totalLaps,testState.lap)]));
+      let checked=0,backwardCorrections=0,steps=0;
+      while(!testState.done&&steps<testState.totalLaps+1){
+        const next=advanceRaceLap(testState);
+        for(const car of next.cars){
+          const id=String(car.driverId),previous=shown.get(id)??0;
+          const raceProgress=car.retired?(car.retiredProgress??car.trackProgress):car.trackProgress;
+          const target=getLapProgress(raceProgress,next.totalLaps,next.lap);
+          let correction=target-previous;
+          if(correction>0.5)correction-=1;
+          else if(correction< -0.5)correction+=1;
+          if(target+1e-6<previous)backwardCorrections++;
+          const midpoint=car.retired||car.completed?target:interpolateLapProgress(previous,target,0.5);
+          const progress=car.retired||car.completed?target:interpolateLapProgress(previous,target,1);
+          const middlePoint=getTrackDisplayPoint(path,displayMap,midpoint);
+          const endPoint=getTrackDisplayPoint(path,displayMap,progress);
+          if(1+correction<=0||![middlePoint,endPoint].every(point=>point&&Number.isFinite(point.x)&&Number.isFinite(point.y)))
+            throw new Error(`Invalid or backward map progress for driver ${id} on lap ${next.lap}.`);
+          shown.set(id,progress);checked++;
+        }
+        testState=next;steps++;
+      }
+      if(!testState.done)throw new Error(`Race did not complete within ${steps} simulated laps.`);
+      setTrackTestFeedback(`Passed: ${steps} laps, ${checked} car positions checked; ${backwardCorrections} backward timing updates smoothed.`);
+    }catch(error){
+      console.error('Full-race track path test failed:',error);
+      setTrackTestFeedback(`Failed: ${error instanceof Error?error.message:String(error)}`);
+    }finally{
+      Math.random=originalRandom;
+    }
   };
   const advance = () => { setQualifyingSimulation(null); if (phaseIndex < phases.length - 1) setPhaseIndex(i => i + 1); else setWeekendComplete(true) };
   const issuePitCommand = (command) => {
@@ -1041,7 +1042,7 @@ export function Simulate() {
                 </article>;
               })}</div>
             </section> : <>
-              <LiveTrack state={raceState} selectedDriverId={selectedDriverId} onSelect={setSelectedDriverId} />
+              <LiveTrackMap state={raceState} race={selectedRace} selectedDriverId={selectedDriverId} onSelect={setSelectedDriverId} isRunning={isRunning} speed={simulationSpeed} onTestMode={runTrackPathTest} testModeFeedback={trackTestFeedback} />
               {raceState.done && <SessionPodium entries={phaseResult} race={selectedRace} phaseLabel={PHASE_LABELS[phase]} raceResult fastestLap={fastestSessionLap} />}
               <QueryStatus query={tyreImagesQuery} />
               <div className="results-panel"><div className="section-title"><h3>Live timing</h3><p>{raceState.done ? 'Chequered flag' : 'Simulation in progress'}</p></div>
