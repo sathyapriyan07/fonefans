@@ -1,10 +1,10 @@
-@font-face{font-family:'JT Millburn';src:url('/jtmillurn/jtmillburn-extralight.otf') format('opentype');font-style:normal;font-weight:200;font-display:swap}
-@font-face{font-family:'JT Millburn';src:url('/jtmillurn/jtmillburn-regular.otf') format('opentype');font-style:normal;font-weight:400;font-display:swap}
-@font-face{font-family:'JT Millburn';src:url('/jtmillurn/jtmillburn-black.otf') format('opentype');font-style:normal;font-weight:900;font-display:swap}
+@font-face{font-family:Formula1;src:url('/f1fonts/Formula1-Regular.ttf') format('truetype');font-style:normal;font-weight:400;font-display:swap}
+@font-face{font-family:Formula1;src:url('/f1fonts/Formula1-Bold.ttf') format('truetype');font-style:normal;font-weight:700;font-display:swap}
+@font-face{font-family:Formula1;src:url('/f1fonts/Formula1-Black.ttf') format('truetype');font-style:normal;font-weight:900;font-display:swap}
 @font-face{font-family:DriverCode;src:url('/c6e2547e6fd7e039-s.p.ttf') format('truetype');font-style:normal;font-weight:700;font-display:swap}
 :root{font-size:90%;--ink:#1c2024;--paper:#f4f4f1;--red:#d3202f;--purple:#6d3fd9;--line:#d9d9d3}
-*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 'JT Millburn',sans-serif}
-h1,h2,h3,.logo{font-family:'JT Millburn',sans-serif;font-weight:900}nav a,.btn,button,select,input,textarea{font-family:'JT Millburn',sans-serif}h1{font-size:clamp(2.4rem,7vw,5rem);line-height:.95;font-weight:900;margin:.2em 0}h2{font-size:1.8rem;font-weight:900;margin:.5em 0}small{color:#777;font-weight:600}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 Formula1,sans-serif}
+h1,h2,h3,.logo{font-family:Formula1,sans-serif;font-weight:900}nav a,.btn,button,select,input,textarea{font-family:Formula1,sans-serif}h1{font-size:clamp(2.4rem,7vw,5rem);line-height:.95;font-weight:900;margin:.2em 0}h2{font-size:1.8rem;font-weight:900;margin:.5em 0}small{color:#777;font-weight:600}
 .driver-code{font-family:DriverCode,sans-serif;font-weight:700}
 .nav{display:flex;align-items:center;gap:24px;padding:12px 24px;background:var(--ink);border-bottom:4px solid var(--red);flex-wrap:wrap}.logo{color:#fff;font-size:1.6rem;font-weight:800;text-decoration:none}
 nav{display:flex;gap:16px;flex-wrap:wrap}nav a{color:#bbb;text-decoration:none;font-size:1rem;font-weight:600}nav a.active{color:#fff;box-shadow:0 3px var(--purple)}
