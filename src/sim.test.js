@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getCareerChampionships,getCareerRecords,getCareerStats,getClassification,getTeamCareerStats,getWeekendAwards,practice,qualify,requiresMandatoryDryTyreCompounds,setPitInstruction,setTeamRaceAdjustments,simulateRace,TYRES} from './sim.js';
+import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getCareerChampionships,getCareerRecords,getCareerStats,getClassification,getTeamCareerStats,getWeekendAwards,practice,qualify,qualifyRound,requiresMandatoryDryTyreCompounds,setPitInstruction,setTeamRaceAdjustments,simulateRace,TYRES} from './sim.js';
 
 function entry(id,{driver={},car={}}={}){
  return {
@@ -238,6 +238,15 @@ test('qualifying sets the starting grid and grid penalties move a driver back',(
  assert.deepEqual(rows.map(row=>row.grid),[1,2,3]);
  assert.equal(rows.find(row=>row.driver.id===2).grid,3);
  assert.ok(rows.every(row=>Number.isFinite(row.bestLap)&&Math.abs(row.sectors.reduce((a,b)=>a+b,0)-row.bestLap)<1e-8));
+});
+
+test('individual qualifying rounds keep their round label and expose deterministic sector times',()=>{
+ const entries=Array.from({length:10},(_,index)=>entry(index+1));
+ const q2=qualifyRound(entries,{seed:31,roundLabel:'Q2',race:circuit});
+ assert.ok(q2.every(row=>row.round==='Q2'));
+ assert.ok(q2.every(row=>row.sectors.length===3&&row.sectors.every(Number.isFinite)));
+ assert.ok(q2.every(row=>!Number.isFinite(row.bestLap)||Math.abs(row.sectors.reduce((sum,sector)=>sum+sector,0)-row.bestLap)<1e-8));
+ assert.deepEqual(q2,qualifyRound(entries,{seed:31,roundLabel:'Q2',race:circuit}));
 });
 
 test('lap advancement consumes fuel, ages tyres, and records sector timing',()=>{

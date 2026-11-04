@@ -1106,7 +1106,7 @@ export function qualify(entries,noise=0.22,options={}){
   const q2Out=q2.slice(Math.max(0,q2.length-cut)).map(entry=>({...entry,eliminated:true}));
   const q3=runRound(q2.slice(0,Math.max(0,q2.length-cut)),'Q3');
   ranked=[...q3,...q2Out,...q1Out];
- }else ranked=runRound(entries,'Q');
+ }else ranked=runRound(entries,options.roundLabel||'Q');
  ranked=ranked.sort((a,b)=>{
   const order={Q3:0,Q2:1,Q1:2,Q:0};
   return (order[a.round]??3)-(order[b.round]??3)||b.q-a.q||stableId(a).localeCompare(stableId(b));
@@ -1117,6 +1117,9 @@ export function qualify(entries,noise=0.22,options={}){
   ranked.splice(Math.min(ranked.length,entry.grid-1+entry.gridPenalty),0,entry);
  }
  return ranked.map((entry,index)=>({...entry,grid:index+1,position:index+1,gapToPole:entry.bestLap-ranked[0].bestLap}));
+}
+export function qualifyRound(entries,options={}){
+ return qualify(entries,{...options,knockout:false,roundLabel:options.roundLabel||'Q1'});
 }
 
 // Backward-compatible helper that now uses the same seeded lap model.

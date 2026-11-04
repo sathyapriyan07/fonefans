@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'; import { Link, useParams } from 'react-router-dom';
-import { sb } from './supabase.js'; import { activateDriverBoost, advanceRaceIfRunning, advanceRaceLap, applyPracticeSubstitutions, applyTeamPerformanceBoosts, calculateStandings, calculateTeammateHeadToHead, createRaceState, getBestCareerPositions, getCareerChampionships, getCareerRecords, getCareerStats, getClassification, getTeamCareerStats, getWeekendAwards, getWeekendPhases, practice, qualify, requiresMandatoryDryTyreCompounds, setPitInstruction, setTeamRaceAdjustments } from './sim.js';
+import { sb } from './supabase.js'; import { activateDriverBoost, advanceRaceIfRunning, advanceRaceLap, applyPracticeSubstitutions, applyTeamPerformanceBoosts, calculateStandings, calculateTeammateHeadToHead, createRaceState, getBestCareerPositions, getCareerChampionships, getCareerRecords, getCareerStats, getClassification, getTeamCareerStats, getWeekendAwards, getWeekendPhases, practice, qualifyRound, requiresMandatoryDryTyreCompounds, setPitInstruction, setTeamRaceAdjustments } from './sim.js';
 function useQ(fn, deps = []) {
   const [query, setQuery] = useState({ data: null, loading: true, error: null });
   const [attempt, setAttempt] = useState(0);
@@ -516,12 +516,14 @@ export function Simulate() {
   const [simulationTab, setSimulationTab] = useState('weekend');
   const [weekendStarted, setWeekendStarted] = useState(false); const [weekendComplete, setWeekendComplete] = useState(false);
   const [results, setResults] = useState({}); const [setups, setSetups] = useState({}); const [strategies, setStrategies] = useState({}); const [performanceBoosts, setPerformanceBoosts] = useState({}); const [strategyEnabled, setStrategyEnabled] = useState(false); const [garageSetupEnabled, setGarageSetupEnabled] = useState(false);
+  const [qualifyingState, setQualifyingState] = useState(null);
   const [reserveDriversEnabled, setReserveDriversEnabled] = useState(false);
   const [practiceSubstitutions, setPracticeSubstitutions] = useState({});
   const [resultSaveError, setResultSaveError] = useState(''); const [resultSaveFailed, setResultSaveFailed] = useState(false); const [resultSaveSaving, setResultSaveSaving] = useState(false); const [resultSaveNeedsAuth, setResultSaveNeedsAuth] = useState(false); const [resultSaveSuccess, setResultSaveSuccess] = useState('');
   const [raceState, setRaceState] = useState(null); const [isRunning, setIsRunning] = useState(false); const [raceViewTab, setRaceViewTab] = useState('timing'); const [raceTeamAdjustments, setRaceTeamAdjustments] = useState({}); const [simulationSpeed, setSimulationSpeed] = useState(1); const [seed, setSeed] = useState(newSeed); const [weatherMode, setWeatherMode] = useState('dry'); const [selectedDriverId, setSelectedDriverId] = useState(null); const [pitCompound, setPitCompound] = useState('medium'); const [pitLap, setPitLap] = useState(1); const [pitFeedback, setPitFeedback] = useState(''); const [boostFeedback, setBoostFeedback] = useState('');
   const [nextRaceNotice, setNextRaceNotice] = useState('');
   const completedRaceRef = useRef(null);
+  const completedQualifyingRef = useRef(null);
   const resultSaveQueueRef = useRef([]);
   const resultSaveInFlightRef = useRef(false);
   const activeSetups = garageSetupEnabled ? setups : {};
@@ -619,6 +621,8 @@ export function Simulate() {
     setWeekendStarted(false);
     setWeekendComplete(false);
     setResults({});
+    setQualifyingState(null);
+    completedQualifyingRef.current = null;
     setRaceState(null);
     setIsRunning(false);
     setPhaseIndex(0);
@@ -628,12 +632,24 @@ export function Simulate() {
     if (simulationTab !== 'weekend' || !grid || races.loading || seasonResultsQuery.loading || rid || !races.data) return;
     if (upcomingRace) selectRace(upcomingRace.id);
   }, [simulationTab, grid?.id, races.loading, races.data, seasonResultsQuery.loading, seasonResultsQuery.data, rid]);
-  useEffect(() => { setR(''); setWeekendStarted(false); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setRaceState(null); setIsRunning(false); setPracticeSubstitutions({}) }, [gid]);
+  useEffect(() => { setR(''); setWeekendStarted(false); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setRaceState(null); setIsRunning(false); setPracticeSubstitutions({}); setQualifyingState(null); completedQualifyingRef.current = null }, [gid]);
   useEffect(() => {
     if (!isRunning || !raceState || raceState.done) return;
     const timer = window.setInterval(() => setRaceState(current => current ? advanceRaceIfRunning(current, true) : current), Math.max(100, 1000 / simulationSpeed));
     return () => window.clearInterval(timer);
   }, [isRunning, raceState?.done, simulationSpeed]);
+  useEffect(() => {
+    if (!qualifyingState?.running) return;
+    const timer = window.setInterval(() => setQualifyingState(current => {
+      if (!current?.running) return current;
+      const sectorDuration = Math.max(1, ...current.currentRows.map(row => row.sectors[current.sectorIndex] || 1));
+      const sectorElapsed = current.sectorElapsed + 2.5;
+      if (sectorElapsed < sectorDuration) return { ...current, sectorElapsed };
+      const sectorIndex = current.sectorIndex + 1;
+      return { ...current, sectorIndex, sectorElapsed: 0, running: sectorIndex < 3, stage: sectorIndex === 3 ? 'complete' : 'running' };
+    }), 100);
+    return () => window.clearInterval(timer);
+  }, [qualifyingState?.running]);
   useEffect(() => {
     if (!raceState?.done) return;
     const resultKey = raceState.format === 'sprint' ? 'sprint' : 'race';
@@ -652,13 +668,56 @@ export function Simulate() {
     });
   }, [raceState?.done]);
   useEffect(() => { if (selectedDriverId !== null) { setPitLap(current => current <= raceState?.lap ? ((raceState?.lap || 0) + 1) : current); setPitFeedback('') } }, [selectedDriverId]);
+  useEffect(() => {
+    if (qualifyingState?.stage !== 'complete' || qualifyingState.round !== 'Q3' || !selectedRace || !grid) return;
+    const completionKey = `${grid.id}:${selectedRace.id}:${phase}`;
+    if (completedQualifyingRef.current === completionKey) return;
+    completedQualifyingRef.current = completionKey;
+    const [q1Rows, q2Rows, q3Rows] = [...qualifyingState.completedRounds, qualifyingState.currentRows];
+    const lapOrder = (a, b) => a.bestLap - b.bestLap || String(a.driver.id).localeCompare(String(b.driver.id));
+    const q1 = [...q1Rows].sort(lapOrder), q2 = [...q2Rows].sort(lapOrder), q3 = [...q3Rows].sort(lapOrder);
+    const cut = Math.max(0, Math.floor((qualifyingState.entryCount - 10) / 2));
+    const q1Out = q1.slice(Math.max(0, q1.length - cut));
+    const q2Out = q2.slice(Math.max(0, q2.length - cut));
+    const classification = [...q3, ...q2Out, ...q1Out].map((entry, index) => ({
+      ...entry, grid: index + 1, position: index + 1, eliminated: false
+    }));
+    const completedSessions = { ...results, [phase]: classification };
+    setResults(completedSessions);
+    const awards = getWeekendAwards(phases, completedSessions, []);
+    enqueueResults({
+      gridId: grid.id, sessionType: phase, sessionLabel: sessionLabel(phase), raceId: selectedRace.id, round: selectedRace.round,
+      records: buildResultRecords(grid, selectedRace, phase, classification, awards)
+    });
+  }, [qualifyingState?.stage, qualifyingState?.round, selectedRace?.id, grid?.id, phase]);
   const updateTeam = (setter, id, key, value) => setter(current => ({ ...current, [id]: { ...current[id], [key]: value } }));
+  const startQualifyingRound = (round, field, completedRounds, entryCount) => {
+    const ranked = qualifyRound(field, {
+      seed: seed + phaseIndex + completedRounds.length, roundLabel: round, race: selectedRace, setups: activeSetups, weather: weatherMode
+    });
+    const rows = field.map(entry => ranked.find(row => String(row.driver.id) === String(entry.driver.id))).filter(Boolean);
+    setQualifyingState({ round, currentRows: rows, completedRounds, entryCount, sectorIndex: 0, sectorElapsed: 0, stage: 'running', running: true });
+  };
+  const startQualifying = () => {
+    if (entries.length < 2) return alert('Add at least 2 complete driver and car entries to this grid.');
+    completedQualifyingRef.current = null;
+    startQualifyingRound('Q1', performanceEntries, [], performanceEntries.length);
+  };
+  const advanceQualifying = () => {
+    if (qualifyingState?.stage !== 'complete') return;
+    const currentRows = [...qualifyingState.currentRows].sort((a, b) => a.bestLap - b.bestLap || String(a.driver.id).localeCompare(String(b.driver.id)));
+    const completedRounds = [...qualifyingState.completedRounds, currentRows];
+    const cut = Math.max(0, Math.floor((qualifyingState.entryCount - 10) / 2));
+    const nextRound = qualifyingState.round === 'Q1' ? 'Q2' : 'Q3';
+    const field = currentRows.slice(0, Math.max(0, currentRows.length - cut));
+    startQualifyingRound(nextRound, field, completedRounds, qualifyingState.entryCount);
+  };
   const startWeekend = () => {
     if (resultSaveInFlightRef.current || resultSaveQueueRef.current.length) {
       setResultSaveError('Wait for queued results to save, or retry the pending save, before restarting the weekend.');
       return;
     }
-    setNextRaceNotice(''); setResultSaveError(''); setResultSaveFailed(false); setResultSaveNeedsAuth(false); setResultSaveSuccess(''); setBoostFeedback(''); setWeekendStarted(true); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setRaceState(null); setSeed(newSeed())
+    setNextRaceNotice(''); setResultSaveError(''); setResultSaveFailed(false); setResultSaveNeedsAuth(false); setResultSaveSuccess(''); setBoostFeedback(''); setWeekendStarted(true); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setRaceState(null); setQualifyingState(null); completedQualifyingRef.current = null; setSeed(newSeed())
   };
   const resetSeasonStandings = async () => {
     if (!grid || !window.confirm(`Delete all saved simulated results for ${grid.name} (${grid.year}) from Supabase? This cannot be undone.`)) return;
@@ -695,7 +754,7 @@ export function Simulate() {
     }
     let rows;
     if (phase.startsWith('practice')) rows = practice(practiceEntries, { seed: seed + phaseIndex, race: selectedRace, setups: activeSetups, weather: weatherMode });
-    if (phase === 'qualifying' || phase === 'sprintQualifying') rows = qualify(performanceEntries, { seed: seed + phaseIndex, race: selectedRace, setups: activeSetups, weather: weatherMode });
+    if (phase === 'qualifying' || phase === 'sprintQualifying') return startQualifying();
     const completedSessions = { ...results, [phase]: rows };
     phases.slice(phaseIndex + 1).forEach(name => delete completedSessions[name]);
     setResults(completedSessions);
@@ -736,6 +795,14 @@ export function Simulate() {
   const setPerformanceBoost = (id, value) => setPerformanceBoosts(current => ({ ...current, [String(id)]: Math.max(0, Math.min(20, Number(value) || 0)) }));
   const isQualifying = phase === 'qualifying' || phase === 'sprintQualifying'; const isPractice = phase.startsWith('practice');
   const getPosition = (entry, index) => isPractice ? entry.practicePos : isQualifying ? entry.grid : entry.dnf ? 'DNF' : entry.pos;
+  const qualifyingCut = qualifyingState ? Math.max(0, Math.floor((qualifyingState.entryCount - 10) / 2)) : 0;
+  const qualifyingLiveRows = qualifyingState ? [...qualifyingState.currentRows]
+    .sort((a, b) => {
+      if (qualifyingState.stage === 'complete') return a.bestLap - b.bestLap || String(a.driver.id).localeCompare(String(b.driver.id));
+      const partialTime = row => row.sectors.slice(0, qualifyingState.sectorIndex).reduce((sum, value) => sum + value, 0)
+        + (row.sectors[qualifyingState.sectorIndex] || 0) * Math.min(qualifyingState.sectorElapsed / Math.max(1, ...qualifyingState.currentRows.map(item => item.sectors[qualifyingState.sectorIndex] || 1)), 1);
+      return partialTime(a) - partialTime(b) || String(a.driver.id).localeCompare(String(b.driver.id));
+    }).map((entry, index) => ({ ...entry, eliminated: qualifyingState.stage === 'complete' && qualifyingState.round !== 'Q3' && index >= qualifyingState.currentRows.length - qualifyingCut })) : [];
   return <section className="weekend">
     <div className="weekend-heading"><div><p className="eyebrow">RACE OPERATIONS</p><h2>Simulation</h2>
       <p className="muted">Build your setup, qualify the grid, then call the race strategy.</p></div>
@@ -818,7 +885,7 @@ export function Simulate() {
           return <button key={name}
             className={`session-step ${phaseIndex === index ? 'current' : ''} ${complete ? 'complete' : ''}`}
             onClick={() => { if (index <= phaseIndex && !weekendComplete && !isRunning) setPhaseIndex(index) }}
-            disabled={weekendComplete || isRunning || index > phaseIndex}>
+            disabled={weekendComplete || isRunning || qualifyingState?.stage === 'running' || index > phaseIndex}>
             <span className="session-number">{complete ? '✓' : `0${index + 1}`}</span><span>{PHASE_LABELS[name]}</span>
           </button>
         })}</div>
@@ -846,6 +913,36 @@ export function Simulate() {
             </label>)}</div>}
             </section>}
           </>}
+          {isQualifying && <section className="qualifying-live-panel">
+            <div className="section-title"><div><h3>Live qualifying</h3><p>One timed lap per driver in each knockout round. Sector timing updates live.</p></div></div>
+            <div className="qualifying-round-indicator">{['Q1', 'Q2', 'Q3'].map((round, index) => <span key={round} className={`${qualifyingState?.round === round ? 'active' : ''} ${(qualifyingState?.completedRounds.length || 0) > index || (qualifyingState?.stage === 'complete' && qualifyingState.round === round) ? 'complete' : ''}`}>{round}</span>)}</div>
+            {!qualifyingState && <button type="button" className="btn run-session" onClick={startQualifying}>Start Q1</button>}
+            {qualifyingState && <>
+              <div className="qualifying-live-status">
+                <strong>{qualifyingState.round} · {qualifyingState.stage === 'complete' ? 'Round complete' : qualifyingState.running ? `Sector ${qualifyingState.sectorIndex + 1} live` : `Sector ${qualifyingState.sectorIndex + 1} paused`}</strong>
+                {qualifyingState.stage === 'running' && <button type="button" onClick={() => setQualifyingState(current => current && ({ ...current, running: !current.running }))}>{qualifyingState.running ? 'Pause' : 'Resume'}</button>}
+                {qualifyingState.stage === 'complete' && qualifyingState.round !== 'Q3' && <button type="button" className="btn" onClick={advanceQualifying}>Start {qualifyingState.round === 'Q1' ? 'Q2' : 'Q3'}</button>}
+                {qualifyingState.stage === 'complete' && qualifyingState.round === 'Q3' && <span role="status">Final grid set. Advancing saves the qualifying results.</span>}
+              </div>
+              <div className="scroll">
+                <table className="race-table session-classification-table qualifying-timing-table"><thead><tr><th>POS</th><th>DRIVER</th><th>S1</th><th>S2</th><th>S3</th><th>BEST LAP</th><th>STATUS</th></tr></thead>
+                  <tbody>{qualifyingLiveRows.map((entry, index) => {
+                    const sectorDuration = Math.max(1, ...qualifyingState.currentRows.map(row => row.sectors[qualifyingState.sectorIndex] || 1));
+                    const progress = Math.min(qualifyingState.sectorElapsed / sectorDuration, 1);
+                    return <tr key={entry.driver.id} className={index === 0 && qualifyingState.stage === 'complete' ? 'leader' : ''}>
+                      <td className="position-cell">{index + 1}</td>
+                      <td><span className="driver-result"><span className="team-logo">{entry.team.logo_normal && <img src={entry.team.logo_normal} alt={`${entry.team.name} logo`} />}</span><strong>{entry.driver.name}</strong></span></td>
+                      {[0, 1, 2].map(sector => <td className={qualifyingState.sectorIndex === sector && qualifyingState.running ? 'sector-live' : ''} key={sector}>
+                        {qualifyingState.sectorIndex > sector || qualifyingState.stage === 'complete' ? formatTime(entry.sectors[sector]) : qualifyingState.sectorIndex === sector && qualifyingState.stage === 'running' ? formatTime(entry.sectors[sector] * progress) : '—'}
+                      </td>)}
+                      <td>{qualifyingState.stage === 'complete' ? Number.isFinite(entry.bestLap) ? formatTime(entry.bestLap) : 'INVALID' : '—'}</td>
+                      <td>{qualifyingState.stage === 'complete' ? entry.invalidLap ? 'INVALID LAP' : entry.eliminated ? 'ELIMINATED' : 'ADVANCES' : qualifyingState.running ? `S${qualifyingState.sectorIndex + 1} LIVE` : 'PAUSED'}</td>
+                    </tr>;
+                  })}</tbody>
+                </table>
+              </div>
+            </>}
+          </section>}
           {(phase === 'sprint' || phase === 'race') && <div className="strategy-panel"><div className="section-title"><h3>Race strategy</h3><p>Off by default: the simulator selects each team’s tyre and pit plan automatically.</p></div>
             <label className="strategy-toggle"><input type="checkbox" checked={strategyEnabled} onChange={e => setStrategyEnabled(e.target.checked)} /><span>Enable custom race strategy</span></label>
             {strategyEnabled && <div className="strategy-grid">{teams.map(team => {
@@ -855,7 +952,7 @@ export function Simulate() {
               </article>
             })}</div>}
           </div>}
-          {!phaseResult && <button className="btn run-session" onClick={runPhase}>{isPractice ? `Run ${PHASE_LABELS[phase]}` : phase === 'sprintQualifying' ? 'Start sprint qualifying' : phase === 'qualifying' ? 'Start qualifying' : phase === 'sprint' ? 'Start sprint' : 'Start Grand Prix'}</button>}
+          {!phaseResult && !isQualifying && <button className="btn run-session" onClick={runPhase}>{isPractice ? `Run ${PHASE_LABELS[phase]}` : phase === 'sprintQualifying' ? 'Start sprint qualifying' : phase === 'qualifying' ? 'Start qualifying' : phase === 'sprint' ? 'Start sprint' : 'Start Grand Prix'}</button>}
           {phaseResult && (phase === 'race' || phase === 'sprint') && raceState && <div className="race-live">
             <div className="race-status">
               <div><span className="eyebrow">{raceState.format === 'sprint' ? 'SPRINT' : 'GRAND PRIX'}</span><strong>LAP {raceState.lap} / {raceState.totalLaps}</strong></div>
