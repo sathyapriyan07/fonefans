@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'; import { Link, useParams } from 'react-router-dom';
-import { sb } from './supabase.js'; import { activateDriverBoost, advanceRaceIfRunning, advanceRaceLap, applyPracticeSubstitutions, applyTeamPerformanceBoosts, calculateStandings, calculateTeammateHeadToHead, createRaceState, getBestCareerPositions, getCareerChampionships, getCareerRecords, getCareerStats, getClassification, getTeamCareerStats, getWeekendAwards, getWeekendPhases, practice, qualify, requiresMandatoryDryTyreCompounds, setPitInstruction, setTeamRaceAdjustments } from './sim.js';
+import { sb } from './supabase.js'; import { activateDriverBoost, advanceRaceIfRunning, advanceRaceLap, applyPracticeSubstitutions, applyTeamPerformanceBoosts, calculateStandings, calculateTeammateHeadToHead, createRaceState, getBestCareerPositions, getCareerChampionships, getCareerRecords, getCareerStats, getClassification, getTeamCareerStats, getWeekendAwards, getWeekendPhases, practice, requiresMandatoryDryTyreCompounds, setPitInstruction, setTeamRaceAdjustments, simulateQualifyingWeekend } from './sim.js';
 function useQ(fn, deps = []) {
   const [query, setQuery] = useState({ data: null, loading: true, error: null });
   const [attempt, setAttempt] = useState(0);
@@ -28,6 +28,15 @@ function QueryStatus({ query, empty }) {
 const Bar = ({ l, v }) => <div className="bar"><span>{l}</span><i><b style={{ width: (v ?? 0) + '%' }} /></i><em>{v ?? '–'}</em></div>;
 const PHASE_LABELS = { practice1: 'Practice 1', practice2: 'Practice 2', practice3: 'Practice 3', sprintQualifying: 'Sprint Qualifying', sprint: 'Sprint', qualifying: 'Qualifying', race: 'Grand Prix' };
 const sessionLabel = session => PHASE_LABELS[session] || session;
+const newQualifyingSeed = () => {
+  const values = new Uint32Array(1);
+  if (globalThis.crypto?.getRandomValues) return globalThis.crypto.getRandomValues(values)[0];
+  return `${Date.now()}:qualifying`;
+};
+const qualifyingClock = seconds => {
+  const remaining = Math.max(0, Math.ceil(seconds));
+  return `${String(Math.floor(remaining / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')}`;
+};
 async function loadTeammateResultRows(driverIds) {
   const rows = [];
   for (let offset = 0; ; offset += 1000) {
@@ -515,6 +524,8 @@ export function Simulate() {
   const [simulationTab, setSimulationTab] = useState('weekend');
   const [weekendStarted, setWeekendStarted] = useState(false); const [weekendComplete, setWeekendComplete] = useState(false);
   const [results, setResults] = useState({}); const [setups, setSetups] = useState({}); const [strategies, setStrategies] = useState({}); const [performanceBoosts, setPerformanceBoosts] = useState({}); const [strategyEnabled, setStrategyEnabled] = useState(false); const [garageSetupEnabled, setGarageSetupEnabled] = useState(false);
+  const [qualifyingSimulation, setQualifyingSimulation] = useState(null); const [qualifyingSpeed, setQualifyingSpeed] = useState(1);
+  const [qualifyingRunPlans,setQualifyingRunPlans]=useState({});
   const [reserveDriversEnabled, setReserveDriversEnabled] = useState(false);
   const [practiceSubstitutions, setPracticeSubstitutions] = useState({});
   const [resultSaveError, setResultSaveError] = useState(''); const [resultSaveFailed, setResultSaveFailed] = useState(false); const [resultSaveSaving, setResultSaveSaving] = useState(false); const [resultSaveNeedsAuth, setResultSaveNeedsAuth] = useState(false); const [resultSaveSuccess, setResultSaveSuccess] = useState('');
@@ -550,6 +561,40 @@ export function Simulate() {
   const mandatoryDryTyreCompounds = requiresMandatoryDryTyreCompounds(selectedRace || {}, phase === 'race' ? 'race' : 'sprint', weatherMode);
   const racePhase = phase === 'sprint' ? 'sprint' : phase === 'race' ? 'race' : null;
   const phaseResult = results[phase] || ((racePhase && raceState?.format === racePhase) ? getClassification(raceState) : null);
+  const currentQualifying = qualifyingSimulation?.phase === phase ? qualifyingSimulation : null;
+  const qualifyingViewIndex = Math.min(currentQualifying?.viewIndex??currentQualifying?.sessionIndex??0,(currentQualifying?.sessions.length||1)-1);
+  const qualifyingSession = currentQualifying?.sessions[qualifyingViewIndex] || null;
+  const qualifyingSessionIsCurrent = Boolean(currentQualifying&&qualifyingViewIndex===currentQualifying.sessionIndex);
+  const qualifyingElapsed = currentQualifying&&qualifyingSessionIsCurrent?currentQualifying.elapsed:qualifyingSession?.duration||0;
+  const qualifyingEvents = qualifyingSession?.timeline.filter(event => event.t <= qualifyingElapsed) || [];
+  const qualifyingWeather = [...qualifyingEvents].reverse().find(event=>event.type==='weatherChange')?.weather||qualifyingSession?.weather;
+  const qualifyingLiveRows = qualifyingSession ? (() => {
+    const rows = new Map(qualifyingSession.standings.map(row => [String(row.driver?.id), {
+      ...row,bestLap:Infinity,lastLap:null,sectors:[],currentSectors:[],tyreCompound:row.tyreCompound,currentStatus:'In pit'
+    }]));
+    for (const event of qualifyingEvents) {
+      const row = rows.get(String(event.driverId));
+      if (!row) continue;
+      if (event.type === 'pitExit') { row.currentStatus = 'Out lap'; row.tyreCompound = event.tyreCompound || row.tyreCompound; }
+      if (event.type === 'lapStart') { row.currentStatus = 'Flying lap'; row.currentSectors=[]; row.tyreCompound = event.tyreCompound || row.tyreCompound; }
+      if (event.type === 'sectorComplete') row.currentSectors[event.sector-1]=event.sectorTime;
+      if (event.type === 'lapComplete') {
+        row.currentStatus = 'In lap'; row.lastLap = event.lapTime;
+        const sectors = event.sectors.map(sector => sector.time);
+        row.currentSectors=sectors;
+        if (!Number.isFinite(row.bestLap) || event.lapTime < row.bestLap) { row.bestLap = event.lapTime; row.sectors = sectors; }
+      }
+      if (event.type === 'invalidLap') { row.currentStatus = 'In lap'; row.lastLap = event.lapTime; }
+      if (event.type === 'pitEntry') row.currentStatus = 'In pit';
+    }
+    return [...rows.values()].sort((a,b) => Number.isFinite(a.bestLap) !== Number.isFinite(b.bestLap)
+      ? (Number.isFinite(a.bestLap) ? -1 : 1)
+      : a.bestLap - b.bestLap || String(a.driver?.id).localeCompare(String(b.driver?.id)));
+  })() : [];
+  const qualifyingFastestSectors = [0,1,2].map(index => Math.min(...qualifyingEvents.flatMap(event =>
+    event.type==='sectorComplete'&&event.sector-1===index?[event.sectorTime]
+      :event.type==='lapComplete'?[event.sectors[index]?.time]:[]
+  ).filter(Number.isFinite)));
   const fastestSessionLap = phaseResult ? Math.min(...phaseResult.map(entry => entry.bestLap).filter(Number.isFinite)) : Infinity;
   const selectedCar = raceState?.cars.find(car => String(car.driverId) === String(selectedDriverId));
   const teams = [...new Map(entries.map(e => [e.team.id, e.team])).values()];
@@ -612,12 +657,26 @@ export function Simulate() {
     setResultSaveError('');
     void saveResults();
   };
+  const persistPhaseResults = (sessionPhase,rows) => {
+    const completedSessions = { ...results, [sessionPhase]: rows };
+    phases.slice(phaseIndex + 1).forEach(name => delete completedSessions[name]);
+    setResults(completedSessions);
+    if (selectedRace && grid) {
+      const awards = getWeekendAwards(phases, completedSessions, []);
+      enqueueResults({
+        gridId: grid.id, sessionType: sessionPhase, sessionLabel: sessionLabel(sessionPhase), raceId: selectedRace.id, round: selectedRace.round,
+        records: buildResultRecords(grid, selectedRace, sessionPhase, rows, awards)
+      });
+    }
+    setRaceState(null); setIsRunning(false); setWeekendComplete(false);
+  };
   const selectRace = raceId => {
     setNextRaceNotice('');
     setR(raceId ? String(raceId) : '');
     setWeekendStarted(false);
     setWeekendComplete(false);
     setResults({});
+    setQualifyingSimulation(null);
     setRaceState(null);
     setIsRunning(false);
     setPhaseIndex(0);
@@ -627,12 +686,22 @@ export function Simulate() {
     if (simulationTab !== 'weekend' || !grid || races.loading || seasonResultsQuery.loading || rid || !races.data) return;
     if (upcomingRace) selectRace(upcomingRace.id);
   }, [simulationTab, grid?.id, races.loading, races.data, seasonResultsQuery.loading, seasonResultsQuery.data, rid]);
-  useEffect(() => { setR(''); setWeekendStarted(false); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setRaceState(null); setIsRunning(false); setPracticeSubstitutions({}) }, [gid]);
+  useEffect(() => { setR(''); setWeekendStarted(false); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setQualifyingSimulation(null); setRaceState(null); setIsRunning(false); setPracticeSubstitutions({}) }, [gid]);
   useEffect(() => {
     if (!isRunning || !raceState || raceState.done) return;
     const timer = window.setInterval(() => setRaceState(current => current ? advanceRaceIfRunning(current, true) : current), Math.max(100, 1000 / simulationSpeed));
     return () => window.clearInterval(timer);
   }, [isRunning, raceState?.done, simulationSpeed]);
+  useEffect(() => {
+    if (!qualifyingSimulation?.playing) return;
+    const timer = window.setInterval(() => setQualifyingSimulation(current => {
+      if (!current?.playing) return current;
+      const session = current.sessions[current.sessionIndex];
+      const elapsed = Math.min(session.duration,current.elapsed+current.speed*0.1);
+      return {...current,elapsed,playing:elapsed<session.duration};
+    }),100);
+    return () => window.clearInterval(timer);
+  }, [qualifyingSimulation?.playing,qualifyingSimulation?.sessionIndex,qualifyingSimulation?.speed,qualifyingSimulation?.sessions]);
   useEffect(() => {
     if (!raceState?.done) return;
     const resultKey = raceState.format === 'sprint' ? 'sprint' : 'race';
@@ -657,7 +726,7 @@ export function Simulate() {
       setResultSaveError('Wait for queued results to save, or retry the pending save, before restarting the weekend.');
       return;
     }
-    setNextRaceNotice(''); setResultSaveError(''); setResultSaveFailed(false); setResultSaveNeedsAuth(false); setResultSaveSuccess(''); setBoostFeedback(''); setWeekendStarted(true); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setRaceState(null)
+    setNextRaceNotice(''); setResultSaveError(''); setResultSaveFailed(false); setResultSaveNeedsAuth(false); setResultSaveSuccess(''); setBoostFeedback(''); setWeekendStarted(true); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setQualifyingSimulation(null); setRaceState(null)
   };
   const resetSeasonStandings = async () => {
     if (!grid || !window.confirm(`Delete all saved simulated results for ${grid.name} (${grid.year}) from Supabase? This cannot be undone.`)) return;
@@ -692,23 +761,40 @@ export function Simulate() {
       setRaceState(state); setRaceViewTab('timing'); setRaceTeamAdjustments({}); setBoostFeedback(''); setIsRunning(true); setWeekendComplete(false);
       return;
     }
+    if (phase === 'qualifying' || phase === 'sprintQualifying') {
+      const seed = newQualifyingSeed();
+      const simulation = simulateQualifyingWeekend(performanceEntries,{
+        race:selectedRace,setups:activeSetups,weather:weatherMode,seed,
+        sprint:phase==='sprintQualifying',
+        teamStrategies:Object.fromEntries(teams.filter(team=>qualifyingRunPlans[team.id]).map(team=>[team.id,{qualifyingRuns:qualifyingRunPlans[team.id]}]))
+      });
+      setQualifyingSimulation({...simulation,phase,sessionIndex:0,viewIndex:0,elapsed:0,playing:true,speed:qualifyingSpeed});
+      setRaceState(null);setIsRunning(false);setWeekendComplete(false);
+      return;
+    }
     let rows;
     if (phase.startsWith('practice')) rows = practice(practiceEntries, { race: selectedRace, setups: activeSetups, weather: weatherMode });
-    if (phase === 'qualifying' || phase === 'sprintQualifying') rows = qualify(performanceEntries, { race: selectedRace, setups: activeSetups, weather: weatherMode });
-    const completedSessions = { ...results, [phase]: rows };
-    phases.slice(phaseIndex + 1).forEach(name => delete completedSessions[name]);
-    setResults(completedSessions);
-    if (selectedRace && grid) {
-      const awards = getWeekendAwards(phases, completedSessions, []);
-      enqueueResults({
-        gridId: grid.id, sessionType: phase, sessionLabel: sessionLabel(phase), raceId: selectedRace.id, round: selectedRace.round,
-        records: buildResultRecords(grid, selectedRace, phase, rows, awards)
-      });
-    }
-    setRaceState(null); setIsRunning(false);
-    setWeekendComplete(false);
+    persistPhaseResults(phase,rows);
   };
-  const advance = () => { if (phaseIndex < phases.length - 1) setPhaseIndex(i => i + 1); else setWeekendComplete(true) };
+  const skipQualifying = () => {
+    const simulation=currentQualifying||simulateQualifyingWeekend(performanceEntries,{
+      race:selectedRace,setups:activeSetups,weather:weatherMode,seed:newQualifyingSeed(),
+      sprint:phase==='sprintQualifying',
+      teamStrategies:Object.fromEntries(teams.filter(team=>qualifyingRunPlans[team.id]).map(team=>[team.id,{qualifyingRuns:qualifyingRunPlans[team.id]}]))
+    });
+    setQualifyingSimulation(null);
+    persistPhaseResults(phase,simulation.results);
+  };
+  const continueQualifying = () => {
+    if (!currentQualifying) return;
+    if (currentQualifying.sessionIndex<currentQualifying.sessions.length-1) {
+      setQualifyingSimulation(current=>({...current,sessionIndex:current.sessionIndex+1,viewIndex:current.sessionIndex+1,elapsed:0,playing:true}));
+      return;
+    }
+    setQualifyingSimulation(null);
+    persistPhaseResults(phase,currentQualifying.results);
+  };
+  const advance = () => { setQualifyingSimulation(null); if (phaseIndex < phases.length - 1) setPhaseIndex(i => i + 1); else setWeekendComplete(true) };
   const issuePitCommand = (command) => {
     if (!raceState || !selectedCar) return;
     try {
@@ -816,8 +902,8 @@ export function Simulate() {
           const complete = Boolean(results[name]) || ((name === 'race' || name === 'sprint') && phase === name && raceState?.done);
           return <button key={name}
             className={`session-step ${phaseIndex === index ? 'current' : ''} ${complete ? 'complete' : ''}`}
-            onClick={() => { if (index <= phaseIndex && !weekendComplete && !isRunning) setPhaseIndex(index) }}
-            disabled={weekendComplete || isRunning || index > phaseIndex}>
+            onClick={() => { if (index <= phaseIndex && !weekendComplete && !isRunning && !currentQualifying?.playing) { setQualifyingSimulation(null); setPhaseIndex(index) } }}
+            disabled={weekendComplete || isRunning || currentQualifying?.playing || index > phaseIndex}>
             <span className="session-number">{complete ? '✓' : `0${index + 1}`}</span><span>{PHASE_LABELS[name]}</span>
           </button>
         })}</div>
@@ -830,6 +916,74 @@ export function Simulate() {
           </div>
             {phaseResult && (phase !== 'race' && phase !== 'sprint' || raceState?.done) && <button className="btn" onClick={advance}>{phaseIndex === phases.length - 1 ? 'Finish weekend' : 'Continue to ' + PHASE_LABELS[phases[phaseIndex + 1]]}</button>}
           </div>
+          {isQualifying&&!phaseResult&&!currentQualifying&&<>
+            <details className="qualifying-strategy"><summary>Qualifying run plans</summary><div>{teams.map(team=><label key={team.id}>{team.name}
+              <select value={qualifyingRunPlans[team.id]||'auto'} onChange={event=>setQualifyingRunPlans(current=>({...current,[team.id]:event.target.value==='auto'?undefined:Number(event.target.value)}))}>
+                <option value="auto">Team choice · 1–3 runs</option><option value="1">One run</option><option value="2">Two runs</option><option value="3">Three runs</option>
+              </select>
+            </label>)}</div></details>
+            <div className="qualifying-start-actions">
+              <button type="button" className="btn run-session" onClick={runPhase}>Start {PHASE_LABELS[phase]}</button>
+              <button type="button" className="qualifying-skip" onClick={skipQualifying}>Skip simulation</button>
+            </div>
+          </>}
+          {currentQualifying&&qualifyingSession&&<section className="qualifying-live" aria-label={`${qualifyingSession.session} live timing`}>
+            <div className="qualifying-session-tabs" role="tablist" aria-label="Qualifying sessions">
+              {currentQualifying.sessions.map((session,index)=><button type="button" role="tab" key={session.session}
+                aria-selected={qualifyingViewIndex===index} className={qualifyingViewIndex===index?'active':''}
+                disabled={index>currentQualifying.sessionIndex}
+                onClick={()=>setQualifyingSimulation(current=>({...current,viewIndex:index}))}>{session.session}</button>)}
+            </div>
+            {(()=>{
+              const red=qualifyingSession.timeline.find(event=>event.type==='red');
+              const clockRemaining=!red?qualifyingSession.clockDuration-qualifyingElapsed
+                :qualifyingElapsed<red.t?qualifyingSession.clockDuration-qualifyingElapsed
+                  :qualifyingElapsed<red.t+red.addedSeconds?qualifyingSession.clockDuration-red.clock
+                    :qualifyingSession.clockDuration-(qualifyingElapsed-red.addedSeconds);
+              const redActive=Boolean(red&&qualifyingElapsed>=red.t&&qualifyingElapsed<red.t+red.addedSeconds);
+              const dropStart=Math.max(0,qualifyingLiveRows.length-qualifyingSession.eliminated.length);
+              const leader=qualifyingLiveRows.find(row=>Number.isFinite(row.bestLap));
+              const completed=qualifyingElapsed>=qualifyingSession.duration;
+              return <>
+                <div className="qualifying-status">
+                  <div><span className="eyebrow">{qualifyingSession.session} · {qualifyingSession.fieldSize} CARS</span><strong className="qualifying-clock">{qualifyingClock(clockRemaining)}</strong></div>
+                  <span className={`qualifying-control ${redActive?'red':'green'}`}>{redActive?'RED FLAG':completed?'CHEQUERED FLAG':'LIVE TIMING'}</span>
+                  <span className="qualifying-weather">{qualifyingWeather?.wetness>=0.65?'WET':qualifyingWeather?.wetness>=0.3?'DAMP':'DRY'} TRACK</span>
+                </div>
+                <div className="qualifying-controls">
+                  {qualifyingSessionIsCurrent&&!completed&&<button type="button" onClick={()=>setQualifyingSimulation(current=>({...current,playing:!current.playing}))}>{currentQualifying.playing?'Pause':'Play'}</button>}
+                  <label>Speed<select value={qualifyingSpeed} onChange={event=>{const speed=Number(event.target.value);setQualifyingSpeed(speed);setQualifyingSimulation(current=>current?({...current,speed}):current)}}><option value={1}>1×</option><option value={5}>5×</option><option value={20}>20×</option></select></label>
+                  {qualifyingSessionIsCurrent&&!completed&&<button type="button" onClick={()=>setQualifyingSimulation(current=>({...current,elapsed:qualifyingSession.duration,playing:false}))}>Skip to end</button>}
+                  {qualifyingSessionIsCurrent&&completed&&<button type="button" className="btn" onClick={continueQualifying}>{currentQualifying.sessionIndex<currentQualifying.sessions.length-1
+                    ?`Continue to ${currentQualifying.sessions[currentQualifying.sessionIndex+1].session} · ${Math.floor(currentQualifying.sessionBreakSeconds/60)} min break`
+                    :'Complete qualifying'}</button>}
+                  {qualifyingSessionIsCurrent&&!completed&&<button type="button" className="qualifying-skip" onClick={skipQualifying}>Skip simulation</button>}
+                </div>
+                <div className="scroll"><table className="race-table qualifying-timing-table"><thead><tr><th>POS</th><th>DRIVER</th><th>TEAM</th><th>BEST</th><th>GAP</th><th>S1</th><th>S2</th><th>S3</th><th>TYRE</th><th>STATUS</th></tr></thead>
+                  <tbody>{qualifyingLiveRows.map((row,index)=>{
+                    const drop=qualifyingSession.eliminated.length>0&&index>=dropStart;
+                    const sectors=row.currentSectors?.length?row.currentSectors:row.sectors||[];
+                    return <tr key={row.driver?.id} className={`${index===0&&leader?'leader':''} ${drop?'drop-zone':''}`}>
+                      <td className="position-cell">{index+1}</td>
+                      <td><span className="driver-result"><span className="team-logo">{row.team?.logo_normal&&<img src={row.team.logo_normal} alt="" />}</span><strong className={row.driver?.code?'driver-code':undefined}>{row.driver?.code||row.driver?.name}</strong></span></td>
+                      <td>{row.team?.name||'—'}</td>
+                      <td>{formatTime(row.bestLap)}</td>
+                      <td>{index===0||!leader||!Number.isFinite(row.bestLap)?'—':`+${(row.bestLap-leader.bestLap).toFixed(3)}`}</td>
+                      {[0,1,2].map(sector=>{
+                        const value=sectors[sector],fastest=qualifyingFastestSectors[sector];
+                        const className=Number.isFinite(value)&&Math.abs(value-fastest)<1e-8?'sector-purple':Number.isFinite(value)?'sector-green':'sector-yellow';
+                        return <td className={className} key={sector}>{Number.isFinite(value)?value.toFixed(3):'—'}</td>;
+                      })}
+                      <td><span className={`qualifying-tyre ${row.tyreCompound||''}`}>{row.tyreCompound?.toUpperCase()||'—'}</span></td>
+                      <td>{row.currentStatus}</td>
+                    </tr>;
+                  })}</tbody></table></div>
+                {completed&&<div className="qualifying-eliminations"><strong>{qualifyingSession.eliminated.length?`${qualifyingSession.eliminated.length} eliminated`:qualifyingSession.session.endsWith('3')?'Final session complete':'No eliminations'}</strong>
+                  {qualifyingSession.eliminated.length>0&&<span>{qualifyingSession.eliminated.map((row,index)=>`P${row.sessionPosition} ${row.driver?.code||row.driver?.name}`).join(' · ')}</span>}
+                </div>}
+              </>;
+            })()}
+          </section>}
           {isPractice && <>
             <label className="strategy-toggle"><input type="checkbox" checked={reserveDriversEnabled} onChange={event => { setReserveDriversEnabled(event.target.checked); if (!event.target.checked) setPracticeSubstitutions({}) }} /><span>Enable reserve drivers</span></label>
             {reserveDriversEnabled && <section className="practice-substitution"><div><h4>Practice-only reserve substitutions</h4><p>Choose which team driver the assigned reserve replaces for practice sessions. Qualifying and races use the original grid.</p></div>
@@ -854,7 +1008,7 @@ export function Simulate() {
               </article>
             })}</div>}
           </div>}
-          {!phaseResult && <button className="btn run-session" onClick={runPhase}>{isPractice ? `Run ${PHASE_LABELS[phase]}` : phase === 'sprintQualifying' ? 'Start sprint qualifying' : phase === 'qualifying' ? 'Start qualifying' : phase === 'sprint' ? 'Start sprint' : 'Start Grand Prix'}</button>}
+          {!phaseResult&&!isQualifying&&<button className="btn run-session" onClick={runPhase}>{isPractice ? `Run ${PHASE_LABELS[phase]}` : phase === 'sprint' ? 'Start sprint' : 'Start Grand Prix'}</button>}
           {phaseResult && (phase === 'race' || phase === 'sprint') && raceState && <div className="race-live">
             <div className="race-status">
               <div><span className="eyebrow">{raceState.format === 'sprint' ? 'SPRINT' : 'GRAND PRIX'}</span><strong>LAP {raceState.lap} / {raceState.totalLaps}</strong></div>

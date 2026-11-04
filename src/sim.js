@@ -1,7 +1,7 @@
 // Lap-based race simulation. Times and gaps are measured in seconds.
 export const RACE_PTS=[25,18,15,12,10,8,6,4,2,1];
 export const SPRINT_PTS=[8,7,6,5,4,3,2,1];
-export const ENGINE_VERSION='2.3.0';
+export const ENGINE_VERSION='2.4.0';
 const DEFAULT_LAPS=57;
 const DEFAULT_BASE_LAP=90;
 const FUEL_KG_PER_LAP=1.72;
@@ -19,7 +19,23 @@ const value=(source,key,fallback=50)=>source?.[key]!==null&&source?.[key]!==unde
 const average=(items)=>items.reduce((sum,item)=>sum+item,0)/(items.length||1);
 const stableId=(entry)=>String(entry.driver?.id??entry.driver?.name??entry.id??'');
 
-function makeRandom(){return {next:()=>Math.random()}}
+function hashSeed(seed){
+ let hash=2166136261;
+ for(const char of String(seed)){hash^=char.charCodeAt(0);hash=Math.imul(hash,16777619)}
+ return hash>>>0;
+}
+function makeRandom(seed){
+ let state=typeof seed==='number'?seed>>>0:seed===undefined?null:hashSeed(seed);
+ return {
+  next(){
+   if(state===null)return Math.random();
+   state=(state+0x6D2B79F5)>>>0;
+   let t=state;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);
+   return ((t^(t>>>14))>>>0)/4294967296;
+  },
+  getState(){return state}
+ };
+}
 function normal(rng){
  const u=Math.max(Number.EPSILON,rng.next()),v=rng.next();
  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
@@ -52,6 +68,7 @@ function weatherWetness(weather){
  return clamp(Number(weather?.wetness)||0,0,1);
 }
 function makeSessionWeather(mode){
+ if(mode&&typeof mode==='object')return {...mode,mode:mode.mode||'variable',trackTemperature:Number(mode.trackTemperature)||32};
  const initialWetness=weatherWetness(mode);
  return {
   mode:typeof mode==='string'?mode:'custom',
@@ -1050,54 +1067,201 @@ export function practice(entries,noise=0.16,options={}){
  return rows.map((entry,index)=>({...entry,practicePos:index+1}));
 }
 
-// Session qualifying with optional Q1/Q2/Q3 knockout rounds and grid penalties.
-export function qualify(entries,noise=0.22,options={}){
- if(typeof noise==='object'){options=noise;noise=options.noise??0.22}
+export const QUALIFYING_SESSIONS={
+ Q1:{minutes:18},Q2:{minutes:15},Q3:{minutes:12},Q:{minutes:18},
+ SQ1:{minutes:12},SQ2:{minutes:10},SQ3:{minutes:8},SQ:{minutes:12}
+};
+export const QUALIFYING_ELIMINATION_CONFIG={minimumKnockoutField:16,targetField:10,rounds:2};
+export const QUALIFYING_BREAK_SECONDS=7*60;
+const clampRuns=count=>Math.max(1,Math.min(3,Math.floor(Number(count)||1)));
+const compareQualifying=(a,b)=>Number.isFinite(a.bestLap)!==Number.isFinite(b.bestLap)
+ ?(Number.isFinite(a.bestLap)?-1:1)
+ :a.bestLap-b.bestLap||stableId(a).localeCompare(stableId(b));
+
+function qualifyingRunCount(entry,session,options){
+ const strategy=options.teamStrategies?.[entry.team?.id]||options.strategies?.[entry.team?.id]||{};
+ const requested=options.runCounts?.[entry.driver?.id]??strategy.qualifyingRuns??strategy.qualifying_runs;
+ if(requested!==undefined)return Math.min(clampRuns(requested),Math.max(1,Number(options.tyreSetsAvailable?.[entry.driver?.id]??3)));
+ const rng=makeRandom(`${options.seed??'qualifying'}:${session}:${stableId(entry)}:strategy`);
+ const maximum=session.endsWith('3')?2:3;
+ return Math.min(1+Math.floor(rng.next()*maximum),Math.max(1,Number(options.tyreSetsAvailable?.[entry.driver?.id]??3)));
+}
+
+export function simulateQualifyingSession(entries,options={}){
+ if(!Array.isArray(entries)||!entries.length)throw new Error('Qualifying requires at least one driver entry.');
+ const session=options.session||'Q';
+ const config=QUALIFYING_SESSIONS[session]||QUALIFYING_SESSIONS.Q;
+ const clockDuration=Math.max(1,Number(options.durationSeconds)||config.minutes*60);
  const circuit=makeCircuit(options.race||{});
- const weatherRng=makeRandom();
+ const seed=options.seed??'qualifying';
+ const sessionSeed=`${seed}:${session}`;
+ const weatherRng=makeRandom(`${sessionSeed}:weather`);
  let weather=makeSessionWeather(options.weather||'dry');
- const runRound=(field,round)=>{
-  weather=advanceSessionWeather(weather,weatherRng);
-  const rows=field.map(entry=>{
-   const rng=makeRandom();
-   const car=setupAdjustedCar(entry.c||{},options.setups?.[entry.team?.id],circuit);
-   const rating=ratings({...entry,c:car},circuit);
-   const wetness=weather.wetness;
-   const compound=tyreForWeather(weather,'soft');
-   const tyre=TYRES[compound];
-   const execution=normal(rng)*noise*(101-rating.driverConsistency)/50;
-   const mistake=rng.next()<(0.015+wetness*0.035)*(1-rating.errorResistance/150);
-   const traffic=rng.next()<0.07?0.2+rng.next()*0.9:0;
-   const invalid=rng.next()<0.008;
-   const wetPenalty=Math.abs(wetness-(compound==='wet'?0.95:compound==='intermediate'?0.55:0.05))*2.2;
-   const lapTime=circuit.baselineLap+paceDelta(rating.driverQualifying,0.025)+paceDelta(rating.carQualifying,0.035)+paceDelta(rating.carSpeed,0.008)+tyre.pace+wetPenalty+execution+(mistake?1.2+rng.next()*2.5:0)+traffic+wetness*(2-rating.wetAbility/100);
-   const sectors=[lapTime*0.31,lapTime*0.34,lapTime*0.35];sectors[2]=lapTime-sectors[0]-sectors[1];
-   return {...entry,q:invalid?-Infinity:-lapTime,bestLap:invalid?Infinity:lapTime,sectors,tyreCompound:compound,weather:{...weather},
-    timedLaps:(entry.timedLaps||0)+1,eliminated:false,round,invalidLap:invalid,driverMistake:mistake};
-  }).sort((a,b)=>b.q-a.q||stableId(a).localeCompare(stableId(b)));
-  return rows;
+ const updatedWeather=advanceSessionWeather(weather,weatherRng);
+ const weatherChangeAt=options.weatherChange===false?Infinity:Math.floor(clockDuration*0.56);
+ const weatherChanges=weather.mode==='variable'&&options.weatherChange!==false&&(options.weatherChange===true||makeRandom(`${sessionSeed}:weather-change`).next()<0.15);
+ const effectiveWeather=weatherChanges?updatedWeather:weather;
+ const addedSeconds=options.redFlag===false?0:options.redFlag===true?60:(makeRandom(`${sessionSeed}:red`).next()<0.025?60:0);
+ const redClockTime=addedSeconds?Math.floor(clockDuration*0.48):Infinity;
+ const wallTime=clock=>clock+(addedSeconds&&clock>=redClockTime?addedSeconds:0);
+ const field=[...entries].sort((a,b)=>stableId(a).localeCompare(stableId(b)));
+ const earlyCount=Math.max(1,Math.ceil(field.length*0.7));
+ const early=field.slice(0,earlyCount),late=field.slice(earlyCount);
+ const plan=[];
+ for(const [index,entry] of early.entries()){
+  const runs=qualifyingRunCount(entry,session,options);
+  for(let run=0;run<runs;run++){
+   let clock=run===0?Math.min(clockDuration-180,index*3):run===1?Math.max(100,clockDuration*0.35+index*2):Math.max(150,clockDuration-230+index);
+   plan.push({entry,run,clock});
+  }
+ }
+ for(const [index,entry] of late.entries()){
+  const runs=qualifyingRunCount(entry,session,options);
+  plan.push({entry,run:0,clock:Math.max(0,clockDuration-95+index*2)});
+  if(runs>1&&clockDuration-95+index*2<clockDuration-260)plan.push({entry,run:1,clock:Math.max(100,clockDuration*0.43+index*2)});
+ }
+ plan.sort((a,b)=>a.clock-b.clock||stableId(a.entry).localeCompare(stableId(b.entry))||a.run-b.run);
+ const bestByDriver=new Map(field.map(entry=>[String(entry.driver?.id),{
+  ...entry,q:-Infinity,bestLap:Infinity,sectors:[],tyreCompound:null,weather:{...weather},timedLaps:0,
+  eliminated:false,round:session,invalidLap:true,validLap:false,driverMistake:false,sessionStatus:'In pit',currentStatus:'In pit'
+ }]));
+ const timeline=[];
+ const snapshots=[];
+ const lapsInProgress=[];
+ const pushSnapshot=(t)=>{
+  const standings=[...bestByDriver.values()].sort(compareQualifying).map((row,index)=>({
+   driverId:row.driver?.id,position:index+1,bestLap:row.bestLap,
+   q:row.q,inDropZone:options.eliminateCount>0&&index>=field.length-options.eliminateCount
+  }));
+  snapshots.push({t,standings});
+  return standings;
  };
- let ranked;
- const knockout=options.knockout!==false&&entries.length>15;
- if(knockout){
-  const cut=Number.isInteger(options.eliminatePerRound)?Math.max(0,options.eliminatePerRound):Math.floor((entries.length-10)/2);
-  const q1=runRound(entries,'Q1');
-  const q1Out=q1.slice(Math.max(0,q1.length-cut)).map(entry=>({...entry,eliminated:true}));
-  const q2=runRound(q1.slice(0,Math.max(0,q1.length-cut)),'Q2');
-  const q2Out=q2.slice(Math.max(0,q2.length-cut)).map(entry=>({...entry,eliminated:true}));
-  const q3=runRound(q2.slice(0,Math.max(0,q2.length-cut)),'Q3');
-  ranked=[...q3,...q2Out,...q1Out];
- }else ranked=runRound(entries,'Q');
- ranked=ranked.sort((a,b)=>{
-  const order={Q3:0,Q2:1,Q1:2,Q:0};
-  return (order[a.round]??3)-(order[b.round]??3)||b.q-a.q||stableId(a).localeCompare(stableId(b));
- });
- ranked=ranked.map((entry,index)=>({...entry,grid:index+1,position:index+1,gridPenalty:Number(options.gridPenalties?.[entry.driver?.id]||0)}));
+ if(addedSeconds){
+  timeline.push({t:redClockTime,clock:redClockTime,type:'red',addedSeconds,driverId:null});
+  timeline.push({t:redClockTime+addedSeconds,clock:redClockTime,type:'redResume',driverId:null});
+ }
+ if(weatherChanges)timeline.push({t:wallTime(weatherChangeAt),clock:weatherChangeAt,type:'weatherChange',weather:{...effectiveWeather}});
+ for(const item of plan){
+  if(item.clock>=clockDuration)continue;
+  if(item.run>0&&session.endsWith('2')){
+   const current=[...bestByDriver.values()].filter(row=>Number.isFinite(row.bestLap)).sort(compareQualifying);
+   const own=current.findIndex(row=>String(row.driver?.id)===String(item.entry.driver?.id));
+   if(own>=0&&own<10&&current[10]&&current[10].bestLap-current[own].bestLap>=0.3)continue;
+  }
+  const clock=item.clock;
+  const lapStartClock=clock+22+(makeRandom(`${sessionSeed}:${stableId(item.entry)}:${item.run}:outlap`).next()*8);
+  const lapWeather=lapStartClock>=weatherChangeAt?effectiveWeather:weather;
+  const compound=tyreForWeather(lapWeather,'soft');
+  const t=wallTime(clock);
+  timeline.push({t,clock,type:'pitExit',driverId:item.entry.driver?.id,run:item.run+1,tyreCompound:compound});
+  if(lapStartClock>=clockDuration)continue;
+  const lapStart=wallTime(lapStartClock);
+  const lapLength=circuit.baselineLap+Math.max(0,options.lapDurationOffset||0);
+  const lapEndClock=lapStartClock+lapLength;
+  const rng=makeRandom(`${sessionSeed}:${stableId(item.entry)}:${item.run}`);
+  const tyre=TYRES[compound];
+  const car=setupAdjustedCar(item.entry.c||{},options.setups?.[item.entry.team?.id],circuit);
+  const rating=ratings({...item.entry,c:car},circuit);
+  const nearby=lapsInProgress.filter(lap=>Math.abs(lap.start-lapStartClock)<30&&lap.driverId!==item.entry.driver?.id).length;
+  const traffic=nearby?nearby*(0.14+rng.next()*0.12):(rng.next()<0.07?0.2+rng.next()*0.9:0);
+  const tow=rng.next()<0.18?0.04+rng.next()*0.12:0;
+  const trackEvolution=0.42*Math.log1p(lapStartClock/120);
+  const tyreAge=item.run?item.run*0.11:0;
+  const tyreTempEffect=Math.abs((lapWeather.trackTemperature||30)-30)*0.012;
+  const execution=normal(rng)*(options.noise??0.22)*(101-rating.driverConsistency)/50;
+  const mistake=rng.next()<(0.015+lapWeather.wetness*0.035)*(1-rating.errorResistance/150);
+  const invalid=rng.next()<0.008;
+  const yellow=options.yellowFlag===true||options.yellowFlag!==false&&rng.next()<0.025;
+  const wetPenalty=Math.abs(lapWeather.wetness-(compound==='wet'?0.95:compound==='intermediate'?0.55:0.05))*2.2;
+  const lapTime=circuit.baselineLap+paceDelta(rating.driverQualifying,0.025)+paceDelta(rating.carQualifying,0.035)+paceDelta(rating.carSpeed,0.008)+tyre.pace+tyreAge+tyreTempEffect+wetPenalty+execution+(mistake?1.2+rng.next()*2.5:0)+traffic-tow-trackEvolution+lapWeather.wetness*(2-rating.wetAbility/100);
+  const sectors=[lapTime*0.31,lapTime*0.34,lapTime*0.35];sectors[2]=lapTime-sectors[0]-sectors[1];
+  const sectorSplits=sectors.map((time,index)=>({time,sector:index+1}));
+  timeline.push({t:lapStart,clock:lapStartClock,type:'lapStart',driverId:item.entry.driver?.id,run:item.run+1,sectors:[],tyreCompound:compound});
+  timeline.push({t:wallTime(lapStartClock+lapLength*0.31),clock:lapStartClock+lapLength*0.31,type:'sectorComplete',driverId:item.entry.driver?.id,sector:1,sectorTime:sectors[0],run:item.run+1});
+  if(!yellow)timeline.push({t:wallTime(lapStartClock+lapLength*0.65),clock:lapStartClock+lapLength*0.65,type:'sectorComplete',driverId:item.entry.driver?.id,sector:2,sectorTime:sectors[1],run:item.run+1});
+  lapsInProgress.push({driverId:item.entry.driver?.id,start:lapStartClock,end:lapEndClock});
+  if(yellow)timeline.push({t:wallTime(lapStartClock+lapLength*0.55),clock:lapStartClock+lapLength*0.55,type:'yellow',driverId:item.entry.driver?.id,sector:2});
+  const completesAfterFlag=lapEndClock>clockDuration;
+  if(completesAfterFlag||lapEndClock<=clockDuration){
+   const valid=!(invalid||yellow||mistake&&rng.next()<0.1);
+   const row=bestByDriver.get(String(item.entry.driver?.id));
+   row.timedLaps++;
+   row.weather={...weather};
+   if(!row.validLap)row.tyreCompound=compound;
+   row.invalidLap=!valid&&!row.validLap;row.driverMistake=mistake;row.currentStatus='In lap';row.sessionStatus='Complete';
+   if(!valid){
+    const standings=pushSnapshot(lapEndClock);
+    const standing=standings.find(candidate=>String(candidate.driverId)===String(item.entry.driver?.id));
+    timeline.push({t:wallTime(lapEndClock),clock:lapEndClock,type:'invalidLap',driverId:item.entry.driver?.id,lapTime,sectors:sectorSplits,position:standing?.position??null,inDropZone:standing?.inDropZone??false,reason:yellow?'Yellow flag':'Track limits / mistake'});
+   }else{
+    row.validLap=true;row.invalidLap=false;
+    if(!Number.isFinite(row.bestLap)||lapTime<row.bestLap){
+     row.bestLap=lapTime;row.q=-lapTime;row.sectors=sectors;row.tyreCompound=compound;row.invalidLap=false;
+    }
+    const standings=pushSnapshot(lapEndClock);
+    const standing=standings.find(candidate=>String(candidate.driverId)===String(item.entry.driver?.id));
+    timeline.push({t:wallTime(lapEndClock),clock:lapEndClock,type:'lapComplete',driverId:item.entry.driver?.id,lapTime,sectors:sectorSplits,position:standing?.position??null,inDropZone:standing?.inDropZone??false,run:item.run+1,tyreCompound:compound});
+    timeline.push({t:wallTime(lapEndClock+24),clock:lapEndClock+24,type:'pitEntry',driverId:item.entry.driver?.id,run:item.run+1});
+   }
+  }
+ }
+ const effectiveDuration=clockDuration+addedSeconds;
+ timeline.push({t:effectiveDuration,clock:clockDuration,type:'flag',driverId:null});
+ timeline.push({t:effectiveDuration,clock:clockDuration,type:'sessionEnd',driverId:null});
+ const eventOrder={pitExit:0,lapStart:1,sectorComplete:2,lapComplete:3,invalidLap:3,yellow:4,red:5,redResume:6,weatherChange:7,flag:8,sessionEnd:9};
+ timeline.sort((a,b)=>a.t-b.t||(eventOrder[a.type]??9)-(eventOrder[b.type]??9));
+ let standings=[...bestByDriver.values()].sort(compareQualifying).map((row,index)=>({
+  ...row,sessionPosition:index+1,position:index+1,grid:index+1,
+  inDropZone:options.eliminateCount>0&&index>=field.length-options.eliminateCount,
+  sessionStatus:row.timedLaps?'Complete':'No time',currentStatus:'In pit'
+ }));
+ const eliminateCount=Math.max(0,Number(options.eliminateCount)||0);
+ const eliminated=standings.slice(Math.max(0,standings.length-eliminateCount)).map(row=>({...row,eliminated:true}));
+ const qualified=standings.slice(0,Math.max(0,standings.length-eliminateCount)).map(row=>({...row,eliminated:false}));
+ return {session,duration:effectiveDuration,clockDuration,addedSeconds,standings,qualified,eliminated,timeline,snapshots,weather:{...weather},fieldSize:field.length};
+}
+
+export function simulateQualifyingWeekend(entries,options={}){
+ if(!Array.isArray(entries)||!entries.length)throw new Error('Qualifying requires at least one driver entry.');
+ const sprint=options.sprint===true||options.sessionPrefix==='SQ';
+ const prefix=sprint?'SQ':'Q';
+ const knockout=options.knockout!==false&&entries.length>=QUALIFYING_ELIMINATION_CONFIG.minimumKnockoutField;
+ const cut=Number.isInteger(options.eliminatePerRound)?Math.max(0,options.eliminatePerRound):Math.floor((entries.length-QUALIFYING_ELIMINATION_CONFIG.targetField)/QUALIFYING_ELIMINATION_CONFIG.rounds);
+ const sessionNames=knockout
+  ?[...Array.from({length:QUALIFYING_ELIMINATION_CONFIG.rounds},(_,index)=>`${prefix}${index+1}`),`${prefix}${QUALIFYING_ELIMINATION_CONFIG.rounds+1}`]
+  :[prefix];
+ let active=[...entries],classified=[],sessions=[],weather=options.weather||'dry';
+ for(let index=0;index<sessionNames.length;index++){
+  const session=sessionNames[index];
+  const eliminateCount=index<sessionNames.length-1?Math.min(cut,Math.max(0,active.length-QUALIFYING_ELIMINATION_CONFIG.targetField)):0;
+  const simulated=simulateQualifyingSession(active,{...options,weather,session,eliminateCount,seed:options.seed??'qualifying'});
+  sessions.push(simulated);
+  weather=advanceSessionWeather(makeSessionWeather(weather),makeRandom(`${options.seed??'qualifying'}:${session}:round-weather`));
+  if(index<sessionNames.length-1){
+   const eliminated=simulated.eliminated.map(row=>({...row,round:session,eliminated:true}));
+   classified=[...eliminated,...classified];
+   active=simulated.qualified;
+  }else{
+   const finalRows=simulated.standings.map(row=>({...row,round:session,eliminated:false}));
+   classified=[...finalRows,...classified];
+  }
+ }
+ const roundOrder=Object.fromEntries(sessionNames.map((session,index)=>[session,sessionNames.length-index-1]));
+ let ranked=classified.sort((a,b)=>(roundOrder[a.round]??3)-(roundOrder[b.round]??3)||a.position-b.position||stableId(a).localeCompare(stableId(b)));
+ ranked=ranked.map((row,index)=>({...row,grid:index+1,position:index+1,gridPenalty:Number(options.gridPenalties?.[row.driver?.id]||0)}));
  for(const entry of ranked.filter(row=>row.gridPenalty>0)){
   ranked=ranked.filter(row=>row!==entry);
   ranked.splice(Math.min(ranked.length,entry.grid-1+entry.gridPenalty),0,entry);
  }
- return ranked.map((entry,index)=>({...entry,grid:index+1,position:index+1,gapToPole:entry.bestLap-ranked[0].bestLap}));
+ const poleLap=ranked[0]?.bestLap;
+ ranked=ranked.map((row,index)=>({...row,grid:index+1,position:index+1,gapToPole:Number.isFinite(row.bestLap)&&Number.isFinite(poleLap)?row.bestLap-poleLap:Infinity}));
+ return {sessions,results:ranked,seed:options.seed??'qualifying',sessionBreakSeconds:QUALIFYING_BREAK_SECONDS};
+}
+
+export function qualify(entries,noise=0.22,options={}){
+ if(typeof noise==='object'){options=noise;noise=options.noise??0.22}
+ const {results}=simulateQualifyingWeekend(entries,{...options,noise});
+ return results;
 }
 
 export function race(entries,{sprint=false,strategies={},race:raceData={},laps}={}){
@@ -1106,7 +1270,7 @@ export function race(entries,{sprint=false,strategies={},race:raceData={},laps}=
  return classification.map(row=>({...row,pos:row.position}));
 }
 export function weekend(entries,raceData={},options={}){
- const qualifying=qualify(entries,{race:raceData});
+ const qualifying=qualify(entries,{...options,race:raceData});
  const sprint=raceData.is_sprint?race(qualifying,{sprint:true,race:raceData,strategies:options.strategies}):null;
  const grandPrixGrid=raceData.sprint_affects_grand_prix_grid||raceData.sprintAffectsGrandPrixGrid?sprint:qualifying;
  return {q:qualifying,sprint,race:race(grandPrixGrid,{race:raceData,strategies:options.strategies})};

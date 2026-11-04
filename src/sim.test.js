@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getCareerChampionships,getCareerRecords,getCareerStats,getClassification,getTeamCareerStats,getWeekendAwards,practice,qualify,requiresMandatoryDryTyreCompounds,setPitInstruction,setTeamRaceAdjustments,simulateRace,TYRES} from './sim.js';
+import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getCareerChampionships,getCareerRecords,getCareerStats,getClassification,getTeamCareerStats,getWeekendAwards,practice,qualify,requiresMandatoryDryTyreCompounds,setPitInstruction,setTeamRaceAdjustments,simulateQualifyingSession,simulateQualifyingWeekend,simulateRace,TYRES} from './sim.js';
 
 function entry(id,{driver={},car={}}={}){
  return {
@@ -241,6 +241,88 @@ test('qualifying sets the starting grid and grid penalties move a driver back',(
  assert.ok(rows.every(row=>row.invalidLap
   ? row.bestLap===Infinity
   : Number.isFinite(row.bestLap)&&Math.abs(row.sectors.reduce((a,b)=>a+b,0)-row.bestLap)<1e-8));
+});
+
+test('qualifying is deterministic for the same seed and produces Q1, Q2, and Q3 fields',()=>{
+ const entries=Array.from({length:20},(_,index)=>entry(index+1));
+ const options={race:circuit,weather:'variable',seed:'2025-monaco'};
+ const first=simulateQualifyingWeekend(entries,options);
+ const second=simulateQualifyingWeekend(entries,options);
+ assert.deepEqual(first,second);
+ assert.deepEqual(first.sessions.map(session=>[session.session,session.fieldSize,session.qualified.length]),[
+  ['Q1',20,15],['Q2',15,10],['Q3',10,10]
+ ]);
+ assert.equal(new Set(first.results.map(row=>String(row.driver.id))).size,entries.length);
+ assert.equal(first.results.length,entries.length);
+ const sprint=simulateQualifyingWeekend(entries,{...options,sprint:true});
+ assert.deepEqual(sprint.sessions.map(session=>[session.session,session.clockDuration]),[
+  ['SQ1',12*60],['SQ2',10*60],['SQ3',8*60]
+ ]);
+});
+
+test('qualifying counts laps started before the flag even when they finish after it',()=>{
+ const entries=Array.from({length:20},(_,index)=>entry(index+1));
+ const session=simulateQualifyingSession(entries,{session:'Q1',seed:'flag-test'});
+ const starts=session.timeline.filter(event=>event.type==='lapStart');
+ const completions=session.timeline.filter(event=>event.type==='lapComplete'||event.type==='invalidLap');
+ assert.ok(starts.every(event=>event.clock<session.clockDuration));
+ assert.ok(completions.some(event=>event.clock>session.clockDuration));
+ assert.ok(completions.every(event=>starts.some(start=>String(start.driverId)===String(event.driverId)&&start.clock<session.clockDuration)));
+});
+
+test('qualifying handles red, yellow, and weather-change events deterministically',()=>{
+ const entries=Array.from({length:6},(_,index)=>entry(index+1));
+ const options={session:'Q1',seed:'control-flags',weather:'variable',redFlag:true,yellowFlag:true,weatherChange:true};
+ const first=simulateQualifyingSession(entries,options),second=simulateQualifyingSession(entries,options);
+ assert.deepEqual(first,second);
+ assert.equal(first.addedSeconds,60);
+ assert.ok(first.timeline.some(event=>event.type==='red'));
+ assert.ok(first.timeline.some(event=>event.type==='redResume'));
+ assert.ok(first.timeline.some(event=>event.type==='weatherChange'));
+ assert.ok(first.timeline.some(event=>event.type==='yellow'&&event.sector===2));
+ assert.ok(first.timeline.some(event=>event.type==='invalidLap'&&event.reason==='Yellow flag'));
+ assert.deepEqual(first.timeline.filter(event=>event.type==='flag').map(event=>[event.t,event.clock]),[[first.clockDuration+60,first.clockDuration]]);
+});
+
+test('qualifying run plans respect requested runs and available tyre sets',()=>{
+ const driver=entry(1);
+ const threeRuns=simulateQualifyingSession([driver],{
+  session:'Q3',seed:'run-count',teamStrategies:{'team-1':{qualifyingRuns:3}},tyreSetsAvailable:{1:3},redFlag:false
+ });
+ const starts=threeRuns.timeline.filter(event=>event.type==='lapStart');
+ assert.equal(starts.length,3);
+ assert.ok(starts[1].clock-starts[0].clock>threeRuns.standings[0].bestLap);
+ const limited=simulateQualifyingSession([driver],{
+  session:'Q3',seed:'run-count',teamStrategies:{'team-1':{qualifyingRuns:3}},tyreSetsAvailable:{1:2},redFlag:false
+ });
+ assert.equal(limited.timeline.filter(event=>event.type==='lapStart').length,2);
+});
+
+test('qualifying ranks invalid laps behind valid laps and retains elimination order',()=>{
+ const entries=Array.from({length:100},(_,index)=>entry(index+1));
+ const simulation=simulateQualifyingWeekend(entries,{race:circuit,seed:'classification-test',knockout:false});
+ const valid=simulation.results.filter(row=>Number.isFinite(row.bestLap));
+ const invalid=simulation.results.filter(row=>!Number.isFinite(row.bestLap));
+ assert.ok(invalid.length>0);
+ assert.ok(valid.every(row=>!row.invalidLap));
+ assert.ok(invalid.every(row=>row.invalidLap));
+ assert.ok(simulation.results.findIndex(row=>row.invalidLap)>=valid.length);
+ const knockout=simulateQualifyingWeekend(entries.slice(0,20),{race:circuit,seed:'elimination-order'});
+ for(const session of knockout.sessions.slice(0,2)){
+  const expected=session.eliminated.map(row=>String(row.driver.id));
+  const actual=knockout.results.filter(row=>row.round===session.session).map(row=>String(row.driver.id));
+  assert.deepEqual(actual,expected);
+ }
+});
+
+test('fields of 15 or fewer drivers use one qualifying round',()=>{
+ const entries=Array.from({length:15},(_,index)=>entry(index+1));
+ const simulation=simulateQualifyingWeekend(entries,{race:circuit,seed:'small-field'});
+ assert.equal(simulation.sessions.length,1);
+ assert.equal(simulation.sessions[0].session,'Q');
+ assert.equal(simulation.sessions[0].fieldSize,15);
+ assert.equal(simulation.results.length,15);
+ assert.ok(simulation.results.every(row=>row.round==='Q'));
 });
 
 test('lap advancement consumes fuel, ages tyres, and records sector timing',()=>{
