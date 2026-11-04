@@ -1,5 +1,8 @@
-import {useEffect,useMemo,useRef,useState} from 'react';
-import {buildTrackPath,getDirectionalTrackPoints,getLapProgress,getTrackDisplayPoint,getPointAt,hasUsableTrackPath,parseCircuitTrackPath,interpolateLapProgress} from './trackPath.js';
+import {Suspense,lazy,useCallback,useEffect,useMemo,useRef,useState} from 'react';
+import {buildTrackPath,canRenderTrack3D,getDirectionalTrackPoints,getPointAt,hasUsableTrackPath,parseCircuitTrackPath} from './trackPath.js';
+import {useCarProgress} from './useCarProgress.js';
+
+const LazyLiveTrack3D=lazy(()=>import('./LiveTrack3D.jsx'));
 
 const FALLBACK_POINTS=[
  {x:22/180,y:72/110},{x:33/180,y:32/110},{x:68/180,y:20/110},{x:92/180,y:35/110},
@@ -8,6 +11,13 @@ const FALLBACK_POINTS=[
 ];
 const clamp=(value,min,max)=>Math.min(max,Math.max(min,value));
 const wrap=value=>((value%1)+1)%1;
+function browserHasWebGL(){
+ if(typeof document==='undefined')return false;
+ try{
+  const canvas=document.createElement('canvas');
+  return Boolean(canvas.getContext('webgl2')||canvas.getContext('webgl')||canvas.getContext('experimental-webgl'));
+ }catch{return false}
+}
 const pointProgress=(path,points,index)=>{
  if(!Number.isInteger(Number(index))||Number(index)<0||Number(index)>=points.length)return null;
  const target=points?.[index];
@@ -22,9 +32,10 @@ const pointProgress=(path,points,index)=>{
 const driverLabel=driver=>String(driver?.code||driver?.name||'???').replace(/[^a-z0-9]/gi,'').slice(0,3).toUpperCase().padEnd(3,'?');
 
 export default function LiveTrackMap({state,race,selectedDriverId,onSelect,isRunning,speed=1,onTestMode,testModeFeedback}){
- const canvasRef=useRef(null),latestRef=useRef(null),displayedRef=useRef(new Map()),displayedPointsRef=useRef(new Map()),trailRef=useRef([]);
+ const canvasRef=useRef(null),latestRef=useRef(null),displayedPointsRef=useRef(new Map()),trailRef=useRef([]);
  const [filter,setFilter]=useState('all');
  const [showSectors,setShowSectors]=useState(false),[showDrs,setShowDrs]=useState(false),[showTrail,setShowTrail]=useState(false),[showLeaderboard,setShowLeaderboard]=useState(true);
+ const [viewMode,setViewMode]=useState('2d'),[graphicsQuality,setGraphicsQuality]=useState('high'),[showGroundImage,setShowGroundImage]=useState(false),[threeDFallbackMessage,setThreeDFallbackMessage]=useState('');
  const [imageSize,setImageSize]=useState({width:1200,height:800});
  const legacyMap=race?.track_map&&typeof race.track_map==='object'?race.track_map:{};
  const circuitPath=useMemo(()=>parseCircuitTrackPath(race?.circuit_path),[race?.circuit_path]);
@@ -60,6 +71,7 @@ export default function LiveTrackMap({state,race,selectedDriverId,onSelect,isRun
  const height=traced?Math.max(1,Number(trackMap.imageHeight)||110):110;
  const path=useMemo(()=>buildTrackPath(pathPoints,{closed:true,width,height,sampleCount:1000}),[pathPoints,width,height,traced]);
  const pitPath=useMemo(()=>buildTrackPath(trackMap.pitLanePoints,{closed:false,width,height,sampleCount:200}),[trackMap.pitLanePoints,width,height]);
+ const sampleCars=useCarProgress({state,isRunning,speed,path,trackMap,pitPath});
  const markers=useMemo(()=>{
   if(!traced)return {};
   const sectors=Object.entries(trackMap.sectorMarks||{}).map(([name,index])=>[name,pointProgress(path,pathPoints,index)]).filter(([,progress])=>Number.isFinite(progress));
@@ -74,14 +86,13 @@ export default function LiveTrackMap({state,race,selectedDriverId,onSelect,isRun
    pitExit:null
   };
  },[traced,trackMap.sectorMarks,trackMap.drsZones,trackMap.startFinishIndex,path,pathPoints]);
- latestRef.current={state,trackMap,traced,width,height,path,pitPath,markers,selectedDriverId,isRunning,speed,filter,showSectors,showDrs,showTrail,showLeaderboard};
+ latestRef.current={state,trackMap,traced,width,height,path,pitPath,markers,selectedDriverId,isRunning,speed,filter,showSectors,showDrs,showTrail,showLeaderboard,sampleCars};
  useEffect(()=>{
   const canvas=canvasRef.current;
   if(!canvas)return;
   const context=canvas.getContext('2d');
   if(!context)return;
-  let animationId=0,lastFrameTime=0,observedLap=state.lap,elapsedMs=0,transitionSpeed=speed;
-  let fromProgress=new Map();
+  let animationId=0;
   const resizeObserver=new ResizeObserver(()=>{canvas.width=Math.max(1,canvas.clientWidth*window.devicePixelRatio);canvas.height=Math.max(1,canvas.clientHeight*window.devicePixelRatio)});
   resizeObserver.observe(canvas);
   const frame=now=>{
@@ -95,13 +106,6 @@ export default function LiveTrackMap({state,race,selectedDriverId,onSelect,isRun
    }
    context.setTransform(pixelRatio,0,0,pixelRatio,0,0);
    context.clearRect(0,0,cssWidth,cssHeight);
-   if(currentState.lap!==observedLap){
-    observedLap=currentState.lap;elapsedMs=0;transitionSpeed=current.speed||1;
-    fromProgress=new Map(displayedRef.current);
-   }else if(lastFrameTime&&current.isRunning)elapsedMs+=Math.min(100,now-lastFrameTime);
-   lastFrameTime=now;
-   const stepDuration=Math.max(100,1000/Math.max(0.1,transitionSpeed));
-   const baseAmount=current.isRunning?clamp(elapsedMs/stepDuration,0,1):clamp(elapsedMs/stepDuration,0,1);
    const center=(x,y)=>({x:x*cssWidth,y:y*cssHeight});
    const coordinates=sample=>center(sample.x,sample.y);
    const samples=current.path.samples;
@@ -166,34 +170,10 @@ export default function LiveTrackMap({state,race,selectedDriverId,onSelect,isRun
     context.fillStyle='#777';context.font='bold 10px sans-serif';context.fillText('SCHEMATIC FALLBACK',8,16);
    }
    const activeCars=currentState.cars.filter(car=>!car.retired);
-   const averageLap=activeCars.reduce((sum,car)=>sum+(Number(car.lastLap)||Number(car.bestLap)||90),0)/Math.max(1,activeCars.length);
    const raceControl=['safety_car','vsc'].includes(currentState.raceControl);
    const leader=activeCars.find(car=>car.position===1)||activeCars[0];
-   const leaderProgress=leader?getLapProgress(leader.retired?(leader.retiredProgress??leader.trackProgress):leader.trackProgress,currentState.totalLaps,currentState.lap):0;
-   const candidates=currentState.cars.map(car=>{
-    const id=String(car.driverId),raceProgress=car.retired?(car.retiredProgress??car.trackProgress):car.trackProgress;
-    const authoritative=getLapProgress(raceProgress,currentState.totalLaps,currentState.lap);
-    const previous=fromProgress.get(id)??displayedRef.current.get(id)??authoritative;
-    const carLap=Number(car.lastLap)||Number(car.bestLap)||averageLap;
-    const amount=baseAmount>=1?1:clamp(baseAmount*averageLap/carLap,0,1);
-    let progress=car.retired||car.completed?authoritative:interpolateLapProgress(previous,authoritative,amount);
-    if(raceControl&&!car.retired&&car!==leader){
-     const gap=wrap(progress-leaderProgress);
-     progress=wrap(leaderProgress+gap*0.45);
-    }
-    const inPit=Boolean(car.pitState?.complete&&car.pitState.entryLap===currentState.lap);
-    let pitProgress=null;
-    if(inPit&&current.pitPath.samples.length>1){
-     const pitSeconds=Number(car.pitState.totalTimeLoss)||24;
-     const simulatedSeconds=baseAmount*averageLap;
-     pitProgress=clamp(simulatedSeconds/pitSeconds,0,1);
-    }
-    const displayPoint=getTrackDisplayPoint(current.path,current.trackMap,progress,pitProgress,current.pitPath);
-    const point=displayPoint;
-    const pit=Boolean(displayPoint?.pit);
-    return {car,id,progress,point,pit};
-   });
-   displayedRef.current=new Map(candidates.map(item=>[item.id,item.progress]));
+   const candidates=current.sampleCars(now);
+   const leaderProgress=candidates.find(item=>item.car===leader)?.progress??0;
    const visible=candidates.filter(item=>item.car.retired
     ?current.filter==='retired'
     :current.filter!=='retired');
@@ -245,6 +225,14 @@ export default function LiveTrackMap({state,race,selectedDriverId,onSelect,isRun
  },[path,pitPath,width,height,traced]);
  const safetyCar=['safety_car','vsc'].includes(state.raceControl);
  const topFive=[...state.cars].filter(car=>!car.retired).sort((a,b)=>a.position-b.position).slice(0,5);
+ const canUse3D=canRenderTrack3D(sourcePoints,useCircuitPath?circuitPath.closed:legacyMap.closed!==false);
+ const activate3D=()=>{
+  if(!canUse3D){setThreeDFallbackMessage('3D requires a saved closed track path with at least 8 points. Showing the 2D map.');setViewMode('2d');return}
+  if(!browserHasWebGL()){setThreeDFallbackMessage('WebGL is unavailable in this browser. Showing the 2D map.');setViewMode('2d');return}
+  setThreeDFallbackMessage('');setViewMode('3d');
+ };
+ const returnTo2D=()=>{setViewMode('2d');setThreeDFallbackMessage('')};
+ const handle3DFallback=useCallback(reason=>{setThreeDFallbackMessage(reason);setViewMode('2d')},[]);
  const pickDriver=event=>{
   const canvas=canvasRef.current,rect=canvas?.getBoundingClientRect();
   if(!rect)return;
@@ -258,14 +246,31 @@ export default function LiveTrackMap({state,race,selectedDriverId,onSelect,isRun
  };
  return <section className="live-track-panel">
   <div className="section-title"><div><h3>Live track</h3><p>{traced?race?.circuit||race?.name||'Uploaded track map':'Illustrative schematic — trace and save a circuit path in Admin to enable the map'}</p></div>
-   <div className="track-controls" role="group" aria-label="Track marker filter">{[['all','All'],['active','Racing'],['retired','Retired']].map(([key,label])=><button type="button" key={key} className={filter===key?'active':''} onClick={()=>setFilter(key)}>{label}</button>)}</div>
+   <div className="track-header-controls">
+    <div className="track-controls" role="group" aria-label="Track display mode"><button type="button" className={viewMode==='2d'?'active':''} onClick={returnTo2D}>2D</button><button type="button" className={viewMode==='3d'?'active':''} onClick={activate3D}>3D</button></div>
+    <div className="track-controls" role="group" aria-label="Track marker filter">{[['all','All'],['active','Racing'],['retired','Retired']].map(([key,label])=><button type="button" key={key} className={filter===key?'active':''} onClick={()=>setFilter(key)}>{label}</button>)}</div>
+   </div>
   </div>
-  {traced&&onTestMode&&<div className="track-test-mode"><button type="button" onClick={onTestMode}>Run full-race path test</button>{testModeFeedback&&<span role="status">{testModeFeedback}</span>}</div>}
+  {threeDFallbackMessage&&<p className="track-3d-message" role="status">{threeDFallbackMessage}</p>}
+  {viewMode==='2d'&&traced&&onTestMode&&<div className="track-test-mode"><button type="button" onClick={onTestMode}>Run full-race path test</button>{testModeFeedback&&<span role="status">{testModeFeedback}</span>}</div>}
   {safetyCar&&<div className="track-safety-banner" role="status">{state.raceControl==='vsc'?'VIRTUAL SAFETY CAR':'SAFETY CAR'} · GAPS COMPRESSED</div>}
-  <div className="live-track-stage" style={{aspectRatio:`${width}/${height}`}}>
+  {viewMode==='3d'?<Suspense fallback={<div className="live-track-stage track-3d-loading" role="status">Loading 3D track…</div>}>
+   <LazyLiveTrack3D
+    state={state} race={race} selectedDriverId={selectedDriverId} onSelect={onSelect}
+    isRunning={isRunning} speed={speed} filter={filter} showSectors={showSectors}
+    showDrs={showDrs} showTrail={showTrail} showLeaderboard={showLeaderboard}
+    showGroundImage={showGroundImage} graphicsQuality={graphicsQuality}
+    imageWidth={imageSize.width} imageHeight={imageSize.height}
+    onFallback={handle3DFallback}
+   />
+  </Suspense>:<div className="live-track-stage" style={{aspectRatio:`${width}/${height}`}}>
    {traced&&trackMap.trackImageUrl&&<img className="live-track-background" src={trackMap.trackImageUrl} alt={`${race?.name||'Race'} track map`} onLoad={event=>{const image=event.currentTarget;if(image.naturalWidth&&image.naturalHeight)setImageSize({width:image.naturalWidth,height:image.naturalHeight})}}/>}
    <canvas ref={canvasRef} className="live-track-canvas" aria-label="Animated live track. Select a driver from the leaderboard to open telemetry." onClick={pickDriver}/>
-  </div>
+  </div>}
+  {viewMode==='3d'&&<div className="track-3d-settings">
+   <label>Graphics<select value={graphicsQuality} onChange={event=>setGraphicsQuality(event.target.value)}><option value="low">Low</option><option value="high">High</option></select></label>
+   <label><input type="checkbox" checked={showGroundImage} onChange={event=>setShowGroundImage(event.target.checked)}/>Ground image</label>
+  </div>}
   <div className="live-track-options">
    <label><input type="checkbox" checked={showSectors} onChange={event=>setShowSectors(event.target.checked)}/>Sectors</label>
    <label><input type="checkbox" checked={showDrs} onChange={event=>setShowDrs(event.target.checked)}/>DRS zones</label>

@@ -1,8 +1,15 @@
 const clamp=(value,min,max)=>Math.min(max,Math.max(min,value));
 const wrap=value=>((value%1)+1)%1;
-const validPoints=points=>Array.isArray(points)?points.filter(point=>
- Number.isFinite(Number(point?.x))&&Number.isFinite(Number(point?.y))
-).map(point=>({x:clamp(Number(point.x),0,1),y:clamp(Number(point.y),0,1)})):[];
+const validPoints=points=>{
+ if(!Array.isArray(points))return [];
+ return points.filter(point=>
+  Number.isFinite(Number(point?.x))&&Number.isFinite(Number(point?.y))
+ ).map(point=>({
+  x:clamp(Number(point.x),0,1),
+  y:clamp(Number(point.y),0,1),
+  ...(point.z!==null&&point.z!==undefined&&point.z!==''&&Number.isFinite(Number(point.z))?{z:Number(point.z)}:{})
+ }));
+};
 
 export function parseCircuitTrackPath(value){
  let source=value;
@@ -50,11 +57,16 @@ export function hasUsableTrackPath(trackMap){
  return trackMap?.closed!==false&&new Set(points.map(point=>`${point.x}:${point.y}`)).size>2;
 }
 
+export function canRenderTrack3D(points,closed=true){
+ return closed===true&&Array.isArray(points)&&points.length>=8&&hasUsableTrackPath({points,closed});
+}
+
 function catmullRom(p0,p1,p2,p3,t){
  const t2=t*t,t3=t2*t;
  return {
   x:0.5*((2*p1.x)+(-p0.x+p2.x)*t+(2*p0.x-5*p1.x+4*p2.x-p3.x)*t2+(-p0.x+3*p1.x-3*p2.x+p3.x)*t3),
-  y:0.5*((2*p1.y)+(-p0.y+p2.y)*t+(2*p0.y-5*p1.y+4*p2.y-p3.y)*t2+(-p0.y+3*p1.y-3*p2.y+p3.y)*t3)
+  y:0.5*((2*p1.y)+(-p0.y+p2.y)*t+(2*p0.y-5*p1.y+4*p2.y-p3.y)*t2+(-p0.y+3*p1.y-3*p2.y+p3.y)*t3),
+  z:0.5*((2*(p1.z||0))+(-(p0.z||0)+(p2.z||0))*t+(2*(p0.z||0)-5*(p1.z||0)+4*(p2.z||0)-(p3.z||0))*t2+(-(p0.z||0)+3*(p1.z||0)-3*(p2.z||0)+(p3.z||0))*t3)
  };
 }
 function interpolateSamples(samples,distance){
@@ -67,7 +79,11 @@ function interpolateSamples(samples,distance){
  const next=samples[low],previous=samples[Math.max(0,low-1)];
  const span=next.distance-previous.distance;
  const amount=span>0?(distance-previous.distance)/span:0;
- return {x:previous.x+(next.x-previous.x)*amount,y:previous.y+(next.y-previous.y)*amount};
+ return {
+  x:previous.x+(next.x-previous.x)*amount,
+  y:previous.y+(next.y-previous.y)*amount,
+  z:(previous.z||0)+((next.z||0)-(previous.z||0))*amount
+ };
 }
 
 export function buildTrackPath(rawPoints,{closed=true,width=1,height=1,sampleCount=1000,startIndex=0}={}){
@@ -89,7 +105,7 @@ export function buildTrackPath(rawPoints,{closed=true,width=1,height=1,sampleCou
   const p3=isClosed?points[(segment+2)%points.length]:points[Math.min(points.length-1,segment+2)];
   for(let step=0;step<steps;step++)source.push(catmullRom(p0,p1,p2,p3,step/steps));
  }
- if(!isClosed)source.push({...points.at(-1)});
+ if(!isClosed)source.push({...points.at(-1),z:points.at(-1).z||0});
  const cumulative=[0];
  for(let index=1;index<source.length;index++){
   const dx=(source[index].x-source[index-1].x)*dimensions.width;
@@ -111,7 +127,12 @@ export function buildTrackPath(rawPoints,{closed=true,width=1,height=1,sampleCou
   const closingDistance=distance-cumulative[cumulative.length-1];
   const closingLength=totalLength-cumulative[cumulative.length-1];
   const amount=closingLength?closingDistance/closingLength:0;
-  return {x:source.at(-1).x+(source[0].x-source.at(-1).x)*amount,y:source.at(-1).y+(source[0].y-source.at(-1).y)*amount,distance};
+  return {
+   x:source.at(-1).x+(source[0].x-source.at(-1).x)*amount,
+   y:source.at(-1).y+(source[0].y-source.at(-1).y)*amount,
+   z:(source.at(-1).z||0)+((source[0].z||0)-(source.at(-1).z||0))*amount,
+   distance
+  };
  });
  return {samples,totalLength,closed:isClosed,...dimensions};
 }
@@ -133,7 +154,7 @@ export function getPointAt(path,progress){
  const before=pointAtDistance(path.closed?wrap((distance-offset)/path.totalLength)*path.totalLength:Math.max(0,distance-offset));
  const after=pointAtDistance(path.closed?wrap((distance+offset)/path.totalLength)*path.totalLength:Math.min(path.totalLength,distance+offset));
  const angle=before&&after?Math.atan2((after.y-before.y)*path.height,(after.x-before.x)*path.width):0;
- return {...point,angle};
+ return {...point,z:point.z||0,angle};
 }
 
 export function getPitPointAt(trackMap,progress){

@@ -255,7 +255,7 @@ export function Driver() {
             </article>
           })}</div>}
         </section>
-        <section className="race-history"><details className="career-achievements-panel" open><summary className="career-achievements-toggle"><span><strong>Career achievements</strong><small>Totals, rates, and titles calculated from saved results</small></span></summary><div className="career-achievements">
+        <section className="race-history"><details className="career-achievements-panel" open><summary className="career-achievements-toggle"><span><strong>Career achievements</strong><small>Totals, rates, and titles calculated from saved results</small></span></summary><div className="career-achievements driver-career-achievements">
           {[
             ['GP starts', careerStats.starts], ['Points', careerStats.points],
             ['Avg. starting pos.', Number.isFinite(careerStats.averageStartingPosition) ? careerStats.averageStartingPosition.toFixed(1) : '—'],
@@ -316,11 +316,44 @@ export function Team() {
   const { id } = useParams(); const t = useQ(() => sb.from('teams').select('*,cars(*)').eq('id', id).single(), [id]);
   const lineups = useQ(() => sb.from('team_driver_lineups').select('*').eq('team_id', id).order('year', { ascending: false }), [id]);
   const raceResults = useQ(() => sb.from('race_results').select('grid_id,race_id,session_type,driver_id,position,points,status,laps_completed,total_time,pole_position,sprint_pole,race_win,sprint_win,fastest_lap,grand_slam,retired,races(year,round,name),grids(year),drivers(id,name,code)').eq('team_id', id), [id]);
-  const drivers = useQ(() => sb.from('drivers').select('id,name,code,number,driver_images(pole_url,year)').order('name'));
+  const drivers = useQ(() => sb.from('drivers').select('id,name,code,number,driver_images(year,grid_url)').order('name'));
+  const [selectedHistoryYear, setSelectedHistoryYear] = useState('');
   if (t.loading || t.error || !t.data) return <><h2>Team</h2><QueryStatus query={t} /></>;
   const team = t.data, driverById = new Map((drivers.data || []).map(driver => [String(driver.id), driver]));
   const teamCareerStats = getTeamCareerStats(raceResults.data || []);
+  const driverStats = new Map();
+  for (const row of raceResults.data || []) {
+    if (!row.driver_id) continue;
+    const key = String(row.driver_id);
+    const stats = driverStats.get(key) || { id: row.driver_id, name: row.drivers?.name || driverById.get(key)?.name || 'Driver', points: 0, wins: 0, poles: 0, podiums: 0 };
+    stats.points += Number(row.points) || 0;
+    if (row.session_type === 'race') {
+      if (row.race_win) stats.wins += 1;
+      if (!row.retired && row.status !== 'Retired' && Number(row.position) >= 1 && Number(row.position) <= 3) stats.podiums += 1;
+    }
+    if (row.pole_position) stats.poles += 1;
+    driverStats.set(key, stats);
+  }
+  const driverLeaderboards = [
+    { label: 'Wins', key: 'wins' },
+    { label: 'Poles', key: 'poles' },
+    { label: 'Podiums', key: 'podiums' },
+    { label: 'Points', key: 'points' }
+  ].map(category => ({
+    ...category,
+    drivers: [...driverStats.values()]
+      .filter(driver => driver[category.key] > 0)
+      .sort((a, b) => b[category.key] - a[category.key] || a.name.localeCompare(b.name))
+  }));
   const weekendHistory = groupRaceWeekends(raceResults.data || []);
+  const weekendHistoryByYear = [...weekendHistory.reduce((groups, weekend) => {
+    const year = weekend.year || '—';
+    const group = groups.get(year) || [];
+    group.push(weekend);
+    groups.set(year, group);
+    return groups;
+  }, new Map())];
+  const activeHistoryYear = weekendHistoryByYear.find(([year]) => String(year) === selectedHistoryYear) || weekendHistoryByYear[0];
   const teamSprintWins = (raceResults.data || []).filter(row => row.session_type === 'sprint' && row.sprint_win).length;
   const teamPoles = (raceResults.data || []).filter(row => row.pole_position).length;
   const teamSprintPoles = (raceResults.data || []).filter(row => row.sprint_pole).length;
@@ -331,8 +364,14 @@ export function Team() {
   const lineupSlots = [['driver_1_id', 'Race driver 1'], ['driver_2_id', 'Race driver 2'], ['reserve_driver_id', 'Reserve driver']];
   return <><div className="team-profile-heading">{team.logo_normal && <img src={team.logo_normal} alt={`${team.name} logo`} />}<h2>{team.name}</h2></div>
     <section className="team-lineup-history"><h3>Driver lineups</h3><QueryStatus query={lineups} empty="No driver lineups recorded." /><QueryStatus query={drivers} />
-      {lineups.data?.map(lineup => <section className="team-lineup-season" key={lineup.year}><h4>{lineup.year}</h4><div className="grid team-lineup-cards">{lineupSlots.map(([key, label]) => { const driver = lineup[key] ? driverById.get(String(lineup[key])) : null; const content = <div className="lineup-driver-copy"><small>{label}</small><strong>{driver?.name || 'Not assigned'}</strong></div>; return driver ? <Link key={key} to={`/drivers/${driver.id}`} className="card lineup-driver-card">{content}</Link> : <div key={key} className="card lineup-driver-card">{content}</div> })}</div></section>)}</section>
-    <section className="race-history"><div className="section-title"><div><h3>Team achievements</h3><p>Totals calculated from saved results</p></div></div><div className="career-achievements">
+      <div className="team-lineup-seasons">{lineups.data?.map(lineup => <section className="team-lineup-season" key={lineup.year}><h4>{lineup.year}</h4><div className="grid team-lineup-cards">{lineupSlots.map(([key, label]) => {
+        const driver = lineup[key] ? driverById.get(String(lineup[key])) : null;
+        const image = driverGridImage(driver, lineup.year);
+        const content = <>{image && <img className="lineup-driver-image" src={image} alt="" aria-hidden="true" />}<div className="lineup-driver-copy"><small>{label}</small><strong>{driver?.name || 'Not assigned'}</strong></div></>;
+        const className = `card lineup-driver-card${image ? ' has-image' : ''}`;
+        return driver ? <Link key={key} to={`/drivers/${driver.id}`} className={className}>{content}</Link> : <div key={key} className={className}>{content}</div>;
+      })}</div></section>)}</div></section>
+    <section className="race-history"><div className="section-title"><div><h3>Team achievements</h3><p>Totals calculated from saved results</p></div></div><div className="career-achievements team-achievements-list">
       {[
         ['Points', teamCareerStats.points], ['Avg. points / race', Number.isFinite(teamCareerStats.averagePointsPerRace) ? teamCareerStats.averagePointsPerRace.toFixed(1) : '—'],
         ['GP wins', teamCareerStats.wins], ['Podiums', teamCareerStats.podiums],
@@ -340,8 +379,8 @@ export function Team() {
         ['Sprint wins', teamSprintWins], ['Poles', teamPoles], ['Sprint poles', teamSprintPoles], ['Fastest laps', teamFastestLaps],
         ['Sprint fastest laps', teamSprintFastestLaps], ['Retirements', teamRetirements], ['Grand Slams', teamGrandSlams]
       ].map(([label, count]) => <div className="career-achievement" key={label}><strong>{count}</strong><span>{label}</span></div>)}
-    </div><div className="section-title"><div><h3>Race history</h3><p>All saved sessions and driver awards</p></div></div><QueryStatus query={raceResults} empty="No saved race results yet." />
-      {!!weekendHistory.length && <div className="weekend-history">{weekendHistory.map(weekend => <details className="weekend-history-item" key={weekend.key}>
+    </div><section className="team-driver-leaderboards"><div className="section-title"><div><h3>Driver leaderboard</h3><p>Team drivers ranked by saved results</p></div></div>{driverLeaderboards.some(category => category.drivers.length) ? <div className="team-driver-leaderboard-grid">{driverLeaderboards.map(category => <section className="team-driver-leaderboard" key={category.key}><h4>{category.label}</h4>{category.drivers.length ? <ol>{category.drivers.map((driver, index) => <li key={driver.id}><span className="leaderboard-rank">{index + 1}</span><Link to={`/drivers/${driver.id}`}>{driver.name}</Link><strong>{driver[category.key]}</strong></li>)}</ol> : <p>No {category.label.toLowerCase()} recorded.</p>}</section>)}</div> : <p className="muted">No driver results recorded yet.</p>}</section><div className="section-title team-race-history-title"><div><h3>Race history</h3><p>All saved sessions and driver awards</p></div>{!!weekendHistoryByYear.length && <label>Year<select value={activeHistoryYear ? String(activeHistoryYear[0]) : ''} onChange={event => setSelectedHistoryYear(event.target.value)}>{weekendHistoryByYear.map(([year]) => <option key={year} value={year}>{year}</option>)}</select></label>}</div><QueryStatus query={raceResults} empty="No saved race results yet." />
+      {!!activeHistoryYear && <div className="weekend-history">{activeHistoryYear[1].map(weekend => <details className="weekend-history-item" key={weekend.key}>
         <summary className="weekend-history-summary"><span className="weekend-history-year">{weekend.year || '—'}</span><span className="weekend-history-name"><small>ROUND {weekend.round || '—'}</small><strong>{weekend.raceName}</strong></span><span className="weekend-history-count">{weekend.sessions.length} sessions</span><strong className="weekend-history-points">{weekend.pointsTotal} pts</strong></summary>
         <div className="weekend-history-details"><div className="weekend-history-columns team-weekend-columns"><span>SESSION</span><span>DRIVER RESULTS</span><span>TEAM PTS</span></div>
           {weekend.sessions.map(session => <div className="weekend-history-row team-weekend-row" key={session.session_type}><span data-label="Session">{sessionLabel(session.session_type)}</span><span data-label="Driver results" className="weekend-driver-results">{[...session.rows].sort((a, b) => a.position - b.position).map(row => <span className="team-result-driver" key={row.driver_id}><Link to={`/drivers/${row.drivers?.id}`}>{row.drivers?.code ? <span className="driver-code">{row.drivers.code}</span> : row.drivers?.name || 'Driver'}</Link> P{row.position}{row.retired ? ' DNF' : ''}{resultAwards(row).length > 0 && <small> ({resultAwards(row).join(', ')})</small>}</span>)}</span><span data-label="Team points">{session.rows.reduce((sum, row) => sum + (Number(row.points) || 0), 0)}</span></div>)}
@@ -506,6 +545,7 @@ export function Simulate() {
   const seasonRacesCompleted = Boolean(grid && races.data?.length && races.data.every(race => savedSeason.some(result => String(result.raceId) === String(race.id) && result.raceResults.length > 0)));
   const upcomingRace = races.data?.find(race => Number(race.year) === Number(grid?.year) && !savedSeason.some(result => String(result.raceId) === String(race.id) && result.raceResults.length > 0));
   const seasonStandings = calculateStandings(savedSeason, entries);
+  const seasonDriverById = new Map(entries.map(entry => [String(entry.driver.id), entry.driver]));
   const phase = phases[Math.min(phaseIndex, phases.length - 1)];
   const mandatoryDryTyreCompounds = requiresMandatoryDryTyreCompounds(selectedRace || {}, phase === 'race' ? 'race' : 'sprint', weatherMode);
   const racePhase = phase === 'sprint' ? 'sprint' : phase === 'race' ? 'race' : null;
@@ -843,8 +883,12 @@ export function Simulate() {
       <div className="section-title"><div><h3>{grid.year} season standings</h3><p>Race and sprint points · wins and podiums count Grand Prix results</p></div>{savedSeason.length > 0 && <button type="button" className="btn-danger" onClick={resetSeasonStandings} disabled={resultSaveSaving || resultSaveQueueRef.current.length > 0}>Reset / Delete results</button>}</div>
       <div className="standings-grid">
         {[['Drivers', seasonStandings.drivers], ['Constructors', seasonStandings.teams]].map(([title, rows]) => <div key={title}>
-          <h4>{title}</h4><div className="scroll"><table className="race-table standings-table"><thead><tr><th>POS</th><th>{title === 'Drivers' ? 'DRIVER' : 'TEAM'}</th><th>PTS</th><th>W</th><th>POD</th><th>POLE</th></tr></thead>
-            <tbody>{rows.map((row, index) => <tr key={row.id} className={index === 0 ? 'leader' : ''}><td className="position-cell"><span className="position-number">{index + 1}</span></td><td>{title === 'Drivers' ? <span className="driver-result"><span className="team-logo">{row.team?.logo_normal && <img src={row.team.logo_normal} alt="" />}</span><strong className={row.code ? 'driver-code' : undefined}>{row.code || '—'}</strong></span> : <span className="driver-result"><span className="team-logo">{row.logo_normal && <img src={row.logo_normal} alt="" />}</span><strong>{row.name}</strong></span>}</td><td><strong>{row.points}</strong></td><td>{row.wins}</td><td>{row.podiums}</td><td>{row.poles}</td></tr>)}</tbody>
+          <h4>{title}</h4><div className="scroll"><table className="race-table standings-table"><thead><tr><th>POS</th><th>{title === 'Drivers' ? 'DRIVER' : 'TEAM'}</th><th>PTS</th><th>W</th><th>POD</th><th>POLE</th>{title === 'Drivers' && <th aria-label="Driver image"></th>}</tr></thead>
+            <tbody>{rows.map((row, index) => {
+              const driver = title === 'Drivers' ? seasonDriverById.get(String(row.id)) : null;
+              const image = driver && driverGridImage(driver, grid.year);
+              return <tr key={row.id} className={index === 0 ? 'leader' : ''}><td className="position-cell"><span className="position-number">{index + 1}</span></td><td>{title === 'Drivers' ? <span className="driver-result"><span className="team-logo">{row.team?.logo_normal && <img src={row.team.logo_normal} alt="" />}</span><strong className={row.code ? 'driver-code' : undefined}>{row.code || '—'}</strong></span> : <span className="driver-result"><span className="team-logo">{row.logo_normal && <img src={row.logo_normal} alt="" />}</span><strong>{row.name}</strong></span>}</td><td><strong>{row.points}</strong></td><td>{row.wins}</td><td>{row.podiums}</td><td>{row.poles}</td>{title === 'Drivers' && <td className="driver-grid-image-cell">{image && <img className="driver-grid-image" src={image} alt={`${driver.name} grid image`} />}</td>}</tr>;
+            })}</tbody>
           </table></div>
         </div>)}
       </div>

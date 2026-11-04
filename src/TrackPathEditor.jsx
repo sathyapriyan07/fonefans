@@ -151,8 +151,14 @@ export default function TrackPathEditor({race,value,image,onChange}){
  const handlePointerMove=event=>{
   if(!dragging)return;
   const key=dragging.lane==='pit'?'pitLanePoints':'points',points=[...draft[key]];
-  points[dragging.index]=getSvgPoint(event);
+  points[dragging.index]={...points[dragging.index],...getSvgPoint(event)};
   commit({...draft,[key]:points});
+ };
+ const setSelectedElevation=value=>{
+  if(selectedPoint?.lane!=='track'||!draft.points[selectedPoint.index])return;
+  const points=[...draft.points];
+  points[selectedPoint.index]={...points[selectedPoint.index],z:Number(value)};
+  update({...draft,points});
  };
  const startDrag=(event,lane,index)=>{
   event.stopPropagation();event.preventDefault();
@@ -265,6 +271,7 @@ export default function TrackPathEditor({race,value,image,onChange}){
    <button type="button" onClick={()=>update({...draft,direction:draft.direction===1?-1:1})}>Flip direction</button>
    <button type="button" onClick={()=>setPreview(value=>!value)} disabled={smoothPath.samples.length<2}>{preview?'Stop preview':'Preview'}</button>
    <button type="button" onClick={clear} disabled={!draft.points.length&&!draft.pitLanePoints.length}>Clear</button>
+   {selectedPoint?.lane==='track'&&draft.points[selectedPoint.index]&&<label>Elevation <output>{draft.points[selectedPoint.index].z??0}</output><input type="range" min="-10" max="30" step="0.5" value={draft.points[selectedPoint.index].z??0} onChange={event=>setSelectedElevation(event.target.value)}/></label>}
   </div>
   <p className="track-path-marker-help">Sector 3 ends at start/finish; pit entry and exit are the first and last pit-lane points. Right-click a point or select it and press Delete to remove it.</p>
   <div className="track-path-markers">
