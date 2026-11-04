@@ -525,7 +525,6 @@ export function Simulate() {
   const [weekendStarted, setWeekendStarted] = useState(false); const [weekendComplete, setWeekendComplete] = useState(false);
   const [results, setResults] = useState({}); const [setups, setSetups] = useState({}); const [strategies, setStrategies] = useState({}); const [performanceBoosts, setPerformanceBoosts] = useState({}); const [strategyEnabled, setStrategyEnabled] = useState(false); const [garageSetupEnabled, setGarageSetupEnabled] = useState(false);
   const [qualifyingSimulation, setQualifyingSimulation] = useState(null); const [qualifyingSpeed, setQualifyingSpeed] = useState(1);
-  const [weekendSeed, setWeekendSeed] = useState(null);
   const [qualifyingRunPlans,setQualifyingRunPlans]=useState({});
   const [reserveDriversEnabled, setReserveDriversEnabled] = useState(false);
   const [practiceSubstitutions, setPracticeSubstitutions] = useState({});
@@ -675,7 +674,6 @@ export function Simulate() {
     setNextRaceNotice('');
     setR(raceId ? String(raceId) : '');
     setWeekendStarted(false);
-    setWeekendSeed(null);
     setWeekendComplete(false);
     setResults({});
     setQualifyingSimulation(null);
@@ -688,7 +686,7 @@ export function Simulate() {
     if (simulationTab !== 'weekend' || !grid || races.loading || seasonResultsQuery.loading || rid || !races.data) return;
     if (upcomingRace) selectRace(upcomingRace.id);
   }, [simulationTab, grid?.id, races.loading, races.data, seasonResultsQuery.loading, seasonResultsQuery.data, rid]);
-  useEffect(() => { setR(''); setWeekendStarted(false); setWeekendSeed(null); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setQualifyingSimulation(null); setRaceState(null); setIsRunning(false); setPracticeSubstitutions({}) }, [gid]);
+  useEffect(() => { setR(''); setWeekendStarted(false); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setQualifyingSimulation(null); setRaceState(null); setIsRunning(false); setPracticeSubstitutions({}) }, [gid]);
   useEffect(() => {
     if (!isRunning || !raceState || raceState.done) return;
     const timer = window.setInterval(() => setRaceState(current => current ? advanceRaceIfRunning(current, true) : current), Math.max(100, 1000 / simulationSpeed));
@@ -728,7 +726,7 @@ export function Simulate() {
       setResultSaveError('Wait for queued results to save, or retry the pending save, before restarting the weekend.');
       return;
     }
-    setNextRaceNotice(''); setResultSaveError(''); setResultSaveFailed(false); setResultSaveNeedsAuth(false); setResultSaveSuccess(''); setBoostFeedback(''); setWeekendSeed(newQualifyingSeed()); setWeekendStarted(true); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setQualifyingSimulation(null); setRaceState(null)
+    setNextRaceNotice(''); setResultSaveError(''); setResultSaveFailed(false); setResultSaveNeedsAuth(false); setResultSaveSuccess(''); setBoostFeedback(''); setWeekendStarted(true); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setQualifyingSimulation(null); setRaceState(null)
   };
   const resetSeasonStandings = async () => {
     if (!grid || !window.confirm(`Delete all saved simulated results for ${grid.name} (${grid.year}) from Supabase? This cannot be undone.`)) return;
@@ -758,14 +756,13 @@ export function Simulate() {
       const raceLaps = Number(selectedRace.laps) || 57;
       const state = createRaceState({
         entries: applyTeamPerformanceBoosts(startRows, performanceBoosts), race: selectedRace, format: isSprint ? 'sprint' : 'race',
-        strategies: strategyEnabled ? strategies : {}, setups: activeSetups, weather: weatherMode, seed:weekendSeed??newQualifyingSeed(), laps: isSprint ? Math.max(1, Math.round(raceLaps * 0.32)) : raceLaps
+        strategies: strategyEnabled ? strategies : {}, setups: activeSetups, weather: weatherMode, laps: isSprint ? Math.max(1, Math.round(raceLaps * 0.32)) : raceLaps
       });
       setRaceState(state); setRaceViewTab('timing'); setRaceTeamAdjustments({}); setBoostFeedback(''); setIsRunning(true); setWeekendComplete(false);
       return;
     }
     if (phase === 'qualifying' || phase === 'sprintQualifying') {
-      const seed = weekendSeed??newQualifyingSeed();
-      if(weekendSeed===null)setWeekendSeed(seed);
+      const seed = newQualifyingSeed();
       const simulation = simulateQualifyingWeekend(performanceEntries,{
         race:selectedRace,setups:activeSetups,weather:weatherMode,seed,
         sprint:phase==='sprintQualifying',
@@ -781,7 +778,7 @@ export function Simulate() {
   };
   const skipQualifying = () => {
     const simulation=currentQualifying||simulateQualifyingWeekend(performanceEntries,{
-      race:selectedRace,setups:activeSetups,weather:weatherMode,seed:weekendSeed??newQualifyingSeed(),
+      race:selectedRace,setups:activeSetups,weather:weatherMode,seed:newQualifyingSeed(),
       sprint:phase==='sprintQualifying',
       teamStrategies:Object.fromEntries(teams.filter(team=>qualifyingRunPlans[team.id]).map(team=>[team.id,{qualifyingRuns:qualifyingRunPlans[team.id]}]))
     });
@@ -1015,7 +1012,7 @@ export function Simulate() {
           {phaseResult && (phase === 'race' || phase === 'sprint') && raceState && <div className="race-live">
             <div className="race-status">
               <div><span className="eyebrow">{raceState.format === 'sprint' ? 'SPRINT' : 'GRAND PRIX'}</span><strong>LAP {raceState.lap} / {raceState.totalLaps}</strong></div>
-              <div className={`control-state ${raceState.raceControl !== 'green' ? 'yellow' : ''}`}>{raceState.raceControl === 'safety_car' ? 'SAFETY CAR' : raceState.raceControl === 'vsc' ? 'VIRTUAL SAFETY CAR' : 'GREEN FLAG'}</div>
+              <div className={`control-state ${raceState.raceControl === 'safety_car' ? 'yellow' : ''}`}>{raceState.raceControl === 'safety_car' ? 'SAFETY CAR' : 'GREEN FLAG'}</div>
               <div><span className="eyebrow">TRACK</span><strong>{raceState.weather.wetness >= 0.65 ? 'WET' : raceState.weather.wetness >= 0.3 ? 'DAMP' : 'DRY'}</strong></div>
             </div>
             <div className="race-controls">

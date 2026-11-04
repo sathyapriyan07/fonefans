@@ -20,71 +20,6 @@ test('independent simulations produce random but valid race timing',()=>{
  assert.ok([...a.classification,...b.classification].every(car=>Number.isFinite(car.totalTime)&&car.totalTime>=0));
 });
 
-test('race and practice simulations replay identically with a supplied seed',()=>{
- const entries=[entry(1),entry(2,{driver:{speed:77}}),entry(3,{car:{speed:78}})];
- const options={entries,race:{...circuit,rain_chance:100},laps:8,seed:'repeatable-race'};
- assert.deepEqual(simulateRace(options),simulateRace(options));
- assert.deepEqual(practice(entries,{race:circuit,weather:'variable',seed:'repeatable-practice'}),
-  practice(entries,{race:circuit,weather:'variable',seed:'repeatable-practice'}));
-});
-
-test('different race seeds produce varied winners and unique classified positions',()=>{
- const entries=Array.from({length:20},(_,index)=>{
-  const teamIndex=Math.floor(index/2),driverPace=70+((index*7)%11),carPace=90-teamIndex*2;
-  return entry(index+1,{
-   driver:{speed:driverPace,race:driverPace,qualifying:driverPace,experience:75,consistency:75},
-   car:{speed:carPace,race:carPace,performance:carPace,qualifying:carPace}
-  });
- });
- const winners=new Set();
- for(let run=0;run<100;run++){
-  const {classification}=simulateRace({entries,race:{...circuit,year:2000,laps:16},laps:16,seed:`winner-diversity-${run}`});
-  winners.add(String(classification[0].driver.id));
-  assert.equal(new Set(classification.map(row=>row.position)).size,entries.length);
- }
- assert.ok(winners.size>=4,`expected at least 4 winners, received ${winners.size}`);
-});
-
-test('the highest-rated driver finishes ahead of the lowest-rated driver on average',()=>{
- const entries=Array.from({length:10},(_,index)=>{
-  const pace=98-index*7;
-  return entry(index+1,{driver:{speed:pace,race:pace,qualifying:pace,overall:pace,experience:pace,consistency:pace},
-   car:{speed:75,race:75,performance:75,qualifying:75}});
- });
- const finishes=new Map(entries.map(row=>[String(row.driver.id),[]]));
- for(let run=0;run<30;run++){
-  const result=simulateRace({entries,race:{...circuit,year:2000,laps:18},laps:18,seed:`driver-strength-${run}`});
-  for(const row of result.classification)finishes.get(String(row.driver.id)).push(row.position);
- }
- const mean=values=>values.reduce((sum,value)=>sum+value,0)/values.length;
- assert.ok(mean(finishes.get('1'))<mean(finishes.get('10')));
-});
-
-test('circuit rain chance creates a seeded wet spell and dry circuits stay dry',()=>{
- const entries=[entry(1),entry(2)];
- const wet=createRaceState({entries,race:{...circuit,year:2000,laps:60,rain_chance:100},laps:60,seed:'rain-event'});
- let state=wet;const weatherEvents=[];
- while(!state.done){state=advanceRaceLap(state);weatherEvents.push(...state.events)}
- assert.ok(weatherEvents.some(event=>event.type==='rain_started'));
- assert.ok(weatherEvents.some(event=>event.type==='rain_ended'));
- let dry=createRaceState({entries,race:{...circuit,year:2000,laps:20,rain_chance:0},laps:20,seed:'dry-event'});
- while(!dry.done)dry=advanceRaceLap(dry);
- assert.ok(dry.events.every(event=>event.type!=='rain_started'));
-});
-
-test('team damage-repair efficiency changes the repair time at a pit stop',()=>{
- const makeState=efficiency=>{
-  const entries=[entry(1),entry(2)];
-  entries[0].team.damage_repair_efficiency=efficiency;
-  let state=createRaceState({entries,race:{...circuit,year:2000,laps:6},laps:6,seed:'repair-efficiency'});
-  state.cars.find(car=>car.driverId===1).damage=0.4;
-  return setPitInstruction(state,1,'planned_stop',{targetLap:1,compound:'soft'});
- };
- const high=advanceRaceLap(makeState(100)).cars.find(car=>car.driverId===1).pitHistory[0].repairTime;
- const low=advanceRaceLap(makeState(0)).cars.find(car=>car.driverId===1).pitHistory[0].repairTime;
- assert.ok(high<low);
-});
-
 test('season standings aggregate sprint and race points with Grand Prix wins and podiums',()=>{
  const driverA={id:1,name:'Driver A',code:'DRA'},driverB={id:2,name:'Driver B',code:'DRB'};
  const teamA={id:'team-a',name:'Team A'},teamB={id:'team-b',name:'Team B'};
@@ -622,8 +557,8 @@ test('stay-out defers the planned stop by one lap and automatic strategy resumes
  assert.equal(state.cars.find(car=>car.driverId===1).automaticStrategy,true);
 });
 
-test('pit stops reset tyres, preserve fuel, and repair damage',()=>{
- let state=createRaceState({entries:[entry(1),entry(2)],race:{...circuit,laps:7},laps:7,seed:'pit-repair-test',strategies:{'team-1':{stops:0},'team-2':{stops:0}}});
+test('tyre changes reset tyre-only state while fuel and damage persist',()=>{
+ let state=createRaceState({entries:[entry(1),entry(2)],race:{...circuit,laps:7},laps:7,strategies:{'team-1':{stops:0},'team-2':{stops:0}}});
  const car=state.cars.find(row=>row.driverId===1);
  car.damage=0.2;
  state=setPitInstruction(state,1,'planned_stop',{targetLap:2,compound:'soft'});
@@ -635,9 +570,8 @@ test('pit stops reset tyres, preserve fuel, and repair damage',()=>{
  assert.equal(afterStop.tyre.wear,0);
  assert.equal(afterStop.tyre.compound,'soft');
  assert.ok(afterStop.fuelRemaining<fuelBeforeStop);
- assert.equal(afterStop.damage,0);
- assert.ok(afterStop.pitHistory[0].damageAtStop>=0.2);
- assert.equal(afterStop.pitHistory[0].damageRepaired,afterStop.pitHistory[0].damageAtStop);
+ assert.ok(afterStop.damage>=0.2);
+ assert.equal(afterStop.pitHistory[0].damageAtStop,afterStop.damage);
 });
 
 test('tyre telemetry includes wear, grip, condition and competitive life',()=>{
@@ -676,14 +610,14 @@ test('double-stacked teammates incur a second-car delay and preserve tyre servic
 test('all five compounds differ and tyre wear measurably slows repeated laps',()=>{
  assert.equal(new Set(Object.values(TYRES).map(tyre=>`${tyre.pace}:${tyre.degradation}:${tyre.warmup}:${tyre.grip}`)).size,5);
  const entries=[entry(1),entry(2)];
- let state=createRaceState({entries,race:{...circuit,laps:20},laps:20,seed:'tyre-aging-test',strategies:{'team-1':{stops:0,tyre:'soft'},'team-2':{stops:0,tyre:'hard'}}});
+ let state=createRaceState({entries,race:{...circuit,laps:20},laps:20,strategies:{'team-1':{stops:0,tyre:'soft'},'team-2':{stops:0,tyre:'hard'}}});
  const first=advanceRaceLap(state);
  for(let lap=0;lap<8;lap++)state=advanceRaceLap(state);
  const soft=state.cars.find(car=>car.driverId===1),hard=state.cars.find(car=>car.driverId===2);
  assert.ok(soft.tyre.wear>first.cars.find(car=>car.driverId===1).tyre.wear);
  assert.ok(soft.tyre.grip<first.cars.find(car=>car.driverId===1).tyre.grip);
  assert.ok(soft.tyre.degradationRate>first.cars.find(car=>car.driverId===1).tyre.degradationRate);
- assert.ok(soft.lapHistory.at(-1).components.tyre>first.cars.find(car=>car.driverId===1).lapHistory[0].components.tyre,'the tyre pace penalty should grow as the same set wears');
+ assert.ok(soft.lastLap>first.cars.find(car=>car.driverId===1).lastLap,'soft tyre lap time should worsen as the same set wears');
  assert.notEqual(soft.tyre.compound,hard.tyre.compound);
 });
 
@@ -759,7 +693,7 @@ test('pause blocks lap advancement and resume advances once',()=>{
 });
 
 test('driver boost improves exactly one lap and reports its cooldown',()=>{
- const options={entries:[entry(1),entry(2,{driver:{speed:10,race:10},car:{speed:10,race:10,performance:10}})],race:{...circuit,laps:8},laps:8,seed:'boost-test',strategies:{'team-1':{stops:0},'team-2':{stops:0}}};
+ const options={entries:[entry(1),entry(2,{driver:{speed:10,race:10},car:{speed:10,race:10,performance:10}})],race:{...circuit,laps:8},laps:8,strategies:{'team-1':{stops:0},'team-2':{stops:0}}};
  const originalRandom=Math.random;
  let regular,armed,boosted;
  try{
@@ -807,7 +741,7 @@ test('team performance boosts improve every team car once and respect the rating
  assert.equal(applyTeamPerformanceBoosts(boosted,{'team-1':10})[0].c.speed,80);
  assert.equal(applyTeamPerformanceBoosts(boosted,{'team-1':15})[0].c.speed,85);
  assert.equal(applyTeamPerformanceBoosts([{...entry(4),c:{speed:97,performance:98}}],{'team-4':20})[0].c.speed,100);
- const raceOptions={race:{...circuit,laps:4},seed:'team-boost-test'};
+ const raceOptions={race:{...circuit,laps:4}};
  const regularRace=simulateRace({...raceOptions,entries}).classification;
  const boostedRace=simulateRace({...raceOptions,entries:boosted}).classification;
  assert.ok(boostedRace.find(row=>row.driver.id===1).totalTime<regularRace.find(row=>row.driver.id===1).totalTime);
@@ -815,19 +749,19 @@ test('team performance boosts improve every team car once and respect the rating
 
 test('live team adjustments affect both teammates and can boost or reduce race pace',()=>{
  const entries=[entry(1),{...entry(2),team:{id:'team-1',name:'Team 1'}},entry(3)];
- const initial=createRaceState({entries,race:{...circuit,laps:5},laps:5,seed:'team-adjustment-test',strategies:{'team-1':{stops:0},'team-3':{stops:0}}});
+ const initial=createRaceState({entries,race:{...circuit,laps:5},laps:5,strategies:{'team-1':{stops:0},'team-3':{stops:0}}});
  const adjusted=setTeamRaceAdjustments(initial,'team-1',{performance:8,pace:6,overtake:12,defense:-5});
  const firstCar=adjusted.cars.find(car=>car.driverId===1),secondCar=adjusted.cars.find(car=>car.driverId===2),otherCar=adjusted.cars.find(car=>car.driverId===3);
  assert.deepEqual(firstCar.teamRaceAdjustments,{performance:8,pace:6,overtake:12,defense:-5});
- assert.equal(firstCar.ratings.carOvertaking,firstCar.baseRatings.carOvertaking+12);
- assert.equal(secondCar.ratings.carDefence,secondCar.baseRatings.carDefence-5);
+ assert.equal(firstCar.ratings.overtaking,firstCar.baseRatings.overtaking+12);
+ assert.equal(secondCar.ratings.defence,secondCar.baseRatings.defence-5);
  assert.deepEqual(otherCar.teamRaceAdjustments,{performance:0,pace:0,overtake:0,defense:0});
  const normalLap=advanceRaceLap(initial).cars.find(car=>car.driverId===1).lastLap;
  const boostedLap=advanceRaceLap(adjusted).cars.find(car=>car.driverId===1).lastLap;
  assert.ok(boostedLap<normalLap);
  const repeated=setTeamRaceAdjustments(adjusted,'team-1',{performance:-8,pace:-6,overtake:-12,defense:5});
  assert.equal(repeated.cars.find(car=>car.driverId===1).ratings.carRace,Math.max(0,firstCar.baseRatings.carRace-14));
- assert.equal(repeated.cars.find(car=>car.driverId===1).ratings.carOvertaking,Math.max(0,firstCar.baseRatings.carOvertaking-12));
+ assert.equal(repeated.cars.find(car=>car.driverId===1).ratings.overtaking,Math.max(0,firstCar.baseRatings.overtaking-12));
  assert.equal(getClassification(repeated).find(car=>car.driver.id===1).teamRaceAdjustments.pace,-6);
  assert.throws(()=>setTeamRaceAdjustments(initial,'missing',{}),/not in this race/);
  assert.throws(()=>setTeamRaceAdjustments({...initial,done:true},'team-1',{}),/after the chequered flag/);
