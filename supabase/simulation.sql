@@ -48,6 +48,7 @@ alter table public.races
   add column if not exists tyre_wear_multiplier numeric,
   add column if not exists puncture_risk_multiplier numeric,
   add column if not exists tyre_overheating_threshold numeric,
+  add column if not exists rain_chance numeric,
   add column if not exists circuit_path text,
   add column if not exists drs_zones int,
   add column if not exists weekend_format text,

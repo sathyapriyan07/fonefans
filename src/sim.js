@@ -2,6 +2,27 @@
 export const RACE_PTS=[25,18,15,12,10,8,6,4,2,1];
 export const SPRINT_PTS=[8,7,6,5,4,3,2,1];
 export const ENGINE_VERSION='2.4.0';
+export const VARIABILITY=Object.freeze({
+ pace:Object.freeze({
+  qualifying:Object.freeze({driver:0.01,carQualifying:0.04,carSpeed:0.01,braking:0.004,overall:0.003,trackEvolution:0.42,trackEvolutionDivisor:120}),
+  race:Object.freeze({driver:0.004,carPace:0.05,carRace:0.015,braking:0.004,overall:0.003,gridStartPerPosition:0.05,poleStartAdvantage:0.75,cleanAirBonus:0.2,trackEvolution:0.15,trackEvolutionDivisor:5})
+ }),
+ weekendForm:Object.freeze({teamSd:0.25,driverSd:0.12}),
+ noise:Object.freeze({raceLapSd:0.2,practiceLapSd:0.2,stintSd:0.2,consistencyFloor:0.4}),
+ tyres:Object.freeze({degradationVariance:0.14,cliffChance:0.012,cliffWearBoost:18,cliffPaceLoss:1.2}),
+ strategy:Object.freeze({topCandidates:3,weights:[0.58,0.28,0.14],pitLapSd:2.4}),
+ pit:Object.freeze({slowStopChance:0.05,slowStopMin:2,slowStopMax:4,errorChance:0.015,errorPenaltyChance:0.5,errorLossMin:8,errorLossMax:15,repairBaseSeconds:5,repairEfficiencyFactor:0.08}),
+ incidents:Object.freeze({
+  safetyCarChance:0.3,safetyCarMinLaps:3,safetyCarMaxLaps:6,
+  vscChance:0.15,vscMinLaps:1,vscMaxLaps:3,
+  firstLapContactChance:0.2,firstLapContactMinLoss:3,firstLapContactMaxLoss:8,firstLapContactDamage:0.04,
+  reliabilityBasePerLap:0.00055,reliabilityRatingFactor:0.000035,
+  incidentSafetyCarChance:0.01,timePenaltyMin:5,timePenaltyMax:10,
+  safetyCarLapTimeFactor:0.22,vscLapTimeFactor:0.1,fieldBunchFactor:0.68,pitLossSafetyCarFactor:0.68,pitLossVscFactor:0.82
+ }),
+ weather:Object.freeze({rainChance:0.12,rainLapMin:5,rainLapMax:40,rainDurationMin:4,rainDurationMax:12,rainIntensity:0.58,rainWetness:0.42,postRainWetness:0.18}),
+ overtaking:Object.freeze({maximumPassesPerDriverPerLap:1,attemptGap:1.8,baseChance:0.05,paceDelta:0.08,tyreAgeDelta:0.012,drsBonus:0.1,drsRatingScale:0.0015,ratingDelta:0.0015,circuitPenalty:0.15,minimumChance:0.02,maximumChance:0.5,towChance:0.22,towMin:0.04,towMax:0.16,defendedDelayMin:0.15,defendedDelayMax:0.6})
+});
 const DEFAULT_LAPS=57;
 const DEFAULT_BASE_LAP=90;
 const FUEL_KG_PER_LAP=1.72;
@@ -18,6 +39,13 @@ const clamp=(value,min,max)=>Math.min(max,Math.max(min,value));
 const value=(source,key,fallback=50)=>source?.[key]!==null&&source?.[key]!==undefined&&source?.[key]!==''&&Number.isFinite(Number(source[key]))?clamp(Number(source[key]),0,100):fallback;
 const average=(items)=>items.reduce((sum,item)=>sum+item,0)/(items.length||1);
 const stableId=(entry)=>String(entry.driver?.id??entry.driver?.name??entry.id??'');
+let randomSeedSequence=0;
+function freshRandomSeed(){
+ const values=new Uint32Array(1);
+ if(globalThis.crypto?.getRandomValues)return globalThis.crypto.getRandomValues(values)[0];
+ randomSeedSequence+=1;
+ return `${Date.now()}:${randomSeedSequence}`;
+}
 
 function hashSeed(seed){
  let hash=2166136261;
@@ -25,10 +53,9 @@ function hashSeed(seed){
  return hash>>>0;
 }
 function makeRandom(seed){
- let state=typeof seed==='number'?seed>>>0:seed===undefined?null:hashSeed(seed);
+ let state=typeof seed==='number'?seed>>>0:hashSeed(seed??freshRandomSeed());
  return {
   next(){
-   if(state===null)return Math.random();
    state=(state+0x6D2B79F5)>>>0;
    let t=state;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);
    return ((t^(t>>>14))>>>0)/4294967296;
@@ -39,6 +66,16 @@ function makeRandom(seed){
 function normal(rng){
  const u=Math.max(Number.EPSILON,rng.next()),v=rng.next();
  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+}
+function makeWeekendForm(entries,seed){
+ const teamOffsets=new Map(),driverOffsets=new Map();
+ for(const entry of entries){
+  const teamId=String(entry.team?.id??'');
+  const driverId=stableId(entry);
+  if(!teamOffsets.has(teamId))teamOffsets.set(teamId,normal(makeRandom(`${seed}:form:team:${teamId}`))*VARIABILITY.weekendForm.teamSd);
+  if(!driverOffsets.has(driverId))driverOffsets.set(driverId,normal(makeRandom(`${seed}:form:driver:${driverId}`))*VARIABILITY.weekendForm.driverSd);
+ }
+ return {teamOffsets:Object.fromEntries(teamOffsets),driverOffsets:Object.fromEntries(driverOffsets)};
 }
 function makeCircuit(race={}){
  const lengthKm=Number(race.circuit_length_km)||5.2;
@@ -52,6 +89,7 @@ function makeCircuit(race={}){
   traction:clamp(Number(race.traction_demand??0.5),0,1),
   downforce:clamp(Number(race.downforce_requirement??0.5),0,1),
   tyreEnergy:clamp(Number(race.tyre_energy??0.5),0,1),
+  rainChance:clamp(Number(race.rain_chance??VARIABILITY.weather.rainChance*100)/100,0,1),
   overtakingDifficulty:clamp(Number(race.overtaking_difficulty??0.5),0,1),
   pitLaneLoss:Number(race.pit_lane_loss_seconds)>0?Number(race.pit_lane_loss_seconds):19.5,
   baselineLap:Number(race.baseline_lap_seconds)>0?Number(race.baseline_lap_seconds):DEFAULT_BASE_LAP*lengthKm/5.2,
@@ -128,6 +166,8 @@ function ratings(entry,circuit){
  return {
   d,c,
   driverPace,
+  overall:driverRating(d,'overall',['performance','race']),
+  racecraft:driverRating(d,'racecraft',['overtaking','race']),
   driverQualifying:average([driverRating(d,'qualifying',['speed']),driverRating(d,'speed',['qualifying'])]),
   driverConsistency:driverRating(d,'consistency',['experience']),
   overtaking:driverRating(d,'overtaking',['speed']),
@@ -142,6 +182,8 @@ function ratings(entry,circuit){
   carRace:carRating(c,'race',['performance']),
   carSpeed:straight,
   carPerformance:carRating(c,'performance',['race']),
+  carOvertaking:carRating(c,'overtaking',['speed']),
+  carDefence:carRating(c,'defence',['race']),
   reliability:carRating(c,'reliability'),
   carTyrePreservation:carRating(c,'tyre_preservation',['race']),
   tyrePreservation:carRating(c,'tyre_preservation',['race']),
@@ -151,6 +193,7 @@ function ratings(entry,circuit){
   pitCrewExecution:value(entry.team,'pit_crew_execution',50),
   strategyQuality:value(entry.team,'strategy_quality',100),
   reliabilityManagement:value(entry.team,'reliability_management',50),
+  damageRepairEfficiency:value(entry.team,'damage_repair_efficiency',50),
   operationalConsistency:value(entry.team,'operational_consistency',50)
  };
 }
@@ -161,6 +204,8 @@ const PERFORMANCE_RATING_FIELDS=[
  ['race',['performance']],
  ['straight_line_speed',['speed']],
  ['aerodynamic_efficiency',['downforce','performance']],
+ ['overtaking',['speed']],
+ ['defence',['race']],
  ['high_speed_cornering',['downforce','performance']],
  ['medium_speed_cornering',['performance','race']],
  ['low_speed_cornering',['mechanical_grip','race']],
@@ -211,7 +256,7 @@ function tyreForWeather(weather,requested){
 function tyreState(compound='medium'){
  return {compound,age:0,wear:0,condition:1,grip:TYRES[compound]?.grip??1,temperature:90,graining:0,overheating:0,degradationRate:0,state:'fresh',remainingCompetitiveLaps:null};
 }
-function strategyFor(entry,strategies,circuit,totalLaps,minimumStops=0){
+function strategyFor(entry,strategies,circuit,totalLaps,minimumStops=0,seed='race'){
  const strategy=strategies?.[entry.team?.id]||{};
  const rating=ratings(entry,circuit);
  const requestedStops=Number.isFinite(Number(strategy.stops))&&strategy.stops!==''?clamp(Math.round(Number(strategy.stops)),0,3):null;
@@ -231,11 +276,17 @@ function strategyFor(entry,strategies,circuit,totalLaps,minimumStops=0){
   candidates.push({stops,tyre,compounds:sequence,time:tyreTime+stops*(circuit.pitLaneLoss+2.5)});
  }
  candidates.sort((a,b)=>a.time-b.time);
- const quality=value(entry.team,'strategy_quality',100),rng=makeRandom();
- const choice=quality>=100||candidates.length===1?0:rng.next()<(100-quality)/120?Math.min(candidates.length-1,1+Math.floor(rng.next()*2)):0;
+ const quality=value(entry.team,'strategy_quality',100),rng=makeRandom(`${seed}:strategy:${stableId(entry)}`);
+ const candidateCount=Math.min(candidates.length,VARIABILITY.strategy.topCandidates);
+ const weights=VARIABILITY.strategy.weights.slice(0,candidateCount).map((weight,index)=>weight*(1+(quality/100)*(candidateCount-index)));
+ let draw=rng.next()*weights.reduce((sum,weight)=>sum+weight,0),choice=0;
+ for(let index=0;index<weights.length;index++){
+  draw-=weights[index];
+  if(draw<=0){choice=index;break}
+ }
  const selected=candidates[choice];
  const variation=(driverRating(rating.d,'tyre_management',['experience'])-50)*0.004+(carRating(rating.c,'tyre_preservation',['race'])-50)*0.003;
- const plannedPitLap=clamp(Math.round(totalLaps/(selected.stops+1)*(1+variation)),2,Math.max(2,totalLaps-2));
+ const plannedPitLap=clamp(Math.round(totalLaps/(selected.stops+1)*(1+variation)+normal(rng)*VARIABILITY.strategy.pitLapSd),2,Math.max(2,totalLaps-2));
  return {...strategy,stops:selected.stops,tyre:selected.tyre,compounds:selected.compounds,plannedPitLap,automatic:strategy.stops==='auto'||strategy.tyre==='auto'||Object.keys(strategy).length===0};
 }
 function rankCars(cars){
@@ -256,11 +307,28 @@ export function getWeekendPhases(race={}){
 }
 
 export function createRaceState({
- entries,race={},format='race',strategies={},setups={},weather='dry',laps,rules={},tyreConfig={}
+ entries,race={},format='race',strategies={},setups={},weather='dry',laps,rules={},tyreConfig={},seed
 }={}){
  if(!Array.isArray(entries)||entries.length<2)throw new Error('A race requires at least two driver entries.');
+ seed=seed??freshRandomSeed();
+ const weekendForm=makeWeekendForm(entries,seed);
  const circuit=makeCircuit(race);
  const totalLaps=Math.max(1,Math.floor(Number(laps||race.laps)||DEFAULT_LAPS));
+ const controlRng=makeRandom(`${seed}:race-control`);
+ const safetyCarScheduledLap=controlRng.next()<VARIABILITY.incidents.safetyCarChance&&totalLaps>5
+  ?2+Math.floor(controlRng.next()*Math.max(1,totalLaps-4)):null;
+ const vscScheduledLap=controlRng.next()<VARIABILITY.incidents.vscChance&&totalLaps>3
+  ?2+Math.floor(controlRng.next()*Math.max(1,totalLaps-2)):null;
+ const contactRng=makeRandom(`${seed}:first-lap-contact`);
+ const firstLapContactDriverId=contactRng.next()<VARIABILITY.incidents.firstLapContactChance
+  ?String(stableId(entries[Math.floor(contactRng.next()*entries.length)])):null;
+ const weatherRng=makeRandom(`${seed}:race-weather`);
+ const rainMinLap=Math.min(VARIABILITY.weather.rainLapMin,totalLaps);
+ const rainMaxLap=Math.max(rainMinLap,Math.min(VARIABILITY.weather.rainLapMax,totalLaps));
+ const rainEvent=weather==='dry'&&weatherRng.next()<circuit.rainChance
+  ?{startLap:rainMinLap+Math.floor(weatherRng.next()*(rainMaxLap-rainMinLap+1)),
+    duration:VARIABILITY.weather.rainDurationMin+Math.floor(weatherRng.next()*(VARIABILITY.weather.rainDurationMax-VARIABILITY.weather.rainDurationMin+1))}
+  :null;
  const initialWeather={...makeSessionWeather(weather),ambientTemperature:22,wind:0};
  const effectiveRules={
   sprintAffectsGrandPrixGrid:false,...rules,
@@ -272,8 +340,10 @@ export function createRaceState({
   const sourceCar=entry.c||entry.car||{};
   const prepared={...entry,c:setupAdjustedCar(sourceCar,setup,circuit)};
   const rating=ratings(prepared,circuit);
+  rating.teamFormOffset=weekendForm.teamOffsets[String(entry.team?.id??'')]||0;
+  rating.driverFormOffset=weekendForm.driverOffsets[stableId(entry)]||0;
   const requireTwoCompounds=effectiveRules.mandatoryDryTyreCompounds;
-  const strategy=strategyFor(prepared,strategies,circuit,totalLaps,requireTwoCompounds?1:0);
+  const strategy=strategyFor(prepared,strategies,circuit,totalLaps,requireTwoCompounds?1:0,seed);
   const startingTyre=tyreForWeather(initialWeather,strategy.tyre);
   strategy.tyre=startingTyre;
   return {
@@ -285,6 +355,11 @@ export function createRaceState({
    tyre:tyreState(startingTyre),damage:0,pitStops:0,pitHistory:[],penalties:[],
    penaltyTime:0,retired:false,retirementReason:null,events:[],strategy,
    ratings:rating,positionHistory:[index+1],lapHistory:[],completed:false,
+   stintPaceOffset:normal(makeRandom(`${seed}:stint:${stableId(entry)}:0`))*VARIABILITY.noise.stintSd*
+    Math.max(VARIABILITY.noise.consistencyFloor,(101-rating.driverConsistency)/50),
+   tyreDegradationFactors:Object.fromEntries(Object.keys(TYRES).map(compound=>[
+    compound,clamp(1+normal(makeRandom(`${seed}:tyre:${stableId(entry)}:${compound}`))*VARIABILITY.tyres.degradationVariance,0.65,1.4)
+   ])),
    automaticStrategy:true,manualPitMode:false,pitInstruction:null,pitStatus:'AUTO',
    boostLap:null,boostReadyLap:1,
    pitState:null,pitLaneProgress:0,lastTrafficSeconds:0,
@@ -296,17 +371,18 @@ export function createRaceState({
   };
  });
  return {
-  engineVersion:ENGINE_VERSION,totalLaps,lap:0,format,done:false,
-  circuit,weather:initialWeather,raceControl:'green',cars,events:[],rules:effectiveRules,
+  engineVersion:ENGINE_VERSION,totalLaps,lap:0,format,done:false,seed,
+  rngState:hashSeed(`${seed}:race`),weekendForm,
+  circuit,weather:initialWeather,raceControl:'green',safetyCarLapsRemaining:0,vscLapsRemaining:0,
+  safetyCarScheduledLap,vscScheduledLap,firstLapContactDriverId,rainEvent,cars,events:[],rules:effectiveRules,
   tyreConfig:{...TYRE_DEFAULTS,wearMultiplier:circuit.wearMultiplier,punctureRisk:circuit.punctureRisk,overheatingThreshold:circuit.overheatingThreshold,...tyreConfig},
   createdAt:null
  };
 }
 
-function weatherForLap(state){
+function weatherForLap(state,rng){
  const weather={...state.weather};
  if(weather.mode==='variable'){
-  const rng=makeRandom();
   weather.intensity=clamp(weather.intensity+(rng.next()-0.45)*0.38,0,1);
  }else if(weather.mode==='wet')weather.intensity=clamp(weather.intensity+0.015,0,1);
  else weather.intensity=clamp(weather.intensity-0.01,0,1);
@@ -314,7 +390,7 @@ function weatherForLap(state){
  weather.trackTemperature=clamp(weather.trackTemperature+weather.intensity*0.5-0.3,10,60);
  return weather;
 }
-function calculateLap(car,state,lapNumber,weather,trafficSeconds=0){
+function calculateLap(car,state,lapNumber,weather,trafficSeconds=0,rng){
  const {circuit}=state,rating=car.ratings,compound=car.tyre.compound;
  const tyreModel=TYRES[compound]||TYRES.medium;
  const requiredFuel=fuelPerLap(circuit,rating);
@@ -324,47 +400,63 @@ function calculateLap(car,state,lapNumber,weather,trafficSeconds=0){
  const circuitDeg=0.65+circuit.tyreEnergy*0.7;
  const temperatureFactor=1+Math.abs(weather.trackTemperature-30)*0.006;
  const wetFactor=weather.wetness>0.35?0.78:1;
- const degradation=tyreModel.degradation*circuitDeg*temperatureFactor*wetFactor*(1-driverCare)*state.tyreConfig.wearMultiplier;
+ const degradation=tyreModel.degradation*circuitDeg*temperatureFactor*wetFactor*(1-driverCare)*state.tyreConfig.wearMultiplier*(car.tyreDegradationFactors?.[compound]??1);
  const tyreDelta=tyreModel.pace+tyreModel.warmup/(age+1)+Math.pow(age,1.16)*degradation+(1-car.tyre.grip)*2.2+car.tyre.overheating*0.8+car.tyre.graining*0.5;
  const wetPenalty=Math.abs(weather.wetness-(compound==='wet'?0.95:compound==='intermediate'?0.55:0.05))*2.2;
  const wetAbility=(rating.wetAbility-50)*weather.wetness*0.012;
- const carDelta=paceDelta(rating.carPace,0.035)+paceDelta(rating.carRace,0.012);
- const driverDelta=paceDelta(rating.driverPace,0.018);
+ const carDelta=paceDelta(rating.carPace,VARIABILITY.pace.race.carPace)+paceDelta(rating.carRace,VARIABILITY.pace.race.carRace);
+ const driverDelta=paceDelta(rating.driverPace,VARIABILITY.pace.race.driver)+
+  paceDelta(rating.braking,VARIABILITY.pace.race.braking*circuit.braking)+
+  paceDelta(rating.overall,VARIABILITY.pace.race.overall);
  const damageDelta=car.damage*(0.18+circuit.highSpeed*0.08);
  const weatherDelta=weather.intensity*0.7+wetPenalty-wetAbility-paceDelta(rating.wetPerformance,0.006)*weather.wetness;
- const mechanicalRng=makeRandom();
  let mechanicalEvent=null,retire=false;
  const effectiveReliability=clamp(rating.reliability+(rating.reliabilityManagement-50)*0.12,0,100);
  const stressFactor=1+car.vehicleStress*0.8+car.damage*1.5;
- if(mechanicalRng.next()<(0.00012+(100-effectiveReliability)*0.000025)*stressFactor){
-  const failure=mechanicalRng.next();
+ if(rng.next()<(VARIABILITY.incidents.reliabilityBasePerLap+(100-effectiveReliability)*VARIABILITY.incidents.reliabilityRatingFactor)*stressFactor){
+  const failure=rng.next();
   mechanicalEvent=failure<0.19?'engine_failure':failure<0.34?'gearbox_failure':failure<0.48?'electrical_failure':failure<0.61?'hydraulic_failure':failure<0.73?'brake_failure':failure<0.84?'cooling_failure':failure<0.93?'suspension_failure':'mechanical_problem';
   retire=['engine_failure','gearbox_failure','electrical_failure','hydraulic_failure','brake_failure','cooling_failure'].includes(mechanicalEvent);
  }
  const punctureRange=Math.max(1,100-state.tyreConfig.wearDanger);
  const punctureRisk=state.tyreConfig.punctureBasePerLap+
   Math.pow(Math.max(0,car.tyre.wear-state.tyreConfig.wearDanger)/punctureRange,2)*0.08*state.circuit.punctureRisk;
- const punctureRng=makeRandom();
- const puncture=punctureRng.next()<punctureRisk;
- const punctureLoss=puncture?clamp(7+(punctureRng.next()*8),7,15):0;
+ const puncture=rng.next()<punctureRisk;
+ const punctureLoss=puncture?clamp(7+(rng.next()*8),7,15):0;
  const failureLoss=mechanicalEvent==='suspension_failure'?3.5:mechanicalEvent==='mechanical_problem'?1.5:0;
- const mistakeRng=makeRandom();
  const mistakeRisk=(0.004+(weather.wetness*0.014)+(car.tyre.overheating*0.008)+car.damage*0.002)*(1-(rating.errorResistance/150));
- const mistake=mistakeRng.next()<mistakeRisk;
- const mistakeLoss=mistake?(2+mistakeRng.next()*5):0;
- const paceRng=makeRandom();
- const consistency=Math.max(0.35,(101-rating.driverConsistency)/50);
- const variation=normal(paceRng)*0.12*consistency;
- const startDelta=lapNumber===1?(50-rating.starts)*0.012+(50-carRating(rating.c,'traction',['race']))*0.006:0;
+ const mistake=rng.next()<mistakeRisk;
+ const mistakeLoss=mistake?(2+rng.next()*5):0;
+ const consistency=Math.max(VARIABILITY.noise.consistencyFloor,(101-rating.driverConsistency)/50);
+ const executionNoise=normal(rng)*VARIABILITY.noise.raceLapSd*consistency;
+ const stintNoise=car.stintPaceOffset||0;
+ const variation=executionNoise+stintNoise;
+ const startDelta=lapNumber===1?(50-rating.starts)*0.012+
+  (50-carRating(rating.c,'traction',['race']))*0.006+
+  (car.gridPosition-1)*VARIABILITY.pace.race.gridStartPerPosition-
+  (car.gridPosition===1?VARIABILITY.pace.race.poleStartAdvantage:0):0;
  const boostDelta=car.boostLap===lapNumber?-1:0;
- const baseLap=circuit.baselineLap+carDelta+driverDelta+tyreDelta+fuelDelta+trafficSeconds+weatherDelta+damageDelta+mistakeLoss+punctureLoss+failureLoss+variation+startDelta+boostDelta;
- const controlDelta=state.raceControl==='safety_car'?circuit.baselineLap*0.22:0;
+ const tyreCliff=car.tyre.wear>=45&&rng.next()<VARIABILITY.tyres.cliffChance;
+ const tyreCliffLoss=tyreCliff?VARIABILITY.tyres.cliffPaceLoss:0;
+ const trackEvolution=VARIABILITY.pace.race.trackEvolution*Math.log1p(lapNumber/VARIABILITY.pace.race.trackEvolutionDivisor);
+ const cleanAir=car.position===1?-VARIABILITY.pace.race.cleanAirBonus:0;
+ const baseLap=circuit.baselineLap+carDelta+driverDelta+rating.teamFormOffset+rating.driverFormOffset+
+  tyreDelta+fuelDelta+trafficSeconds+weatherDelta+damageDelta+mistakeLoss+punctureLoss+failureLoss+variation+startDelta+boostDelta+tyreCliffLoss+cleanAir-trackEvolution;
+ const controlDelta=state.raceControl==='safety_car'?circuit.baselineLap*VARIABILITY.incidents.safetyCarLapTimeFactor:
+  state.raceControl==='vsc'?circuit.baselineLap*VARIABILITY.incidents.vscLapTimeFactor:0;
  const lapTime=Math.max(35,baseLap+controlDelta);
+ const components={
+  driver:driverDelta+rating.teamFormOffset+rating.driverFormOffset,
+  car:carDelta,tyre:tyreDelta+tyreCliffLoss,fuel:fuelDelta,weather:weatherDelta,
+  traffic:trafficSeconds,execution:executionNoise,stint:stintNoise,
+  trackEvolution:-trackEvolution,damage:damageDelta,incident:mistakeLoss+punctureLoss+failureLoss,
+  start:startDelta,boost:boostDelta,cleanAir,raceControl:controlDelta
+ };
  const weights=[0.31,0.34,0.35];
  const sectors=[lapTime*weights[0],lapTime*weights[1],lapTime*weights[2]];
  sectors[2]=lapTime-sectors[0]-sectors[1];
  return {
-  lapTime,sectors,fuelPerLap:requiredFuel,tyreDegradation:degradation,tyreWearIncrease:degradation*Math.pow(age+1,0.16)*100,retire,mechanicalEvent,puncture,boostUsed:boostDelta<0,
+  lapTime,sectors,components,fuelPerLap:requiredFuel,tyreDegradation:degradation,tyreWearIncrease:degradation*Math.pow(age+1,0.16)*100*(tyreCliff?VARIABILITY.tyres.cliffWearBoost:1),retire,mechanicalEvent,puncture,tyreCliff,boostUsed:boostDelta<0,
   mistake,damageIncrease:(mistake?0.03:0)+(puncture?0.015:0)+(mechanicalEvent==='suspension_failure'?0.08:mechanicalEvent==='mechanical_problem'?0.025:0),
   tyreHeat:clamp(0.08+circuit.tyreEnergy*0.18+(100-rating.tyreManagement)*0.0008,0,0.5)
  };
@@ -392,7 +484,9 @@ function automaticPitDecision(car,state,lapNumber,trafficSeconds){
  const plannedWindow=lapNumber>=car.plannedStopLap;
  const critical=car.tyre.wear>=car.tyreConfig.wearCritical||projectedWear>=car.tyreConfig.wearDanger;
  const safetyCar=state.raceControl==='safety_car';
- const pitLoss=state.circuit.pitLaneLoss*(safetyCar?0.68:1)+3.6+Math.max(0,trafficSeconds)*0.45;
+ const neutralized= safetyCar||state.raceControl==='vsc';
+ const pitLoss=state.circuit.pitLaneLoss*(safetyCar?VARIABILITY.incidents.pitLossSafetyCarFactor:
+  state.raceControl==='vsc'?VARIABILITY.incidents.pitLossVscFactor:1)+3.6+Math.max(0,trafficSeconds)*0.45;
  const stayCost=(car.tyre.wear/100)**1.7*Math.min(lapsRemaining,12)*2.5+
   Math.max(0,projectedWear-car.tyreConfig.wearCritical)*0.14*Math.min(lapsRemaining,8);
  const newCompound=choosePitCompound(car,weather,Math.min(lapsRemaining,Math.max(3,car.plannedStopLap?state.totalLaps-car.plannedStopLap:8)),state.circuit);
@@ -403,8 +497,8 @@ function automaticPitDecision(car,state,lapNumber,trafficSeconds){
   return {reason:'stay_out_deferred',compound:car.strategy.compounds?.[car.pitStops+1]||newCompound};
  if(critical)return {reason:'tyre_wear',compound:newCompound};
  if(plannedWindow&&(strategyStopWorthwhile||trafficSeconds<=0.6))
-  return {reason:safetyCar?'safety_car':'strategy',compound:car.strategy.compounds?.[car.pitStops+1]||newCompound};
- if(safetyCar&&stayCost+compoundAdvantage>pitLoss*0.75)return {reason:'safety_car',compound:newCompound};
+  return {reason:neutralized?'safety_car':'strategy',compound:car.strategy.compounds?.[car.pitStops+1]||newCompound};
+ if(neutralized&&stayCost+compoundAdvantage>pitLoss*0.75)return {reason:'safety_car',compound:newCompound};
  return null;
 }
 function pitDecision(car,state,lapNumber,trafficSeconds){
@@ -427,21 +521,30 @@ function retireCar(state,car,lapNumber,reason){
  car.pitStatus='RETIRED';
  recordEvent(state,'retirement',lapNumber,car,{reason});
 }
-function attemptPasses(state,cars,lapNumber){
- if(state.raceControl==='safety_car')return;
- const rng=makeRandom();
+function attemptPasses(state,cars,lapNumber,rng){
+ if(state.raceControl==='safety_car'||state.raceControl==='vsc')return;
+ const passesByDriver=new Map();
  for(let index=1;index<cars.length;index++){
   const order=[...cars].sort((a,b)=>a.position-b.position);
   const follower=order[index],leader=order[index-1];
-  if(!follower||!leader||follower.retired||leader.retired||follower.lapsCompleted!==leader.lapsCompleted)continue;
+  const followerId=String(follower?.driverId);
+  if(!follower||!leader||follower.retired||leader.retired||follower.lapsCompleted!==leader.lapsCompleted||
+   (passesByDriver.get(followerId)||0)>=VARIABILITY.overtaking.maximumPassesPerDriverPerLap)continue;
   const previousGap=Math.max(0,follower.totalTime-leader.totalTime);
-  if(previousGap>1.8)continue;
+  if(previousGap>VARIABILITY.overtaking.attemptGap)continue;
   const advantage=leader.lastLap-follower.lastLap;
   if(advantage<=0)continue;
   const rating=follower.ratings;
-  const drs=state.circuit.drsZones>0&&previousGap<=1?Math.max(0,rating.drs-50)*0.0015+0.12:0;
-  const chance=clamp(0.12+advantage*0.12+drs+(rating.overtaking-leader.ratings.defence)*0.002-state.circuit.overtakingDifficulty*0.1,0.03,0.78);
+  const drs=state.circuit.drsZones>0&&previousGap<=1?Math.max(0,rating.drs-50)*VARIABILITY.overtaking.drsRatingScale+VARIABILITY.overtaking.drsBonus:0;
+  const attack=(rating.overtaking+rating.carOvertaking+rating.racecraft)/3;
+  const defend=(leader.ratings.defence+leader.ratings.carDefence+leader.ratings.racecraft)/3;
+  const tyreAgeAdvantage=leader.tyre.age-follower.tyre.age;
+  const chance=clamp(VARIABILITY.overtaking.baseChance+advantage*VARIABILITY.overtaking.paceDelta+
+   tyreAgeAdvantage*VARIABILITY.overtaking.tyreAgeDelta+drs+
+   (attack-defend)*VARIABILITY.overtaking.ratingDelta-state.circuit.overtakingDifficulty*VARIABILITY.overtaking.circuitPenalty,
+   VARIABILITY.overtaking.minimumChance,VARIABILITY.overtaking.maximumChance);
   if(rng.next()<chance){
+   passesByDriver.set(followerId,(passesByDriver.get(followerId)||0)+1);
    const currentGap=follower.totalTime-leader.totalTime;
    const gain=Math.max(0.05,currentGap+0.05);
    follower.totalTime-=gain;
@@ -451,15 +554,23 @@ function attemptPasses(state,cars,lapNumber){
    follower.bestLap=Math.min(follower.bestLap??follower.lastLap,follower.lastLap);
    if(follower.lastSectors?.length){follower.lastSectors=[...follower.lastSectors];follower.lastSectors[2]-=gain}
    const lastRecord=follower.lapHistory[follower.lapHistory.length-1];
-   if(lastRecord){lastRecord.time=follower.lastLap;if(lastRecord.sectors?.length){lastRecord.sectors=[...lastRecord.sectors];lastRecord.sectors[2]-=gain}}
+   if(lastRecord){
+    lastRecord.time=follower.lastLap;
+    if(lastRecord.sectors?.length){lastRecord.sectors=[...lastRecord.sectors];lastRecord.sectors[2]-=gain}
+    lastRecord.components={...lastRecord.components,overtaking:(lastRecord.components?.overtaking||0)-gain};
+   }
    recordEvent(state,'overtake',lapNumber,follower,{passedDriverId:leader.driverId,timeGain:gain});
   }else{
-   const delay=0.15+rng.next()*0.45;
+   const delay=VARIABILITY.overtaking.defendedDelayMin+rng.next()*(VARIABILITY.overtaking.defendedDelayMax-VARIABILITY.overtaking.defendedDelayMin);
    follower.totalTime+=delay;
    follower.lastLap+=delay;
    if(follower.lastSectors?.length){follower.lastSectors=[...follower.lastSectors];follower.lastSectors[2]+=delay}
    const lastRecord=follower.lapHistory[follower.lapHistory.length-1];
-   if(lastRecord){lastRecord.time+=delay;if(lastRecord.sectors?.length){lastRecord.sectors=[...lastRecord.sectors];lastRecord.sectors[2]+=delay}}
+   if(lastRecord){
+    lastRecord.time+=delay;
+    if(lastRecord.sectors?.length){lastRecord.sectors=[...lastRecord.sectors];lastRecord.sectors[2]+=delay}
+    lastRecord.components={...lastRecord.components,overtaking:(lastRecord.components?.overtaking||0)+delay};
+   }
    recordEvent(state,'attack_defended',lapNumber,follower,{defendingDriverId:leader.driverId,timeLoss:delay});
   }
  }
@@ -518,12 +629,20 @@ function updateTyre(car,lapResult,weather){
  car.tyre.state=car.tyre.wear>=car.tyreConfig.wearDanger?'danger':car.tyre.wear>=car.tyreConfig.wearCritical?'critical':car.tyre.wear>=65?'worn':car.tyre.wear>=30?'used':'fresh';
  car.tyre.remainingCompetitiveLaps=car.tyre.degradationRate>0?Math.max(0,(car.tyreConfig.wearCritical-car.tyre.wear)/car.tyre.degradationRate):null;
 }
-function handlePit(car,state,lapNumber,teamStops,decision){
+function handlePit(car,state,lapNumber,teamStops,decision,rng){
  const extra=teamStops.has(car.teamId)?2.5:0;
  const crew=car.ratings.pitCrewExecution,consistency=car.ratings.operationalConsistency;
- const service=clamp(2.4-(crew-50)*0.006+normal(makeRandom())*0.18*(1-(consistency-50)*0.005),1.6,4.2);
- const lane=state.circuit.pitLaneLoss*(state.raceControl==='safety_car'?0.68:1);
- const oldTyre={...car.tyre},oldCompound=car.tyre.compound;
+ const repairEfficiency=car.ratings.damageRepairEfficiency;
+ const repairTime=car.damage>0?car.damage*(VARIABILITY.pit.repairBaseSeconds+
+  (100-repairEfficiency)*VARIABILITY.pit.repairEfficiencyFactor):0;
+ const service=clamp(2.4-(crew-50)*0.006+normal(rng)*0.18*(1-(consistency-50)*0.005),1.6,4.2);
+ const slowStop=rng.next()<VARIABILITY.pit.slowStopChance;
+ const pitError=rng.next()<VARIABILITY.pit.errorChance;
+ const pitExtra=slowStop?VARIABILITY.pit.slowStopMin+rng.next()*(VARIABILITY.pit.slowStopMax-VARIABILITY.pit.slowStopMin):0;
+ const pitErrorLoss=pitError?VARIABILITY.pit.errorLossMin+rng.next()*(VARIABILITY.pit.errorLossMax-VARIABILITY.pit.errorLossMin):0;
+ const lane=state.circuit.pitLaneLoss*(state.raceControl==='safety_car'?VARIABILITY.incidents.pitLossSafetyCarFactor:
+  state.raceControl==='vsc'?VARIABILITY.incidents.pitLossVscFactor:1);
+ const oldTyre={...car.tyre},oldCompound=car.tyre.compound,oldDamage=car.damage;
  const plannedCompound=car.pendingCompound||car.pitInstruction?.compound||decision?.compound||car.strategy.compounds?.[car.pitStops+1]||'medium';
  let newCompound=tyreForWeather(state.weather,plannedCompound);
  if(state.rules.mandatoryDryTyreCompounds&&
@@ -534,7 +653,7 @@ function handlePit(car,state,lapNumber,teamStops,decision){
  const stages=[
   {phase:'pit_entry',seconds:1.2},
   {phase:'pit_lane',seconds:lane},
-  {phase:'stationary_service',seconds:service+extra},
+  {phase:'stationary_service',seconds:service+extra+pitExtra+pitErrorLoss+repairTime},
   {phase:'pit_exit',seconds:1.2}
  ];
  const pitState={phase:'pit_entry',progress:0,entryLap:lapNumber,complete:false,stages:[]};
@@ -551,6 +670,7 @@ function handlePit(car,state,lapNumber,teamStops,decision){
   if(stage.phase==='stationary_service'){
    car.tyre=tyreState(newCompound);
    car.tyreConfig=state.tyreConfig;
+   car.damage=0;
   }
   recordEvent(state,stage.phase,lapNumber,car,{seconds:stage.seconds});
  }
@@ -558,7 +678,7 @@ function handlePit(car,state,lapNumber,teamStops,decision){
  car.pitStops+=1;
  if(['soft','medium','hard'].includes(newCompound)&&!car.dryTyreCompounds.includes(newCompound))
   car.dryTyreCompounds.push(newCompound);
- car.pitHistory.push({lap:lapNumber,from:oldCompound,to:newCompound,timeLoss:loss,serviceTime:service,teamStackDelay:extra,stages:car.pitState.stages,wearAtStop:oldTyre.wear,damageAtStop:car.damage,fuelAtStop:car.fuelRemaining});
+ car.pitHistory.push({lap:lapNumber,from:oldCompound,to:newCompound,timeLoss:loss,serviceTime:service,repairTime,damageRepaired:oldDamage,teamStackDelay:extra,slowStop,pitError,stages:car.pitState.stages,wearAtStop:oldTyre.wear,damageAtStop:oldDamage,fuelAtStop:car.fuelRemaining});
  car.weatherPitNeeded=false;
  car.pendingCompound=null;
  car.pitInstruction=null;
@@ -566,16 +686,25 @@ function handlePit(car,state,lapNumber,teamStops,decision){
  car.stayOutDeferredLap=null;
  car.pitStatus=`PIT EXIT · ${newCompound.toUpperCase()}`;
  car.lastPitLap=lapNumber;
+ car.stintPaceOffset=normal(rng)*VARIABILITY.noise.stintSd*
+  Math.max(VARIABILITY.noise.consistencyFloor,(101-car.ratings.driverConsistency)/50);
  car.pitState={...car.pitState,phase:'pit_exit',progress:1,complete:true,compound:newCompound,totalTimeLoss:loss};
  if(car.automaticStrategy&&car.pitStops<car.strategy.stops){
   const remainingStops=car.strategy.stops-car.pitStops;
   car.plannedStopLap=lapNumber+Math.max(1,Math.round((state.totalLaps-lapNumber)/(remainingStops+1)));
  }
  teamStops.add(car.teamId);
- recordEvent(state,'pit_stop',lapNumber,car,{reason:car.lastPitReason,timeLoss:loss,compound:car.tyre.compound,wearAtStop:oldTyre.wear,damage:car.damage,fuel:car.fuelRemaining,teamStackDelay:extra});
+ if(pitError&&rng.next()<VARIABILITY.pit.errorPenaltyChance){
+  const penalty=VARIABILITY.incidents.timePenaltyMin+rng.next()*(VARIABILITY.incidents.timePenaltyMax-VARIABILITY.incidents.timePenaltyMin);
+  car.penaltyTime+=penalty;car.penalties.push({type:'pit_error',lap:lapNumber,time:penalty});
+  recordEvent(state,'time_penalty',lapNumber,car,{reason:'pit error',seconds:penalty});
+ }
+ if(slowStop||pitError)recordEvent(state,'pit_error',lapNumber,car,{slowStop,pitError,timeLoss:pitExtra+pitErrorLoss});
+ recordEvent(state,'pit_stop',lapNumber,car,{reason:car.lastPitReason,timeLoss:loss,compound:car.tyre.compound,wearAtStop:oldTyre.wear,damageRepaired:oldDamage,repairTime,fuel:car.fuelRemaining,teamStackDelay:extra});
 }
 export function advanceRaceLap(previous){
  if(previous.done)return previous;
+ const rng=makeRandom(previous.rngState);
  const state={
   ...previous,lap:previous.lap+1,events:[],
   weather:{...previous.weather},cars:previous.cars.map(car=>({
@@ -585,10 +714,18 @@ export function advanceRaceLap(previous){
    positionHistory:[...car.positionHistory],lapHistory:[...car.lapHistory],dryTyreCompounds:[...(car.dryTyreCompounds||[])]
   }))
  };
- const lapNumber=state.lap,weather=weatherForLap(state);
+ const lapNumber=state.lap,weather=weatherForLap(state,rng);
+ if(state.rainEvent&&lapNumber===state.rainEvent.startLap){
+  Object.assign(weather,{mode:'variable',intensity:VARIABILITY.weather.rainIntensity,wetness:VARIABILITY.weather.rainWetness});
+  recordEvent(state,'rain_started',lapNumber,null,{duration:state.rainEvent.duration});
+ }else if(state.rainEvent&&lapNumber===state.rainEvent.startLap+state.rainEvent.duration){
+  Object.assign(weather,{mode:'dry',intensity:0,wetness:VARIABILITY.weather.postRainWetness});
+  recordEvent(state,'rain_ended',lapNumber,null);
+ }
  state.weather=weather;
  const underSafetyCar=previous.raceControl==='safety_car';
- state.raceControl=underSafetyCar?'safety_car':'green';
+ const underVsc=previous.raceControl==='vsc';
+ state.raceControl=underSafetyCar?'safety_car':underVsc?'vsc':'green';
  const active=state.cars.filter(car=>!car.retired&&!car.completed);
  const results=new Map();
  for(const car of [...active].sort((a,b)=>stableId(a.entry).localeCompare(stableId(b.entry)))){
@@ -604,9 +741,20 @@ export function advanceRaceLap(previous){
    if(gap>0&&gap<1.5)traffic=0.15+(1.5-gap)*0.4;
   }
   car.lastTrafficSeconds=traffic;
+  const tow=leader&&!leader.retired&&car.lapsCompleted===leader.lapsCompleted&&
+   car.totalTime-leader.totalTime>0&&car.totalTime-leader.totalTime<=VARIABILITY.overtaking.attemptGap&&rng.next()<VARIABILITY.overtaking.towChance
+   ?VARIABILITY.overtaking.towMin+rng.next()*(VARIABILITY.overtaking.towMax-VARIABILITY.overtaking.towMin):0;
   const tyre=tyreForWeather(weather,car.tyre.compound);
   if(tyre!==car.tyre.compound){car.strategy={...car.strategy,tyre};car.weatherPitNeeded=true;recordEvent(state,'weather_tyre_change_required',lapNumber,car,{compound:tyre})}
-  const lapResult=calculateLap(car,state,lapNumber,weather,traffic);
+  const lapResult=calculateLap(car,state,lapNumber,weather,traffic-tow,rng);
+  if(lapNumber===1&&String(car.driverId)===String(state.firstLapContactDriverId)){
+   const contactLoss=VARIABILITY.incidents.firstLapContactMinLoss+
+    rng.next()*(VARIABILITY.incidents.firstLapContactMaxLoss-VARIABILITY.incidents.firstLapContactMinLoss);
+   lapResult.lapTime+=contactLoss;lapResult.sectors[2]+=contactLoss;
+   lapResult.components={...lapResult.components,incident:(lapResult.components.incident||0)+contactLoss};
+   lapResult.damageIncrease+=VARIABILITY.incidents.firstLapContactDamage;
+   recordEvent(state,'first_lap_contact',lapNumber,car,{timeLoss:contactLoss});
+  }
   if(lapResult.boostUsed)car.boostLap=null;
   car.lap=lapNumber;car.lapsCompleted+=1;car.lastLap=lapResult.lapTime;car.lastSectors=lapResult.sectors;
   car.bestLap=car.bestLap===null?lapResult.lapTime:Math.min(car.bestLap,lapResult.lapTime);
@@ -615,13 +763,14 @@ export function advanceRaceLap(previous){
   car.vehicleStress=clamp(car.vehicleStress+car.damage*0.008+lapResult.tyreWearIncrease*0.00015,0,1);
   car.mileageKm+=state.circuit.lengthKm;
   updateTyre(car,lapResult,weather);
-  car.lapHistory.push({lap:lapNumber,time:lapResult.lapTime,sectors:lapResult.sectors,tyre:car.tyre.compound,tyreAge:car.tyre.age,tyreWear:car.tyre.wear,tyreState:car.tyre.state,fuel:car.fuelRemaining,boosted:lapResult.boostUsed});
+  car.lapHistory.push({lap:lapNumber,time:lapResult.lapTime,sectors:lapResult.sectors,components:lapResult.components,tyre:car.tyre.compound,tyreAge:car.tyre.age,tyreWear:car.tyre.wear,tyreState:car.tyre.state,fuel:car.fuelRemaining,boosted:lapResult.boostUsed});
   if(lapResult.mechanicalEvent){
    recordEvent(state,lapResult.mechanicalEvent,lapNumber,car);
    if(lapResult.retire)retireCar(state,car,lapNumber,lapResult.mechanicalEvent.replaceAll('_',' '));
    else car.mechanicalFault=lapResult.mechanicalEvent;
   }
   if(lapResult.puncture){recordEvent(state,'puncture',lapNumber,car,{wear:car.tyre.wear});car.weatherPitNeeded=true}
+  if(lapResult.tyreCliff)recordEvent(state,'tyre_cliff',lapNumber,car,{wear:car.tyre.wear});
   if(lapResult.mistake){recordEvent(state,'driver_mistake',lapNumber,car,{timeLoss:lapResult.lapTime})}
   if(!car.retired&&car.damage>=0.98){
    recordEvent(state,'terminal_damage',lapNumber,car,{damage:car.damage});
@@ -633,13 +782,32 @@ export function advanceRaceLap(previous){
  const teamStops=new Set();
  for(const car of [...state.cars].sort((a,b)=>a.position-b.position)){
   const decision=pitDecision(car,state,lapNumber,car.lastTrafficSeconds||0);
-  if(decision&&!car.retired){car.lastPitReason=decision.reason;handlePit(car,state,lapNumber,teamStops,decision)}
+  if(decision&&!car.retired){car.lastPitReason=decision.reason;handlePit(car,state,lapNumber,teamStops,decision,rng)}
  }
  const incident=state.events.some(event=>['retirement','driver_mistake','mechanical_problem'].includes(event.type));
- const deployed=incident&&makeRandom().next()<0.22;
- if(deployed){state.raceControl='safety_car';recordEvent(state,'safety_car',lapNumber,null,{cause:'track incident'})}
- else if(underSafetyCar){state.raceControl='green';recordEvent(state,'safety_car_ended',lapNumber,null)}
- attemptPasses(state,state.cars,lapNumber);
+ const incidentSafetyCar=incident&&rng.next()<VARIABILITY.incidents.incidentSafetyCarChance;
+ if(underSafetyCar){
+  state.safetyCarLapsRemaining=Math.max(0,(previous.safetyCarLapsRemaining||1)-1);
+  if(!state.safetyCarLapsRemaining){state.raceControl='green';recordEvent(state,'safety_car_ended',lapNumber,null);recordEvent(state,'restart',lapNumber,null)}
+ }else if(underVsc){
+  state.vscLapsRemaining=Math.max(0,(previous.vscLapsRemaining||1)-1);
+  if(!state.vscLapsRemaining){state.raceControl='green';recordEvent(state,'vsc_ended',lapNumber,null);recordEvent(state,'restart',lapNumber,null)}
+ }else if(state.safetyCarScheduledLap===lapNumber||incidentSafetyCar){
+  state.raceControl='safety_car';
+  state.safetyCarLapsRemaining=VARIABILITY.incidents.safetyCarMinLaps+
+   Math.floor(rng.next()*(VARIABILITY.incidents.safetyCarMaxLaps-VARIABILITY.incidents.safetyCarMinLaps+1));
+  recordEvent(state,'safety_car',lapNumber,null,{cause:state.safetyCarScheduledLap===lapNumber?'race control':'track incident',laps:state.safetyCarLapsRemaining});
+ }else if(state.vscScheduledLap===lapNumber){
+  state.raceControl='vsc';
+  state.vscLapsRemaining=VARIABILITY.incidents.vscMinLaps+
+   Math.floor(rng.next()*(VARIABILITY.incidents.vscMaxLaps-VARIABILITY.incidents.vscMinLaps+1));
+  recordEvent(state,'virtual_safety_car',lapNumber,null,{laps:state.vscLapsRemaining});
+ }
+ if(state.raceControl==='safety_car'){
+  const leaderTime=Math.min(...state.cars.filter(car=>!car.retired).map(car=>car.totalTime));
+  for(const car of state.cars)if(!car.retired)car.totalTime=leaderTime+Math.max(0,car.totalTime-leaderTime)*VARIABILITY.incidents.fieldBunchFactor;
+ }
+ attemptPasses(state,state.cars,lapNumber,rng);
  const ranked=rankCars(state.cars);
  const leader=ranked.find(car=>!car.retired&&!car.completed);
  for(const car of ranked){
@@ -666,10 +834,11 @@ export function advanceRaceLap(previous){
   car.positionHistory.push(car.position);
   if(car.retired)car.status='Retired';
   else if(car.completed)car.status='Finished';
-  else car.status=state.raceControl==='safety_car'?'Safety Car':'Running';
+  else car.status=state.raceControl==='safety_car'?'Safety Car':state.raceControl==='vsc'?'Virtual Safety Car':'Running';
   return car;
  });
  state.done=state.cars.every(car=>car.completed||car.retired);
+ state.rngState=rng.getState();
  return state;
 }
 export function advanceRaceIfRunning(state,running){
@@ -710,8 +879,10 @@ export function setTeamRaceAdjustments(previous,teamId,adjustments={}){
    carRace:clamp(base.carRace+performance+pace,0,100),
    carQualifying:clamp(base.carQualifying+performance+pace,0,100),
    carSpeed:clamp(base.carSpeed+performance*0.5+pace,0,100),
-   overtaking:clamp(base.overtaking+overtake,0,100),
-   defence:clamp(base.defence+defense,0,100)
+   overtaking:base.overtaking,
+   defence:base.defence,
+   carOvertaking:clamp(base.carOvertaking+overtake,0,100),
+   carDefence:clamp(base.carDefence+defense,0,100)
   };
   return {...car,ratings,teamRaceAdjustments};
  });
@@ -1023,17 +1194,18 @@ export function simulateRace(options){
 }
 
 // Practice runs provide pace feedback; their order is never used as a qualifying bonus.
-export function practice(entries,noise=0.16,options={}){
- if(typeof noise==='object'){options=noise;noise=options.noise??0.16}
+export function practice(entries,noise=VARIABILITY.noise.practiceLapSd,options={}){
+ if(typeof noise==='object'){options=noise;noise=options.noise??VARIABILITY.noise.practiceLapSd}
+ const seed=options.seed??freshRandomSeed();
  const circuit=makeCircuit(options.race||{});
- const weatherRng=makeRandom();
+ const weatherRng=makeRandom(`${seed}:practice:weather`);
  let weather=makeSessionWeather(options.weather||'dry');
  const weatherByLap=Array.from({length:5},()=>{
   weather=advanceSessionWeather(weather,weatherRng);
   return {...weather};
  });
  const rows=entries.map(entry=>{
-  const rng=makeRandom();
+  const rng=makeRandom(`${seed}:practice:${stableId(entry)}`);
   const car=setupAdjustedCar(entry.c||{},options.setups?.[entry.team?.id],circuit);
   const rating=ratings({...entry,c:car},circuit);
   const laps=[];
@@ -1049,9 +1221,12 @@ export function practice(entries,noise=0.16,options={}){
    const targetWetness=compound==='wet'?0.95:compound==='intermediate'?0.55:0.05;
    const weatherDelta=lapWeather.intensity*0.7+Math.abs(lapWeather.wetness-targetWetness)*2.2;
    const trackEvolution=index*0.018;
-   const execution=normal(rng)*noise*(101-rating.driverConsistency)/50;
+   const execution=normal(rng)*noise*Math.max(VARIABILITY.noise.consistencyFloor,(101-rating.driverConsistency)/50);
    const traffic=rng.next()<0.08?0.25+rng.next()*0.7:0;
-   const lapTime=circuit.baselineLap+paceDelta(rating.driverPace,0.025)+paceDelta(rating.carPace,0.035)+tyre.pace+degradation+fuelDelta+weatherDelta-trackEvolution+execution+traffic;
+   const lapTime=circuit.baselineLap+paceDelta(rating.driverPace,VARIABILITY.pace.qualifying.driver)+
+    paceDelta(rating.carPace,VARIABILITY.pace.qualifying.carQualifying)+
+    paceDelta(rating.braking,VARIABILITY.pace.qualifying.braking*circuit.braking)+
+    paceDelta(rating.overall,VARIABILITY.pace.qualifying.overall)+tyre.pace+degradation+fuelDelta+weatherDelta-trackEvolution+execution+traffic;
    laps.push({time:Math.max(35,lapTime),compound,tyreAge,fuelLoad,weather:{intensity:lapWeather.intensity,wetness:lapWeather.wetness}});
    tyreAge+=1;
   }
@@ -1094,6 +1269,7 @@ export function simulateQualifyingSession(entries,options={}){
  const clockDuration=Math.max(1,Number(options.durationSeconds)||config.minutes*60);
  const circuit=makeCircuit(options.race||{});
  const seed=options.seed??'qualifying';
+ const weekendForm=options.weekendForm||makeWeekendForm(entries,seed);
  const sessionSeed=`${seed}:${session}`;
  const weatherRng=makeRandom(`${sessionSeed}:weather`);
  let weather=makeSessionWeather(options.weather||'dry');
@@ -1165,15 +1341,22 @@ export function simulateQualifyingSession(entries,options={}){
   const nearby=lapsInProgress.filter(lap=>Math.abs(lap.start-lapStartClock)<30&&lap.driverId!==item.entry.driver?.id).length;
   const traffic=nearby?nearby*(0.14+rng.next()*0.12):(rng.next()<0.07?0.2+rng.next()*0.9:0);
   const tow=rng.next()<0.18?0.04+rng.next()*0.12:0;
-  const trackEvolution=0.42*Math.log1p(lapStartClock/120);
+  const trackEvolution=VARIABILITY.pace.qualifying.trackEvolution*Math.log1p(lapStartClock/VARIABILITY.pace.qualifying.trackEvolutionDivisor);
   const tyreAge=item.run?item.run*0.11:0;
   const tyreTempEffect=Math.abs((lapWeather.trackTemperature||30)-30)*0.012;
-  const execution=normal(rng)*(options.noise??0.22)*(101-rating.driverConsistency)/50;
+  const execution=normal(rng)*(options.noise??0.22)*Math.max(VARIABILITY.noise.consistencyFloor,(101-rating.driverConsistency)/50);
   const mistake=rng.next()<(0.015+lapWeather.wetness*0.035)*(1-rating.errorResistance/150);
   const invalid=rng.next()<0.008;
   const yellow=options.yellowFlag===true||options.yellowFlag!==false&&rng.next()<0.025;
   const wetPenalty=Math.abs(lapWeather.wetness-(compound==='wet'?0.95:compound==='intermediate'?0.55:0.05))*2.2;
-  const lapTime=circuit.baselineLap+paceDelta(rating.driverQualifying,0.025)+paceDelta(rating.carQualifying,0.035)+paceDelta(rating.carSpeed,0.008)+tyre.pace+tyreAge+tyreTempEffect+wetPenalty+execution+(mistake?1.2+rng.next()*2.5:0)+traffic-tow-trackEvolution+lapWeather.wetness*(2-rating.wetAbility/100);
+  const teamForm=weekendForm.teamOffsets[String(item.entry.team?.id??'')]||0;
+  const driverForm=weekendForm.driverOffsets[stableId(item.entry)]||0;
+  const lapTime=circuit.baselineLap+paceDelta(rating.driverQualifying,VARIABILITY.pace.qualifying.driver)+
+   paceDelta(rating.carQualifying,VARIABILITY.pace.qualifying.carQualifying)+
+   paceDelta(rating.carSpeed,VARIABILITY.pace.qualifying.carSpeed)+
+   paceDelta(rating.braking,VARIABILITY.pace.qualifying.braking*circuit.braking)+
+   paceDelta(rating.overall,VARIABILITY.pace.qualifying.overall)+teamForm+driverForm+
+   tyre.pace+tyreAge+tyreTempEffect+wetPenalty+execution+(mistake?1.2+rng.next()*2.5:0)+traffic-tow-trackEvolution+lapWeather.wetness*(2-rating.wetAbility/100);
   const sectors=[lapTime*0.31,lapTime*0.34,lapTime*0.35];sectors[2]=lapTime-sectors[0]-sectors[1];
   const sectorSplits=sectors.map((time,index)=>({time,sector:index+1}));
   timeline.push({t:lapStart,clock:lapStartClock,type:'lapStart',driverId:item.entry.driver?.id,run:item.run+1,sectors:[],tyreCompound:compound});
@@ -1225,6 +1408,8 @@ export function simulateQualifyingWeekend(entries,options={}){
  if(!Array.isArray(entries)||!entries.length)throw new Error('Qualifying requires at least one driver entry.');
  const sprint=options.sprint===true||options.sessionPrefix==='SQ';
  const prefix=sprint?'SQ':'Q';
+ const seed=options.seed??'qualifying';
+ const weekendForm=options.weekendForm||makeWeekendForm(entries,seed);
  const knockout=options.knockout!==false&&entries.length>=QUALIFYING_ELIMINATION_CONFIG.minimumKnockoutField;
  const cut=Number.isInteger(options.eliminatePerRound)?Math.max(0,options.eliminatePerRound):Math.floor((entries.length-QUALIFYING_ELIMINATION_CONFIG.targetField)/QUALIFYING_ELIMINATION_CONFIG.rounds);
  const sessionNames=knockout
@@ -1240,7 +1425,7 @@ export function simulateQualifyingWeekend(entries,options={}){
     ?remainingAboveTarget
     :Math.min(cut,remainingAboveTarget)
    :0;
-  const simulated=simulateQualifyingSession(active,{...options,weather,session,eliminateCount,seed:options.seed??'qualifying'});
+  const simulated=simulateQualifyingSession(active,{...options,weekendForm,weather,session,eliminateCount,seed});
   sessions.push(simulated);
   weather=advanceSessionWeather(makeSessionWeather(weather),makeRandom(`${options.seed??'qualifying'}:${session}:round-weather`));
   if(index<sessionNames.length-1){
@@ -1261,7 +1446,7 @@ export function simulateQualifyingWeekend(entries,options={}){
  }
  const poleLap=ranked[0]?.bestLap;
  ranked=ranked.map((row,index)=>({...row,grid:index+1,position:index+1,gapToPole:Number.isFinite(row.bestLap)&&Number.isFinite(poleLap)?row.bestLap-poleLap:Infinity}));
- return {sessions,results:ranked,seed:options.seed??'qualifying',sessionBreakSeconds:QUALIFYING_BREAK_SECONDS};
+ return {sessions,results:ranked,seed,sessionBreakSeconds:QUALIFYING_BREAK_SECONDS};
 }
 
 export function qualify(entries,noise=0.22,options={}){
@@ -1272,14 +1457,16 @@ export function qualify(entries,noise=0.22,options={}){
 
 export function race(entries,{sprint=false,strategies={},race:raceData={},laps}={}){
  const ordered=entries.map((entry,index)=>({...entry,grid:entry.grid||index+1}));
- const {classification}=simulateRace({entries:ordered,race:raceData,format:sprint?'sprint':'race',strategies,laps});
+ const {classification}=simulateRace({entries:ordered,race:raceData,format:sprint?'sprint':'race',strategies,laps,seed:raceData.seed});
  return classification.map(row=>({...row,pos:row.position}));
 }
 export function weekend(entries,raceData={},options={}){
- const qualifying=qualify(entries,{...options,race:raceData});
- const sprint=raceData.is_sprint?race(qualifying,{sprint:true,race:raceData,strategies:options.strategies}):null;
+ const seed=options.seed??freshRandomSeed();
+ const weekendRace={...raceData,seed};
+ const qualifying=qualify(entries,{...options,race:raceData,seed});
+ const sprint=raceData.is_sprint?race(qualifying,{sprint:true,race:weekendRace,strategies:options.strategies}):null;
  const grandPrixGrid=raceData.sprint_affects_grand_prix_grid||raceData.sprintAffectsGrandPrixGrid?sprint:qualifying;
- return {q:qualifying,sprint,race:race(grandPrixGrid,{race:raceData,strategies:options.strategies})};
+ return {q:qualifying,sprint,race:race(grandPrixGrid,{race:weekendRace,strategies:options.strategies})};
 }
 export function championship(entries,races,options={}){
  const tally={};
