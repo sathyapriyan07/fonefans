@@ -16,7 +16,7 @@ Run `supabase/simulation.sql` in the Supabase SQL Editor to add the optional dri
 
 Dry Grand Prix weekends from 2007 onward require at least one stop and two different dry compounds by default. In Admin, set a race's **mandatory_dry_tyre_compounds** field to override that default for historical or custom rules; wet-start weekends and sprint races do not apply this requirement.
 
-During a sprint or Grand Prix, select a driver in live timing or on the track map to open their telemetry and pit-command controls. Pit instructions are stored per driver for that race, and a tyre change resets tyre state without refuelling or repairing accumulated damage. The simulator is deterministic for the same seed and inputs; it is a game model, not an official sporting or vehicle-physics rules engine.
+During a sprint or Grand Prix, select a driver in live timing or on the track map to open their telemetry and pit-command controls. Pit instructions are stored per driver for that race, and a tyre change resets tyre state without refuelling or repairing accumulated damage. The simulator uses random variation, so rerunning a session can produce different results; it is a game model, not an official sporting or vehicle-physics rules engine.
 
 Practice and qualifying apply one shared weather condition to the whole field in each lap or qualifying round. Race fuel consumption is based on circuit length and the car's fuel-efficiency rating; a car retires before a lap it cannot complete with its remaining fuel. Tyre wear accelerates with tyre age and feeds into grip, lap pace, and pit decisions.
 

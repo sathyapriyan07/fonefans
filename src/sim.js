@@ -1,7 +1,7 @@
-// Deterministic lap-based race simulation. Times and gaps are measured in seconds.
+// Lap-based race simulation. Times and gaps are measured in seconds.
 export const RACE_PTS=[25,18,15,12,10,8,6,4,2,1];
 export const SPRINT_PTS=[8,7,6,5,4,3,2,1];
-export const ENGINE_VERSION='2.2.0';
+export const ENGINE_VERSION='2.3.0';
 const DEFAULT_LAPS=57;
 const DEFAULT_BASE_LAP=90;
 const FUEL_KG_PER_LAP=1.72;
@@ -19,28 +19,10 @@ const value=(source,key,fallback=50)=>source?.[key]!==null&&source?.[key]!==unde
 const average=(items)=>items.reduce((sum,item)=>sum+item,0)/(items.length||1);
 const stableId=(entry)=>String(entry.driver?.id??entry.driver?.name??entry.id??'');
 
-function hashSeed(seed){
- let hash=2166136261;
- for(const char of String(seed)){hash^=char.charCodeAt(0);hash=Math.imul(hash,16777619)}
- return hash>>>0;
-}
-function makeRandom(seed){
- let state=typeof seed==='number'?seed>>>0:hashSeed(seed);
- return {
-  next(){state=(state+0x6D2B79F5)>>>0;let t=state;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return ((t^(t>>>14))>>>0)/4294967296},
-  getState(){return state}
- };
-}
-function stream(state,name){
- const rng=makeRandom(state.randomStreams[name]);
- return {next(){const result=rng.next();state.randomStreams[name]=rng.getState();return result}};
-}
+function makeRandom(){return {next:()=>Math.random()}}
 function normal(rng){
  const u=Math.max(Number.EPSILON,rng.next()),v=rng.next();
  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
-}
-function createStreams(seed){
- return Object.fromEntries(['pace','mistakes','mechanical','weather','racecraft'].map(name=>[name,hashSeed(`${seed}:${name}`)]));
 }
 function makeCircuit(race={}){
  const lengthKm=Number(race.circuit_length_km)||5.2;
@@ -212,7 +194,7 @@ function tyreForWeather(weather,requested){
 function tyreState(compound='medium'){
  return {compound,age:0,wear:0,condition:1,grip:TYRES[compound]?.grip??1,temperature:90,graining:0,overheating:0,degradationRate:0,state:'fresh',remainingCompetitiveLaps:null};
 }
-function strategyFor(entry,strategies,circuit,totalLaps,seed=1,minimumStops=0){
+function strategyFor(entry,strategies,circuit,totalLaps,minimumStops=0){
  const strategy=strategies?.[entry.team?.id]||{};
  const rating=ratings(entry,circuit);
  const requestedStops=Number.isFinite(Number(strategy.stops))&&strategy.stops!==''?clamp(Math.round(Number(strategy.stops)),0,3):null;
@@ -232,7 +214,7 @@ function strategyFor(entry,strategies,circuit,totalLaps,seed=1,minimumStops=0){
   candidates.push({stops,tyre,compounds:sequence,time:tyreTime+stops*(circuit.pitLaneLoss+2.5)});
  }
  candidates.sort((a,b)=>a.time-b.time);
- const quality=value(entry.team,'strategy_quality',100),rng=makeRandom(`${seed}:${entry.team?.id}:strategy`);
+ const quality=value(entry.team,'strategy_quality',100),rng=makeRandom();
  const choice=quality>=100||candidates.length===1?0:rng.next()<(100-quality)/120?Math.min(candidates.length-1,1+Math.floor(rng.next()*2)):0;
  const selected=candidates[choice];
  const variation=(driverRating(rating.d,'tyre_management',['experience'])-50)*0.004+(carRating(rating.c,'tyre_preservation',['race'])-50)*0.003;
@@ -257,7 +239,7 @@ export function getWeekendPhases(race={}){
 }
 
 export function createRaceState({
- entries,race={},seed=1,format='race',strategies={},setups={},weather='dry',laps,rules={},tyreConfig={}
+ entries,race={},format='race',strategies={},setups={},weather='dry',laps,rules={},tyreConfig={}
 }={}){
  if(!Array.isArray(entries)||entries.length<2)throw new Error('A race requires at least two driver entries.');
  const circuit=makeCircuit(race);
@@ -274,7 +256,7 @@ export function createRaceState({
   const prepared={...entry,c:setupAdjustedCar(sourceCar,setup,circuit)};
   const rating=ratings(prepared,circuit);
   const requireTwoCompounds=effectiveRules.mandatoryDryTyreCompounds;
-  const strategy=strategyFor(prepared,strategies,circuit,totalLaps,seed,requireTwoCompounds?1:0);
+  const strategy=strategyFor(prepared,strategies,circuit,totalLaps,requireTwoCompounds?1:0);
   const startingTyre=tyreForWeather(initialWeather,strategy.tyre);
   strategy.tyre=startingTyre;
   return {
@@ -297,9 +279,8 @@ export function createRaceState({
   };
  });
  return {
-  engineVersion:ENGINE_VERSION,seed,totalLaps,lap:0,format,done:false,
-  circuit,weather:initialWeather,raceControl:'green',cars,events:[],
-  randomStreams:createStreams(seed),rules:effectiveRules,
+  engineVersion:ENGINE_VERSION,totalLaps,lap:0,format,done:false,
+  circuit,weather:initialWeather,raceControl:'green',cars,events:[],rules:effectiveRules,
   tyreConfig:{...TYRE_DEFAULTS,wearMultiplier:circuit.wearMultiplier,punctureRisk:circuit.punctureRisk,overheatingThreshold:circuit.overheatingThreshold,...tyreConfig},
   createdAt:null
  };
@@ -308,7 +289,7 @@ export function createRaceState({
 function weatherForLap(state){
  const weather={...state.weather};
  if(weather.mode==='variable'){
-  const rng=stream(state,'weather');
+  const rng=makeRandom();
   weather.intensity=clamp(weather.intensity+(rng.next()-0.45)*0.38,0,1);
  }else if(weather.mode==='wet')weather.intensity=clamp(weather.intensity+0.015,0,1);
  else weather.intensity=clamp(weather.intensity-0.01,0,1);
@@ -334,7 +315,7 @@ function calculateLap(car,state,lapNumber,weather,trafficSeconds=0){
  const driverDelta=paceDelta(rating.driverPace,0.018);
  const damageDelta=car.damage*(0.18+circuit.highSpeed*0.08);
  const weatherDelta=weather.intensity*0.7+wetPenalty-wetAbility-paceDelta(rating.wetPerformance,0.006)*weather.wetness;
- const mechanicalRng=stream(state,'mechanical');
+ const mechanicalRng=makeRandom();
  let mechanicalEvent=null,retire=false;
  const effectiveReliability=clamp(rating.reliability+(rating.reliabilityManagement-50)*0.12,0,100);
  const stressFactor=1+car.vehicleStress*0.8+car.damage*1.5;
@@ -346,14 +327,15 @@ function calculateLap(car,state,lapNumber,weather,trafficSeconds=0){
  const punctureRange=Math.max(1,100-state.tyreConfig.wearDanger);
  const punctureRisk=state.tyreConfig.punctureBasePerLap+
   Math.pow(Math.max(0,car.tyre.wear-state.tyreConfig.wearDanger)/punctureRange,2)*0.08*state.circuit.punctureRisk;
- const puncture=stream(state,'mechanical').next()<punctureRisk;
- const punctureLoss=puncture?clamp(7+(stream(state,'mechanical').next()*8),7,15):0;
+ const punctureRng=makeRandom();
+ const puncture=punctureRng.next()<punctureRisk;
+ const punctureLoss=puncture?clamp(7+(punctureRng.next()*8),7,15):0;
  const failureLoss=mechanicalEvent==='suspension_failure'?3.5:mechanicalEvent==='mechanical_problem'?1.5:0;
- const mistakeRng=stream(state,'mistakes');
+ const mistakeRng=makeRandom();
  const mistakeRisk=(0.004+(weather.wetness*0.014)+(car.tyre.overheating*0.008)+car.damage*0.002)*(1-(rating.errorResistance/150));
  const mistake=mistakeRng.next()<mistakeRisk;
  const mistakeLoss=mistake?(2+mistakeRng.next()*5):0;
- const paceRng=stream(state,'pace');
+ const paceRng=makeRandom();
  const consistency=Math.max(0.35,(101-rating.driverConsistency)/50);
  const variation=normal(paceRng)*0.12*consistency;
  const startDelta=lapNumber===1?(50-rating.starts)*0.012+(50-carRating(rating.c,'traction',['race']))*0.006:0;
@@ -430,7 +412,7 @@ function retireCar(state,car,lapNumber,reason){
 }
 function attemptPasses(state,cars,lapNumber){
  if(state.raceControl==='safety_car')return;
- const rng=stream(state,'racecraft');
+ const rng=makeRandom();
  for(let index=1;index<cars.length;index++){
   const order=[...cars].sort((a,b)=>a.position-b.position);
   const follower=order[index],leader=order[index-1];
@@ -522,7 +504,7 @@ function updateTyre(car,lapResult,weather){
 function handlePit(car,state,lapNumber,teamStops,decision){
  const extra=teamStops.has(car.teamId)?2.5:0;
  const crew=car.ratings.pitCrewExecution,consistency=car.ratings.operationalConsistency;
- const service=clamp(2.4-(crew-50)*0.006+normal(stream(state,'mechanical'))*0.18*(1-(consistency-50)*0.005),1.6,4.2);
+ const service=clamp(2.4-(crew-50)*0.006+normal(makeRandom())*0.18*(1-(consistency-50)*0.005),1.6,4.2);
  const lane=state.circuit.pitLaneLoss*(state.raceControl==='safety_car'?0.68:1);
  const oldTyre={...car.tyre},oldCompound=car.tyre.compound;
  const plannedCompound=car.pendingCompound||car.pitInstruction?.compound||decision?.compound||car.strategy.compounds?.[car.pitStops+1]||'medium';
@@ -578,7 +560,7 @@ function handlePit(car,state,lapNumber,teamStops,decision){
 export function advanceRaceLap(previous){
  if(previous.done)return previous;
  const state={
-  ...previous,lap:previous.lap+1,events:[],randomStreams:{...previous.randomStreams},
+  ...previous,lap:previous.lap+1,events:[],
   weather:{...previous.weather},cars:previous.cars.map(car=>({
    ...car,tyre:{...car.tyre},pitState:null,
    pitStatus:car.lastPitLap!==null&&car.lastPitLap<previous.lap+1&&car.pitStatus.startsWith('PIT EXIT')?'AUTO':car.pitStatus,
@@ -637,7 +619,7 @@ export function advanceRaceLap(previous){
   if(decision&&!car.retired){car.lastPitReason=decision.reason;handlePit(car,state,lapNumber,teamStops,decision)}
  }
  const incident=state.events.some(event=>['retirement','driver_mistake','mechanical_problem'].includes(event.type));
- const deployed=incident&&stream(state,'racecraft').next()<0.22;
+ const deployed=incident&&makeRandom().next()<0.22;
  if(deployed){state.raceControl='safety_car';recordEvent(state,'safety_car',lapNumber,null,{cause:'track incident'})}
  else if(underSafetyCar){state.raceControl='green';recordEvent(state,'safety_car_ended',lapNumber,null)}
  attemptPasses(state,state.cars,lapNumber);
@@ -1026,16 +1008,15 @@ export function simulateRace(options){
 // Practice runs provide pace feedback; their order is never used as a qualifying bonus.
 export function practice(entries,noise=0.16,options={}){
  if(typeof noise==='object'){options=noise;noise=options.noise??0.16}
- const seed=typeof options==='number'?options:options.seed??1;
  const circuit=makeCircuit(options.race||{});
- const weatherRng=makeRandom(`${seed}:practice:weather`);
+ const weatherRng=makeRandom();
  let weather=makeSessionWeather(options.weather||'dry');
  const weatherByLap=Array.from({length:5},()=>{
   weather=advanceSessionWeather(weather,weatherRng);
   return {...weather};
  });
  const rows=entries.map(entry=>{
-  const rng=makeRandom(`${seed}:practice:${stableId(entry)}`);
+  const rng=makeRandom();
   const car=setupAdjustedCar(entry.c||{},options.setups?.[entry.team?.id],circuit);
   const rating=ratings({...entry,c:car},circuit);
   const laps=[];
@@ -1073,12 +1054,12 @@ export function practice(entries,noise=0.16,options={}){
 export function qualify(entries,noise=0.22,options={}){
  if(typeof noise==='object'){options=noise;noise=options.noise??0.22}
  const circuit=makeCircuit(options.race||{});
- const weatherRng=makeRandom(`${options.seed??1}:qualifying:weather`);
+ const weatherRng=makeRandom();
  let weather=makeSessionWeather(options.weather||'dry');
  const runRound=(field,round)=>{
   weather=advanceSessionWeather(weather,weatherRng);
   const rows=field.map(entry=>{
-   const rng=makeRandom(`${options.seed??1}:qualifying:${round}:${stableId(entry)}`);
+   const rng=makeRandom();
    const car=setupAdjustedCar(entry.c||{},options.setups?.[entry.team?.id],circuit);
    const rating=ratings({...entry,c:car},circuit);
    const wetness=weather.wetness;
@@ -1106,7 +1087,7 @@ export function qualify(entries,noise=0.22,options={}){
   const q2Out=q2.slice(Math.max(0,q2.length-cut)).map(entry=>({...entry,eliminated:true}));
   const q3=runRound(q2.slice(0,Math.max(0,q2.length-cut)),'Q3');
   ranked=[...q3,...q2Out,...q1Out];
- }else ranked=runRound(entries,options.roundLabel||'Q');
+ }else ranked=runRound(entries,'Q');
  ranked=ranked.sort((a,b)=>{
   const order={Q3:0,Q2:1,Q1:2,Q:0};
   return (order[a.round]??3)-(order[b.round]??3)||b.q-a.q||stableId(a).localeCompare(stableId(b));
@@ -1118,37 +1099,22 @@ export function qualify(entries,noise=0.22,options={}){
  }
  return ranked.map((entry,index)=>({...entry,grid:index+1,position:index+1,gapToPole:entry.bestLap-ranked[0].bestLap}));
 }
-export function qualifyRound(entries,options={}){
- return qualify(entries,{...options,knockout:false,roundLabel:options.roundLabel||'Q1'});
-}
-export function getQualifyingClassification(rounds=[],entryCount=0){
- const [q1Rows=[],q2Rows=[],q3Rows=[]]=rounds;
- const lapOrder=(a,b)=>a.bestLap-b.bestLap||stableId(a).localeCompare(stableId(b));
- const q1=[...q1Rows].sort(lapOrder),q2=[...q2Rows].sort(lapOrder),q3=[...q3Rows].sort(lapOrder);
- const cut=Math.max(0,Math.floor((entryCount-10)/2));
- return [
-  ...q3,
-  ...(cut?q2.slice(Math.max(0,q2.length-cut)):[]),
-  ...(cut?q1.slice(Math.max(0,q1.length-cut)):[])
- ].map((entry,index)=>({...entry,grid:index+1,position:index+1,eliminated:false}));
-}
 
-// Backward-compatible helper that now uses the same seeded lap model.
-export function race(entries,{sprint=false,strategies={},seed=1,race:raceData={},laps}={}){
+export function race(entries,{sprint=false,strategies={},race:raceData={},laps}={}){
  const ordered=entries.map((entry,index)=>({...entry,grid:entry.grid||index+1}));
- const {classification}=simulateRace({entries:ordered,race:raceData,seed,format:sprint?'sprint':'race',strategies,laps});
+ const {classification}=simulateRace({entries:ordered,race:raceData,format:sprint?'sprint':'race',strategies,laps});
  return classification.map(row=>({...row,pos:row.position}));
 }
 export function weekend(entries,raceData={},options={}){
- const qualifying=qualify(entries,{seed:options.seed??1,race:raceData});
- const sprint=raceData.is_sprint?race(qualifying,{sprint:true,seed:options.seed??1,race:raceData,strategies:options.strategies}):null;
+ const qualifying=qualify(entries,{race:raceData});
+ const sprint=raceData.is_sprint?race(qualifying,{sprint:true,race:raceData,strategies:options.strategies}):null;
  const grandPrixGrid=raceData.sprint_affects_grand_prix_grid||raceData.sprintAffectsGrandPrixGrid?sprint:qualifying;
- return {q:qualifying,sprint,race:race(grandPrixGrid,{seed:(options.seed??1)+1,race:raceData,strategies:options.strategies})};
+ return {q:qualifying,sprint,race:race(grandPrixGrid,{race:raceData,strategies:options.strategies})};
 }
 export function championship(entries,races,options={}){
  const tally={};
  for(let index=0;index<races.length;index++){
-  const result=weekend(entries,races[index],{...options,seed:(options.seed??1)+index*17});
+  const result=weekend(entries,races[index],options);
   for(const session of [result.sprint,result.race].filter(Boolean))for(const entry of session){
    const driverId=entry.driver.id;
    const record=(tally[driverId]??={driver:entry.driver,team:entry.team,pts:0,wins:0});
