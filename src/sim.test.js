@@ -258,6 +258,10 @@ test('qualifying is deterministic for the same seed and produces Q1, Q2, and Q3 
  assert.deepEqual(sprint.sessions.map(session=>[session.session,session.clockDuration]),[
   ['SQ1',12*60],['SQ2',10*60],['SQ3',8*60]
  ]);
+ const oddField=simulateQualifyingWeekend([...entries,entry(21)],options);
+ assert.deepEqual(oddField.sessions.map(session=>[session.session,session.fieldSize,session.qualified.length]),[
+  ['Q1',21,16],['Q2',16,10],['Q3',10,10]
+ ]);
 });
 
 test('qualifying counts laps started before the flag even when they finish after it',()=>{

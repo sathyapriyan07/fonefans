@@ -1233,7 +1233,13 @@ export function simulateQualifyingWeekend(entries,options={}){
  let active=[...entries],classified=[],sessions=[],weather=options.weather||'dry';
  for(let index=0;index<sessionNames.length;index++){
   const session=sessionNames[index];
-  const eliminateCount=index<sessionNames.length-1?Math.min(cut,Math.max(0,active.length-QUALIFYING_ELIMINATION_CONFIG.targetField)):0;
+  const remainingAboveTarget=Math.max(0,active.length-QUALIFYING_ELIMINATION_CONFIG.targetField);
+  const finalKnockoutRound=index===QUALIFYING_ELIMINATION_CONFIG.rounds-1;
+  const eliminateCount=index<sessionNames.length-1
+   ?finalKnockoutRound&&!Number.isInteger(options.eliminatePerRound)
+    ?remainingAboveTarget
+    :Math.min(cut,remainingAboveTarget)
+   :0;
   const simulated=simulateQualifyingSession(active,{...options,weather,session,eliminateCount,seed:options.seed??'qualifying'});
   sessions.push(simulated);
   weather=advanceSessionWeather(makeSessionWeather(weather),makeRandom(`${options.seed??'qualifying'}:${session}:round-weather`));
