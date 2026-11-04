@@ -170,15 +170,23 @@ const PERFORMANCE_RATING_FIELDS=[
  ['braking',['race']]
 ];
 export function applyTeamPerformanceBoosts(entries,boosts={}){
+ return applyPerformanceBoosts(entries,boosts,'team');
+}
+export function applyDriverPerformanceBoosts(entries,boosts={}){
+ return applyPerformanceBoosts(entries,boosts,'driver');
+}
+function applyPerformanceBoosts(entries,boosts,scope){
  return entries.map(entry=>{
-  const requested=Number(boosts[String(entry.team?.id)]??0);
+  const person=scope==='driver'?entry.driver:entry.team;
+  const requested=Number(boosts[String(person?.id)]??0);
   const target=clamp(Number.isFinite(requested)?Math.round(requested):0,0,20);
   const car=entry.c||entry.car;
   if(!car)return entry;
-  const applied=clamp(Number(car.teamPerformanceBoost)||0,0,20);
+  const boostField=scope==='driver'?'driverPerformanceBoost':'teamPerformanceBoost';
+  const applied=clamp(Number(car[boostField])||0,0,20);
   const change=target-applied;
   if(!change)return entry;
-  const boosted={...car,teamPerformanceBoost:target};
+  const boosted={...car,[boostField]:target};
   for(const [key,fallbacks] of PERFORMANCE_RATING_FIELDS)boosted[key]=clamp(carRating(car,key,fallbacks)+change,0,100);
   return entry.c?{...entry,c:boosted}:{...entry,car:boosted};
  });

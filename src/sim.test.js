@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getCareerChampionships,getCareerRecords,getCareerStats,getClassification,getTeamCareerStats,getWeekendAwards,practice,qualify,requiresMandatoryDryTyreCompounds,setPitInstruction,setTeamRaceAdjustments,simulateQualifyingSession,simulateQualifyingWeekend,simulateRace,TYRES} from './sim.js';
+import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyDriverPerformanceBoosts,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getCareerChampionships,getCareerRecords,getCareerStats,getClassification,getTeamCareerStats,getWeekendAwards,practice,qualify,requiresMandatoryDryTyreCompounds,setPitInstruction,setTeamRaceAdjustments,simulateQualifyingSession,simulateQualifyingWeekend,simulateRace,TYRES} from './sim.js';
 
 function entry(id,{driver={},car={}}={}){
  return {
@@ -11,6 +11,15 @@ function entry(id,{driver={},car={}}={}){
  };
 }
 const circuit={laps:8,circuit_length_km:5.1,straight_line_importance:0.6,overtaking_difficulty:0.35};
+
+test('individual performance boosts affect only the selected driver and apply idempotently',()=>{
+ const entries=[entry(1),entry(2)];
+ const boosted=applyDriverPerformanceBoosts(entries,{'1':10});
+ assert.equal(boosted[0].c.speed,80);
+ assert.equal(boosted[1].c.speed,70);
+ assert.equal(applyDriverPerformanceBoosts(boosted,{'1':10})[0].c.speed,80);
+ assert.equal(applyDriverPerformanceBoosts(boosted,{'1':0})[0].c.speed,70);
+});
 
 test('independent simulations produce random but valid race timing',()=>{
  const entries=[entry(1),entry(2,{driver:{speed:77}}),entry(3,{car:{speed:78}})];

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'; import { Link, useParams } from 'react-router-dom';
-import { sb } from './supabase.js'; import { activateDriverBoost, advanceRaceIfRunning, advanceRaceLap, applyPracticeSubstitutions, applyTeamPerformanceBoosts, calculateStandings, calculateTeammateHeadToHead, createRaceState, getBestCareerPositions, getCareerChampionships, getCareerRecords, getCareerStats, getClassification, getTeamCareerStats, getWeekendAwards, getWeekendPhases, practice, requiresMandatoryDryTyreCompounds, setPitInstruction, setTeamRaceAdjustments, simulateQualifyingWeekend } from './sim.js';
+import { sb } from './supabase.js'; import { activateDriverBoost, advanceRaceIfRunning, advanceRaceLap, applyDriverPerformanceBoosts, applyPracticeSubstitutions, applyTeamPerformanceBoosts, calculateStandings, calculateTeammateHeadToHead, createRaceState, getBestCareerPositions, getCareerChampionships, getCareerRecords, getCareerStats, getClassification, getTeamCareerStats, getWeekendAwards, getWeekendPhases, practice, requiresMandatoryDryTyreCompounds, setPitInstruction, setTeamRaceAdjustments, simulateQualifyingWeekend } from './sim.js';
 import LiveTrackMap from './LiveTrackMap.jsx';
 import {buildTrackPath,getDirectionalTrackPoints,getLapProgress,getTrackDisplayPoint,hasUsableTrackPath,interpolateLapProgress,parseCircuitTrackPath} from './trackPath.js';
 function useQ(fn, deps = []) {
@@ -510,7 +510,7 @@ export function Simulate() {
   const [gid, setG] = useState(''); const [rid, setR] = useState(''); const [phaseIndex, setPhaseIndex] = useState(0);
   const [simulationTab, setSimulationTab] = useState('weekend');
   const [weekendStarted, setWeekendStarted] = useState(false); const [weekendComplete, setWeekendComplete] = useState(false);
-  const [results, setResults] = useState({}); const [setups, setSetups] = useState({}); const [strategies, setStrategies] = useState({}); const [performanceBoosts, setPerformanceBoosts] = useState({}); const [strategyEnabled, setStrategyEnabled] = useState(false); const [garageSetupEnabled, setGarageSetupEnabled] = useState(false);
+  const [results, setResults] = useState({}); const [setups, setSetups] = useState({}); const [strategies, setStrategies] = useState({}); const [performanceBoosts, setPerformanceBoosts] = useState({}); const [driverPerformanceBoosts, setDriverPerformanceBoosts] = useState({}); const [strategyEnabled, setStrategyEnabled] = useState(false); const [garageSetupEnabled, setGarageSetupEnabled] = useState(false);
   const [qualifyingSimulation, setQualifyingSimulation] = useState(null); const [qualifyingSpeed, setQualifyingSpeed] = useState(1);
   const [qualifyingRunPlans,setQualifyingRunPlans]=useState({});
   const [reserveDriversEnabled, setReserveDriversEnabled] = useState(false);
@@ -537,7 +537,7 @@ export function Simulate() {
   const entries = (entriesQuery.data || []).filter(e => e.drivers && e.teams && e.cars).map(e => ({
     driver: e.drivers, team: e.teams, d: one(e.drivers.driver_ratings) || {}, c: e.cars
   }));
-  const performanceEntries = applyTeamPerformanceBoosts(entries, performanceBoosts);
+  const performanceEntries = applyDriverPerformanceBoosts(applyTeamPerformanceBoosts(entries, performanceBoosts), driverPerformanceBoosts);
   const practiceEntries = applyPracticeSubstitutions(performanceEntries, practiceLineups.data || [], reserveDriversQuery.data || [], reserveDriversEnabled ? practiceSubstitutions : {});
   const phases = getWeekendPhases(selectedRace || {});
   const seasonKey = grid ? `${grid.id}:${grid.year}` : '';
@@ -745,7 +745,7 @@ export function Simulate() {
       const isSprint = phase === 'sprint';
       const raceLaps = Number(selectedRace.laps) || 57;
       const state = createRaceState({
-        entries: applyTeamPerformanceBoosts(startRows, performanceBoosts), race: selectedRace, format: isSprint ? 'sprint' : 'race',
+        entries: applyDriverPerformanceBoosts(applyTeamPerformanceBoosts(startRows, performanceBoosts), driverPerformanceBoosts), race: selectedRace, format: isSprint ? 'sprint' : 'race',
         strategies: strategyEnabled ? strategies : {}, setups: activeSetups, weather: weatherMode, laps: isSprint ? Math.max(1, Math.round(raceLaps * 0.32)) : raceLaps
       });
       setRaceState(state); setRaceViewTab('timing'); setRaceTeamAdjustments({}); setBoostFeedback(''); setIsRunning(true); setWeekendComplete(false);
@@ -860,6 +860,7 @@ export function Simulate() {
   const setSetup = (id, key, value) => updateTeam(setSetups, id, key, value);
   const setStrategy = (id, key, value) => updateTeam(setStrategies, id, key, value);
   const setPerformanceBoost = (id, value) => setPerformanceBoosts(current => ({ ...current, [String(id)]: Math.max(0, Math.min(20, Number(value) || 0)) }));
+  const setDriverPerformanceBoost = (id, value) => setDriverPerformanceBoosts(current => ({ ...current, [String(id)]: Math.max(0, Math.min(20, Number(value) || 0)) }));
   const isQualifying = phase === 'qualifying' || phase === 'sprintQualifying'; const isPractice = phase.startsWith('practice');
   const getPosition = (entry, index) => isPractice ? entry.practicePos : isQualifying ? entry.grid : entry.dnf ? 'DNF' : entry.pos;
   return <section className="weekend">
@@ -902,6 +903,10 @@ export function Simulate() {
           <div className="performance-team-heading">{team.logo_normal && <img src={team.logo_normal} alt="" />}<div><h4>{team.name}</h4><p>{teamDrivers.map((entry, index) => <span key={entry.driver.id}>{index > 0 && ' · '}{entry.driver.code ? <span className="driver-code">{entry.driver.code}</span> : entry.driver.name}</span>)}</p></div></div>
           <label className="performance-boost-control"><span>Car performance <strong>+{boost} pts</strong></span><input type="range" min="0" max="20" step="1" value={boost} onChange={event => setPerformanceBoost(team.id, event.target.value)} /><small>Improves speed, aero, grip, race and qualifying ratings for this team.</small></label>
           <button type="button" className="performance-reset" onClick={() => setPerformanceBoost(team.id, 0)} disabled={boost === 0}>Reset boost</button>
+          {!!teamDrivers.length && <div className="performance-driver-boosts">{teamDrivers.map(entry => {
+            const driverBoost = driverPerformanceBoosts[String(entry.driver.id)] || 0;
+            return <label className="performance-driver-boost" key={entry.driver.id}><span>{entry.driver.code || entry.driver.name}<strong>+{driverBoost}</strong></span><input type="range" min="0" max="20" step="1" value={driverBoost} onChange={event => setDriverPerformanceBoost(entry.driver.id, event.target.value)} /></label>;
+          })}</div>}
         </article>;
       })}</div>
       {!teams.length && <p className="muted">No complete teams are assigned to this grid.</p>}
@@ -1064,7 +1069,7 @@ export function Simulate() {
               {!raceState.done && <button onClick={() => setIsRunning(value => !value)}>{isRunning ? 'Pause' : 'Resume'}</button>}
               <button onClick={() => { setIsRunning(false); setRaceState(current => current && !current.done ? advanceRaceLap(current) : current) }} disabled={isRunning || raceState.done}>Advance one lap</button>
               <label>Speed<select value={simulationSpeed} onChange={e => setSimulationSpeed(Number(e.target.value))}><option value={0.5}>0.5×</option><option value={1}>1×</option><option value={2}>2×</option><option value={4}>4×</option><option value={10}>10×</option></select></label>
-              <button onClick={() => { const restartSource = phase === 'sprint' ? 'sprintQualifying' : phase === 'race' && selectedRace?.sprint_affects_grand_prix_grid ? 'sprint' : 'qualifying'; const restartEntries = results[restartSource]?.map((entry, index) => ({ ...entry, grid: restartSource === 'sprint' ? (entry.position || entry.pos || index + 1) : entry.grid })); if (!restartEntries?.length) return alert(`Complete ${PHASE_LABELS[restartSource] || restartSource} before restarting.`); setIsRunning(false); let restarted = createRaceState({ entries: applyTeamPerformanceBoosts(restartEntries, performanceBoosts), race: selectedRace, format: phase === 'sprint' ? 'sprint' : 'race', strategies: strategyEnabled ? strategies : {}, setups: activeSetups, weather: weatherMode, laps: phase === 'sprint' ? Math.max(1, Math.round((Number(selectedRace.laps) || 57) * 0.32)) : Number(selectedRace.laps) || 57 }); Object.entries(raceTeamAdjustments).forEach(([teamId, adjustments]) => { restarted = setTeamRaceAdjustments(restarted, teamId, adjustments) }); setRaceState(restarted); setRaceViewTab('timing'); setIsRunning(true) }}>Restart race</button>
+              <button onClick={() => { const restartSource = phase === 'sprint' ? 'sprintQualifying' : phase === 'race' && selectedRace?.sprint_affects_grand_prix_grid ? 'sprint' : 'qualifying'; const restartEntries = results[restartSource]?.map((entry, index) => ({ ...entry, grid: restartSource === 'sprint' ? (entry.position || entry.pos || index + 1) : entry.grid })); if (!restartEntries?.length) return alert(`Complete ${PHASE_LABELS[restartSource] || restartSource} before restarting.`); setIsRunning(false); let restarted = createRaceState({ entries: applyDriverPerformanceBoosts(applyTeamPerformanceBoosts(restartEntries, performanceBoosts), driverPerformanceBoosts), race: selectedRace, format: phase === 'sprint' ? 'sprint' : 'race', strategies: strategyEnabled ? strategies : {}, setups: activeSetups, weather: weatherMode, laps: phase === 'sprint' ? Math.max(1, Math.round((Number(selectedRace.laps) || 57) * 0.32)) : Number(selectedRace.laps) || 57 }); Object.entries(raceTeamAdjustments).forEach(([teamId, adjustments]) => { restarted = setTeamRaceAdjustments(restarted, teamId, adjustments) }); setRaceState(restarted); setRaceViewTab('timing'); setIsRunning(true) }}>Restart race</button>
               <button onClick={() => { setIsRunning(false); setRaceState(null); setSelectedDriverId(null); setPitFeedback(''); setResults(current => { const next = { ...current }; delete next[phase]; return next }) }}>Reset session</button>
             </div>
             <div className="race-view-tabs" role="tablist" aria-label="Race views">
