@@ -79,7 +79,7 @@ function TrackSurface({path,pitPath,showSectors,showDrs,sectorMarks,drsZones}){
   const next=path.worldSamples[(index+1)%path.worldSamples.length];
   const dx=next.x-previous.x,dz=next.z-previous.z,length=Math.hypot(dx,dz)||1;
   return [point.x-side*dz/length*(TRACK_RIBBON_WIDTH/2-0.35),point.y+0.08,point.z+side*dx/length*(TRACK_RIBBON_WIDTH/2-0.35)];
- }),[path]);
+ })),[path]);
  const sectors=useMemo(()=>getColorSections(path.worldSamples,sectorMarks),[path,sectorMarks]);
  const drs=useMemo(()=>getDrsSections(path.worldSamples,drsZones),[path,drsZones]);
  const start=getTrack3DPointAt(path,0);
