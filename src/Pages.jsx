@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'; import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { sb } from './supabase.js'; import { activateDriverBoost, advanceRaceIfRunning, advanceRaceLap, applyDriverPerformanceBoosts, applyPracticeSubstitutions, applyTeamPerformanceBoosts, calculateStandings, calculateTeammateHeadToHead, createRaceState, getBestCareerPositions, getCareerChampionships, getCareerRecords, getCareerStats, getClassification, getTeamCareerStats, getWeekendAwards, getWeekendPhases, practice, requiresMandatoryDryTyreCompounds, setPitInstruction, setTeamRaceAdjustments, simulateQualifyingWeekend } from './sim.js';
 import LiveTrackMap from './LiveTrackMap.jsx';
+import './liveTiming.css';
 import {buildTrackPath,getDirectionalTrackPoints,getLapProgress,getTrackDisplayPoint,hasUsableTrackPath,interpolateLapProgress,parseCircuitTrackPath} from './trackPath.js';
 import { CAR_ATTRIBUTES, CAR_OVERALL_ATTRIBUTES, getCarOverall, getCarScore, getNearestCarYear, rankCarsByAttribute } from './carRatings.js';
+import { filterTeamResultsBySeason, getTeamResultCoverage, getTeamResultYear } from './teamResults.js';
 function useQ(fn, deps = []) {
   const [query, setQuery] = useState({ data: null, loading: true, error: null });
   const [attempt, setAttempt] = useState(0);
@@ -321,7 +323,7 @@ const carRatingLabel = key => CAR_ATTRIBUTES.find(attribute => attribute.key ===
 const carRatingText = value => value === null ? 'N/A' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 });
 const CAR_SORT_OPTIONS = [{ key: 'overall', label: 'Overall' }, { key: 'model', label: 'Model' }, ...CAR_ATTRIBUTES];
 
-function CarCard({ car, expanded, onExpandedChange, onZoom, overallRank, bestAttributes, carCardRefs }) {
+function CarCard({ car, expanded, onExpandedChange = () => {}, onZoom = () => {}, overallRank, bestAttributes = [], carCardRefs }) {
   const [imageFailed, setImageFailed] = useState(false);
   const overall = getCarOverall(car);
   const rated = CAR_ATTRIBUTES
@@ -333,6 +335,7 @@ function CarCard({ car, expanded, onExpandedChange, onZoom, overallRank, bestAtt
   const teamLogo = car.teams?.logo_normal;
   return <details className="card car-card" open={expanded} onToggle={event => onExpandedChange(car.id, event.currentTarget.open)}
     ref={element => {
+      if (!carCardRefs) return;
       if (element) carCardRefs.current.set(String(car.id), element);
       else carCardRefs.current.delete(String(car.id));
     }}>
@@ -713,15 +716,56 @@ export function Teams() {
 }
 export function Team() {
   const { id } = useParams(); const t = useQ(() => sb.from('teams').select('*,cars(*)').eq('id', id).single(), [id]);
+  const [searchParams, setSearchParams] = useSearchParams();
   const lineups = useQ(() => sb.from('team_driver_lineups').select('*').eq('team_id', id).order('year', { ascending: false }), [id]);
   const raceResults = useQ(() => sb.from('race_results').select('grid_id,race_id,session_type,driver_id,position,points,status,laps_completed,total_time,pole_position,sprint_pole,race_win,sprint_win,fastest_lap,grand_slam,retired,races(year,round,name),grids(year),drivers(id,name,code)').eq('team_id', id), [id]);
   const drivers = useQ(() => sb.from('drivers').select('id,name,code,number,driver_images(year,grid_url)').order('name'));
-  const [selectedHistoryYear, setSelectedHistoryYear] = useState('');
+  const availableResultYears = useMemo(() => [...new Set((raceResults.data || [])
+    .map(getTeamResultYear).filter(year => year !== null))].sort((a, b) => b - a), [raceResults.data]);
+  const requestedSeason = searchParams.get('season') || 'all';
+  const requestedRange = /^(\d{4})-(\d{4})$/.exec(requestedSeason);
+  const isValidRange = requestedRange
+    && Number(requestedRange[1]) <= Number(requestedRange[2])
+    && availableResultYears.includes(Number(requestedRange[1]))
+    && availableResultYears.includes(Number(requestedRange[2]));
+  const selectedSeason = requestedSeason === 'all'
+    || availableResultYears.includes(Number(requestedSeason))
+    || isValidRange ? requestedSeason : 'all';
+  const resultRows = useMemo(() => filterTeamResultsBySeason(raceResults.data || [], selectedSeason), [raceResults.data, selectedSeason]);
+  const updateSeason = season => setSearchParams(previous => {
+    const next = new URLSearchParams(previous);
+    if (season === 'all') next.delete('season');
+    else next.set('season', season);
+    return next;
+  }, { replace: true });
   if (t.loading || t.error || !t.data) return <><h2>Team</h2><QueryStatus query={t} /></>;
   const team = t.data, driverById = new Map((drivers.data || []).map(driver => [String(driver.id), driver]));
-  const teamCareerStats = getTeamCareerStats(raceResults.data || []);
+  const teamCareerStats = getTeamCareerStats(resultRows);
+  const coverage = getTeamResultCoverage(resultRows);
+  const raceRows = resultRows.filter(row => row.session_type === 'race');
+  const sprintRows = resultRows.filter(row => row.session_type === 'sprint');
+  const hasSavedResults = resultRows.length > 0;
+  const formatPercent = (count, denominator) => denominator ? `${(count / denominator * 100).toFixed(1)}% of ${denominator} ${denominator === 1 ? 'weekend' : 'weekends'}` : '—';
+  const formatSprintStat = (count, rate = false) => coverage.sprintWeekendCount
+    ? rate ? formatPercent(count, coverage.sprintWeekendCount) : count
+    : '—';
+  const achievements = [
+    { label: 'Points', value: teamCareerStats.points, detail: coverage.raceCount ? `${teamCareerStats.averagePointsPerRace.toFixed(1)} points per race` : '—' },
+    { label: 'GP wins', value: teamCareerStats.wins, detail: formatPercent(teamCareerStats.wins, coverage.raceCount) },
+    { label: 'Podiums', value: teamCareerStats.podiums, detail: formatPercent(teamCareerStats.podiums, coverage.raceCount) },
+    { label: '1–2 finishes', value: teamCareerStats.oneTwoFinishes },
+    { label: 'Double podiums', value: teamCareerStats.doublePodiums },
+    { label: 'Double points', value: teamCareerStats.doublePoints },
+    { label: 'Sprint wins', value: formatSprintStat(sprintRows.filter(row => row.sprint_win).length), detail: formatSprintStat(sprintRows.filter(row => row.sprint_win).length, true) },
+    { label: 'Poles', value: raceRows.filter(row => row.pole_position).length, detail: formatPercent(raceRows.filter(row => row.pole_position).length, coverage.raceCount) },
+    { label: 'Sprint poles', value: formatSprintStat(sprintRows.filter(row => row.sprint_pole).length), detail: formatSprintStat(sprintRows.filter(row => row.sprint_pole).length, true) },
+    { label: 'Fastest laps', value: raceRows.filter(row => row.fastest_lap).length, detail: formatPercent(raceRows.filter(row => row.fastest_lap).length, coverage.raceCount) },
+    { label: 'Sprint fastest laps', value: formatSprintStat(sprintRows.filter(row => row.fastest_lap).length), detail: formatSprintStat(sprintRows.filter(row => row.fastest_lap).length, true) },
+    { label: 'Retirements', value: raceRows.filter(row => row.retired || row.status === 'Retired').length, detail: coverage.raceCount ? `${(raceRows.filter(row => row.retired || row.status === 'Retired').length / coverage.raceCount).toFixed(2)} per race` : '—' },
+    { label: 'Grand Slams', value: resultRows.filter(row => row.grand_slam).length }
+  ];
   const driverStats = new Map();
-  for (const row of raceResults.data || []) {
+  for (const row of resultRows) {
     if (!row.driver_id) continue;
     const key = String(row.driver_id);
     const stats = driverStats.get(key) || { id: row.driver_id, name: row.drivers?.name || driverById.get(key)?.name || 'Driver', points: 0, wins: 0, poles: 0, podiums: 0 };
@@ -744,22 +788,14 @@ export function Team() {
       .filter(driver => driver[category.key] > 0)
       .sort((a, b) => b[category.key] - a[category.key] || a.name.localeCompare(b.name))
   }));
-  const weekendHistory = groupRaceWeekends(raceResults.data || []);
-  const weekendHistoryByYear = [...weekendHistory.reduce((groups, weekend) => {
-    const year = weekend.year || '—';
-    const group = groups.get(year) || [];
-    group.push(weekend);
-    groups.set(year, group);
-    return groups;
-  }, new Map())];
-  const activeHistoryYear = weekendHistoryByYear.find(([year]) => String(year) === selectedHistoryYear) || weekendHistoryByYear[0];
-  const teamSprintWins = (raceResults.data || []).filter(row => row.session_type === 'sprint' && row.sprint_win).length;
-  const teamPoles = (raceResults.data || []).filter(row => row.pole_position).length;
-  const teamSprintPoles = (raceResults.data || []).filter(row => row.sprint_pole).length;
-  const teamFastestLaps = (raceResults.data || []).filter(row => row.session_type === 'race' && row.fastest_lap).length;
-  const teamSprintFastestLaps = (raceResults.data || []).filter(row => row.session_type === 'sprint' && row.fastest_lap).length;
-  const teamRetirements = (raceResults.data || []).filter(row => row.retired).length;
-  const teamGrandSlams = (raceResults.data || []).filter(row => row.grand_slam).length;
+  const weekendHistory = groupRaceWeekends(resultRows);
+  const rangeMatch = /^(\d{4})-(\d{4})$/.exec(selectedSeason);
+  const seasonMode = selectedSeason === 'all' ? 'all' : rangeMatch ? 'range' : 'season';
+  const selectedYear = seasonMode === 'season' ? selectedSeason : String(availableResultYears[0] || '');
+  const rangeStart = rangeMatch ? rangeMatch[1] : String(availableResultYears.at(-1) || '');
+  const rangeEnd = rangeMatch ? rangeMatch[2] : String(availableResultYears[0] || '');
+  const periodLabel = selectedSeason === 'all' ? 'All time' : rangeMatch ? `${rangeStart}–${rangeEnd}` : selectedSeason;
+  const coverageLabel = coverage.firstYear === null ? '' : `Based on ${coverage.raceCount} saved ${coverage.raceCount === 1 ? 'race' : 'races'}, ${coverage.firstYear}–${coverage.lastYear}.`;
   const lineupSlots = [['driver_1_id', 'Race driver 1'], ['driver_2_id', 'Race driver 2'], ['reserve_driver_id', 'Reserve driver']];
   return <><div className="team-profile-heading">{team.logo_normal && <img src={team.logo_normal} alt={`${team.name} logo`} />}<h2>{team.name}</h2></div>
     <section className="team-lineup-history"><h3>Driver lineups</h3><QueryStatus query={lineups} empty="No driver lineups recorded." /><QueryStatus query={drivers} />
@@ -770,23 +806,51 @@ export function Team() {
         const className = `card lineup-driver-card${image ? ' has-image' : ''}`;
         return driver ? <Link key={key} to={`/drivers/${driver.id}`} className={className}>{content}</Link> : <div key={key} className={className}>{content}</div>;
       })}</div></section>)}</div></section>
-    <section className="race-history"><div className="section-title"><div><h3>Team achievements</h3><p>Totals calculated from saved results</p></div></div><div className="career-achievements team-achievements-list">
-      {[
-        ['Points', teamCareerStats.points], ['Avg. points / race', Number.isFinite(teamCareerStats.averagePointsPerRace) ? teamCareerStats.averagePointsPerRace.toFixed(1) : '—'],
-        ['GP wins', teamCareerStats.wins], ['Podiums', teamCareerStats.podiums],
-        ['1–2 finishes', teamCareerStats.oneTwoFinishes], ['Double podiums', teamCareerStats.doublePodiums], ['Double points', teamCareerStats.doublePoints],
-        ['Sprint wins', teamSprintWins], ['Poles', teamPoles], ['Sprint poles', teamSprintPoles], ['Fastest laps', teamFastestLaps],
-        ['Sprint fastest laps', teamSprintFastestLaps], ['Retirements', teamRetirements], ['Grand Slams', teamGrandSlams]
-      ].map(([label, count]) => <div className="career-achievement" key={label}><strong>{count}</strong><span>{label}</span></div>)}
-    </div><section className="team-driver-leaderboards"><div className="section-title"><div><h3>Driver leaderboard</h3><p>Team drivers ranked by saved results</p></div></div>{driverLeaderboards.some(category => category.drivers.length) ? <div className="team-driver-leaderboard-grid">{driverLeaderboards.map(category => <section className="team-driver-leaderboard" key={category.key}><h4>{category.label}</h4>{category.drivers.length ? <ol>{category.drivers.map((driver, index) => <li key={driver.id}><span className="leaderboard-rank">{index + 1}</span><Link to={`/drivers/${driver.id}`}>{driver.name}</Link><strong>{driver[category.key]}</strong></li>)}</ol> : <p>No {category.label.toLowerCase()} recorded.</p>}</section>)}</div> : <p className="muted">No driver results recorded yet.</p>}</section><div className="section-title team-race-history-title"><div><h3>Race history</h3><p>All saved sessions and driver awards</p></div>{!!weekendHistoryByYear.length && <label>Year<select value={activeHistoryYear ? String(activeHistoryYear[0]) : ''} onChange={event => setSelectedHistoryYear(event.target.value)}>{weekendHistoryByYear.map(([year]) => <option key={year} value={year}>{year}</option>)}</select></label>}</div><QueryStatus query={raceResults} empty="No saved race results yet." />
-      {!!activeHistoryYear && <div className="weekend-history">{activeHistoryYear[1].map(weekend => <details className="weekend-history-item" key={weekend.key}>
+    <section className="race-history">
+      <div className="section-title"><div><h3>Team achievements</h3><p>Totals calculated from saved results</p></div></div>
+      <div className="team-results-filter">
+        <label>Results period<select value={seasonMode} onChange={event => {
+          if (event.target.value === 'all') updateSeason('all');
+          else if (event.target.value === 'season') updateSeason(selectedYear || String(new Date().getFullYear()));
+          else updateSeason(`${rangeStart}-${rangeEnd}`);
+        }}>
+          <option value="all">All time</option><option value="season" disabled={!availableResultYears.length}>Single season</option><option value="range" disabled={!availableResultYears.length}>Season range</option>
+        </select></label>
+        {seasonMode === 'season' && <label>Season<select value={selectedYear} onChange={event => updateSeason(event.target.value)}>
+          {availableResultYears.map(year => <option value={year} key={year}>{year}</option>)}
+        </select></label>}
+        {seasonMode === 'range' && <div className="team-results-range">
+          <label>From<select value={rangeStart} onChange={event => {
+            const start = Number(event.target.value), end = Number(rangeEnd);
+            updateSeason(`${start}-${Math.max(start, end)}`);
+          }}>{[...availableResultYears].sort((a, b) => a - b).map(year => <option value={year} key={year}>{year}</option>)}</select></label>
+          <span aria-hidden="true">to</span>
+          <label>To<select value={rangeEnd} onChange={event => {
+            const end = Number(event.target.value), start = Number(rangeStart);
+            updateSeason(`${Math.min(start, end)}-${end}`);
+          }}>{[...availableResultYears].sort((a, b) => a - b).map(year => <option value={year} key={year}>{year}</option>)}</select></label>
+        </div>}
+      </div>
+      <QueryStatus query={raceResults} />
+      {coverageLabel && !raceResults.loading && <p className="team-results-coverage">{coverageLabel}</p>}
+      {!raceResults.loading && !raceResults.error && !hasSavedResults
+        ? <p className="team-results-empty">{selectedSeason === 'all' ? 'No saved results for this team.' : `No saved results for ${periodLabel}.`}</p>
+        : hasSavedResults && <div className="career-achievements team-achievements-list">
+          {achievements.map(({ label, value, detail }) => <div className="career-achievement" key={label}>
+            <strong>{value}</strong><span>{label}</span>{detail && <small>{detail}</small>}
+          </div>)}
+        </div>}
+      <section className="team-driver-leaderboards"><div className="section-title"><div><h3>Driver leaderboard</h3><p>Team drivers ranked by saved results · {periodLabel}</p></div></div>{driverLeaderboards.some(category => category.drivers.length) ? <div className="team-driver-leaderboard-grid">{driverLeaderboards.map(category => <section className="team-driver-leaderboard" key={category.key}><h4>{category.label}</h4>{category.drivers.length ? <ol>{category.drivers.map((driver, index) => <li key={driver.id}><span className="leaderboard-rank">{index + 1}</span><Link to={`/drivers/${driver.id}`}>{driver.name}</Link><strong>{driver[category.key]}</strong></li>)}</ol> : <p>No {category.label.toLowerCase()} recorded.</p>}</section>)}</div> : <p className="muted">{hasSavedResults ? 'No driver results recorded for this period.' : 'No driver results recorded.'}</p>}</section>
+      <div className="section-title team-race-history-title"><div><h3>Race history</h3><p>All saved sessions and driver awards · {periodLabel}</p></div></div>
+      {!!weekendHistory.length && <div className="weekend-history">{weekendHistory.map(weekend => <details className="weekend-history-item" key={weekend.key}>
         <summary className="weekend-history-summary"><span className="weekend-history-year">{weekend.year || '—'}</span><span className="weekend-history-name"><small>ROUND {weekend.round || '—'}</small><strong>{weekend.raceName}</strong></span><span className="weekend-history-count">{weekend.sessions.length} sessions</span><strong className="weekend-history-points">{weekend.pointsTotal} pts</strong></summary>
         <div className="weekend-history-details"><div className="weekend-history-columns team-weekend-columns"><span>SESSION</span><span>DRIVER RESULTS</span><span>TEAM PTS</span></div>
           {weekend.sessions.map(session => <div className="weekend-history-row team-weekend-row" key={session.session_type}><span data-label="Session">{sessionLabel(session.session_type)}</span><span data-label="Driver results" className="weekend-driver-results">{[...session.rows].sort((a, b) => a.position - b.position).map(row => <span className="team-result-driver" key={row.driver_id}><Link to={`/drivers/${row.drivers?.id}`}>{row.drivers?.code ? <span className="driver-code">{row.drivers.code}</span> : row.drivers?.name || 'Driver'}</Link> P{row.position}{row.retired ? ' DNF' : ''}{resultAwards(row).length > 0 && <small> ({resultAwards(row).join(', ')})</small>}</span>)}</span><span data-label="Team points">{session.rows.reduce((sum, row) => sum + (Number(row.points) || 0), 0)}</span></div>)}
         </div>
       </details>)}</div>}
+      {!raceResults.loading && !raceResults.error && !weekendHistory.length && <p className="team-results-empty">No saved race history for {periodLabel}.</p>}
     </section>
-    <QueryStatus query={{ ...t, data: team.cars || [] }} empty="No cars registered for this team." /><div className="grid">{[...(team.cars || [])].sort((a, b) => b.year - a.year).map(c => <CarCard key={c.id} c={c} sub={c.engine} teamLogo={team.logo_normal} teamName={team.name} />)}</div></>
+    <QueryStatus query={{ ...t, data: team.cars || [] }} empty="No cars registered for this team." /><div className="grid car-grid">{[...(team.cars || [])].sort((a, b) => b.year - a.year).map(car => <CarCard key={car.id} car={{ ...car, teams: team }} bestAttributes={[]} />)}</div></>
 }
 async function loadCircuitResults(circuitName) {
   const { data: races, error: raceError } = await sb.from('races')
@@ -999,6 +1063,165 @@ export function Grids() {
 const DEFAULT_SETUP = { aero: 50, suspension: 50, tyreCare: 50 };
 const DEFAULT_STRATEGY = { tyre: 'auto', stops: 'auto' };
 const formatTime = seconds => Number.isFinite(seconds) ? `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(3).padStart(6, '0')}` : '—';
+const tyreLetter = compound => ({ soft: 'S', medium: 'M', hard: 'H', intermediate: 'I', wet: 'W' }[compound] || '—');
+const ordinalPlace = value => `${value}${value % 100 >= 11 && value % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[value % 10] || 'th')}`;
+
+function getRaceGap(entry, leader) {
+  if (!entry || !leader) return '—';
+  if (entry.retired) return 'Out';
+  if (entry.lapsCompleted < leader.lapsCompleted) return `+${leader.lapsCompleted - entry.lapsCompleted} Lap`;
+  if (String(entry.driver?.id) === String(leader.driver?.id)) return 'Leader';
+  return `+${(entry.totalTime - leader.totalTime).toFixed(3)}`;
+}
+
+function TowerRow({ entry, index, leader, selected, focused, onSelect }) {
+  const gap = getRaceGap(entry, leader);
+  const placesChange = (entry.gridPosition ?? entry.grid ?? index + 1) - (index + 1);
+  const code = entry.driver?.code || entry.driver?.name?.trim().split(/\s+/).pop()?.toUpperCase() || '—';
+  const compound = entry.tyre?.compound;
+  return <button type="button" className={`timing-tower-row${selected ? ' selected' : ''}${focused ? ' battle-target' : ''}${entry.retired ? ' retired' : ''}`}
+    style={{ '--team-color': entry.team?.color || '#d3202f' }} aria-pressed={selected}
+    aria-label={`Position ${index + 1}, ${entry.driver?.name || 'driver'}, ${gap}${placesChange ? `, ${Math.abs(placesChange)} places ${placesChange > 0 ? 'gained' : 'lost'}` : ''}`}
+    title={placesChange > 0 ? `${placesChange} places gained from grid` : placesChange < 0 ? `${Math.abs(placesChange)} places lost from grid` : 'No position change from grid'}
+    onClick={onSelect}>
+    <span className={`timing-tower-position${placesChange < 0 ? ' lost' : placesChange > 0 ? ' gained' : ''}`}>
+      {placesChange > 0 && <svg className="timing-position-chevron" viewBox="0 0 19 12" aria-hidden="true"><path d="M1 10 9.5 2 18 10" /></svg>}
+      <span>{entry.retired ? 'OUT' : index + 1}</span>
+      {placesChange < 0 && <svg className="timing-position-chevron" viewBox="0 0 19 12" aria-hidden="true"><path d="M1 10 9.5 2 18 10" /></svg>}
+      {placesChange !== 0 && <span className="timing-visually-hidden">{Math.abs(placesChange)} place{Math.abs(placesChange) === 1 ? '' : 's'} {placesChange > 0 ? 'gained' : 'lost'}</span>}
+    </span>
+    <span className="timing-tower-team">{entry.team?.logo_normal
+      ? <img className={entry.team?.name?.toLowerCase().includes('red bull') ? 'mirror-logo' : ''} src={entry.team.logo_normal} alt={`${entry.team?.name || 'Team'} logo`} />
+      : <small>{entry.team?.name?.slice(0, 3).toUpperCase() || 'F1'}</small>}</span>
+    <strong className="timing-tower-code">{code}</strong>
+    <span className={`timing-tower-gap${gap === 'Leader' ? ' leader-gap' : ''}${entry.retired ? ' out-gap' : ''}`}>{gap}</span>
+    <span className={`timing-tower-tyre ${compound || ''}`} aria-label={compound ? `${compound} tyres` : 'Tyre compound unavailable'} title={compound ? `${compound} tyres` : 'Tyre compound unavailable'}>{tyreLetter(compound)}</span>
+  </button>;
+}
+
+function BattleCard({ ahead, behind, position, gap }) {
+  const stripe = (entry, label, fallbackPosition) => <div className={`timing-battle-driver${entry ? '' : ' unavailable'}`} aria-label={entry ? `${label}: ${entry.driver?.name || 'Driver'}` : `${label}: no car`}>
+    <span className="timing-battle-position">{entry ? fallbackPosition : '—'}</span>
+    <span className="timing-battle-team" style={{ '--team-color': entry?.team?.color || '#555' }}>
+      {entry?.team?.logo_normal && <img className={entry.team?.name?.toLowerCase().includes('red bull') ? 'mirror-logo' : ''} src={entry.team.logo_normal} alt={`${entry.team?.name || 'Team'} logo`} />}
+    </span>
+    <strong>{entry?.driver?.code || entry?.driver?.name || 'NO CAR'}</strong>
+  </div>;
+  return <section className="timing-battle" aria-label={`Battle for ${ordinalPlace(position)}`}>
+    <div className="timing-battle-divider" />
+    <h4>BATTLE FOR {ordinalPlace(position)}</h4>
+    {stripe(ahead, 'Ahead', position - 1)}
+    <div className="timing-battle-gap" aria-label={`Gap to car ahead: ${gap}`}>{gap}</div>
+    {stripe(behind, 'Behind', position + 1)}
+  </section>;
+}
+
+function TimingTower({ entries, lap, totalLaps, selectedDriverId, defaultFocusIndex, onSelect }) {
+  const leader = entries[0];
+  const focusIndex = entries.findIndex(entry => String(entry.driver?.id) === String(selectedDriverId));
+  const activeFocusIndex = focusIndex >= 0 ? focusIndex : defaultFocusIndex;
+  const focusedEntry = entries[activeFocusIndex];
+  const ahead = activeFocusIndex > 0 ? entries[activeFocusIndex - 1] : null;
+  const behind = activeFocusIndex >= 0 && activeFocusIndex < entries.length - 1 ? entries[activeFocusIndex + 1] : null;
+  const adjacent = ahead || behind;
+  const battleGap = focusedEntry && adjacent
+    ? focusedEntry.lapsCompleted !== adjacent.lapsCompleted
+      ? `+${Math.abs(focusedEntry.lapsCompleted - adjacent.lapsCompleted)} Lap`
+      : `+${Math.abs(focusedEntry.totalTime - adjacent.totalTime).toFixed(3)}`
+    : '—';
+  return <aside className="timing-tower" aria-label="Race live timing tower">
+    <header className="timing-tower-header">
+      <div className="timing-tower-brand"><span className="timing-tower-mark" aria-label="F1">F1</span><strong>RACE</strong></div>
+      <div className="timing-tower-lap"><em>LAP</em><span className="timing-tower-current-lap">{lap}</span><em>/{totalLaps}</em></div>
+    </header>
+    <div className="timing-tower-rows">
+      {entries.map((entry, index) => {
+        return <div className="timing-tower-item" key={entry.driver?.id}>
+          <TowerRow entry={entry} index={index} leader={leader} selected={String(entry.driver?.id) === String(selectedDriverId)}
+            focused={index === activeFocusIndex} onSelect={() => onSelect(entry.driver?.id)} />
+        </div>;
+      })}
+    </div>
+    {focusedEntry && <BattleCard ahead={ahead} behind={behind} position={activeFocusIndex + 1} gap={battleGap} />}
+  </aside>;
+}
+
+function DriverStage({ entry, car, opponent, position, raceState, pitCompound, pitLap, pitFeedback,
+  onPitCompound, onPitLap, onPitCommand, onBoost, onClose, boostDisabled, boostLabel }) {
+  if (!entry || !car) return <section className="driver-stage"><p>No driver telemetry available.</p></section>;
+  const placeChange = (entry.gridPosition ?? entry.grid ?? position) - position;
+  const placeCopy = placeChange > 0 ? `${placeChange} gained` : placeChange < 0 ? `${Math.abs(placeChange)} lost` : 'No change';
+  const incidents = car.events.filter(event => event.type !== 'overtake' && event.type !== 'attack_defended');
+  const laps = entry.lapHistory || [];
+  const opponentLaps = opponent?.lapHistory || [];
+  const lastFour = laps.slice(-4);
+  const opponentRelation = position === 1 ? 'car behind' : 'car ahead';
+  return <section className="driver-stage" aria-label={`${entry.driver?.name || 'Driver'} timing and telemetry`}>
+    <header className="driver-stage-header" style={{ '--team-color': entry.team?.color || '#d3202f' }}>
+      <div className="driver-stage-identity">
+        {entry.team?.logo_normal && <img src={entry.team.logo_normal} alt={`${entry.team.name || 'Team'} logo`} />}
+        <div><p>{entry.team?.name || 'Team'} · P{position}</p><h3>{entry.driver?.name || 'Driver'}</h3></div>
+      </div>
+      <div className="driver-stage-status"><strong>{tyreLetter(entry.tyre?.compound)} · {entry.tyre?.compound?.toUpperCase() || 'NO TYRE'}</strong><span>{entry.tyre?.age ?? '—'} laps · {placeCopy} from grid</span></div>
+      <button type="button" className="driver-stage-close" onClick={onClose} aria-label="Clear selected driver">×</button>
+    </header>
+    <div className="driver-stage-metrics" aria-label="Selected driver telemetry">
+      <div><span>Fuel</span><strong>{car.fuelRemaining.toFixed(1)} kg</strong></div>
+      <div><span>Damage</span><strong>{(car.damage * 100).toFixed(0)}%</strong></div>
+      <div><span>Tyre wear</span><strong>{car.tyre.wear.toFixed(1)}%</strong></div>
+      <div><span>Grip</span><strong>{(car.tyre.grip * 100).toFixed(0)}%</strong></div>
+      <div><span>Pit stops</span><strong>{car.pitStops}</strong></div>
+    </div>
+    <div className="driver-stage-actions">
+      <div className="driver-stage-pit-inputs">
+        <label>Next tyre<select value={pitCompound} onChange={event => onPitCompound(event.target.value)}>{['soft', 'medium', 'hard', 'intermediate', 'wet'].map(compound => <option key={compound} value={compound}>{compound.toUpperCase()}</option>)}</select></label>
+        <label>Pit lap<input type="number" min={raceState.lap + 1} max={raceState.totalLaps - 1} value={pitLap} onChange={event => onPitLap(Number(event.target.value))} /></label>
+      </div>
+      <div className="driver-stage-command-buttons">
+        <button type="button" onClick={() => onPitCommand('pit_this_lap')} disabled={car.retired || car.completed || raceState.done}>Pit now</button>
+        <button type="button" onClick={() => onPitCommand('pit_next_lap')} disabled={car.retired || car.completed || raceState.done}>Pit next lap</button>
+        <button type="button" onClick={() => onPitCommand('planned_stop')} disabled={car.retired || car.completed || raceState.done}>Schedule lap {Math.max(pitLap, raceState.lap + 1)}</button>
+        <button type="button" onClick={() => onPitCommand('set_compound')} disabled={car.retired || car.completed || raceState.done}>Set next tyre</button>
+        <button type="button" onClick={() => onPitCommand('stay_out')} disabled={car.retired || car.completed || raceState.done}>Stay out</button>
+        <button type="button" onClick={() => onPitCommand('auto')} disabled={car.retired || car.completed || raceState.done}>Auto strategy</button>
+        <button type="button" onClick={() => onPitCommand('cancel')} disabled={car.retired || car.completed || raceState.done}>Cancel command</button>
+        <button type="button" className="driver-stage-boost" onClick={() => onBoost(entry.driver.id)} disabled={boostDisabled}>{boostLabel}</button>
+      </div>
+      {pitFeedback && <p className="driver-stage-feedback" role="status">{pitFeedback}</p>}
+    </div>
+    <section className="driver-last-laps">
+      <div className="driver-stage-section-heading"><h4>Last 4 laps</h4><span>{opponent ? `vs ${opponent.driver?.code || opponent.driver?.name} · ${opponentRelation}` : 'No adjacent car'}</span></div>
+      <div className="driver-lap-strip">{[...lastFour].reverse().map(lap => {
+        const otherLap = opponentLaps.find(item => item.lap === lap.lap);
+        const delta = otherLap ? lap.time - otherLap.time : null;
+        return <div className="driver-lap-cell" key={lap.lap}><small>L{lap.lap}</small><strong>{formatTime(lap.time)}</strong>
+          <span className={delta === null ? '' : delta < 0 ? 'faster' : delta > 0 ? 'slower' : 'same'}>{delta === null ? '—' : `${delta > 0 ? '+' : ''}${delta.toFixed(3)}`}</span></div>;
+      })}{!lastFour.length && <p>No completed laps yet.</p>}</div>
+    </section>
+    <div className="driver-stage-lower">
+      <section><h4>Incidents</h4>{incidents.length
+        ? [...incidents].reverse().map((event, index) => <p key={`${event.type}-${index}`}><strong>Lap {event.lap}</strong> · {event.type.replaceAll('_', ' ')}</p>)
+        : <p>No incidents recorded.</p>}</section>
+      <section><h4>Pit history</h4>{car.pitHistory.length
+        ? [...car.pitHistory].reverse().map((pit, index) => <p key={`${pit.lap}-${index}`}>Lap {pit.lap}: {pit.from.toUpperCase()} → {pit.to.toUpperCase()} · +{pit.timeLoss.toFixed(1)} sec{pit.stages?.length ? ` (${pit.stages.map(stage => `${stage.phase.replaceAll('_', ' ')} ${stage.seconds.toFixed(1)}s`).join(' → ')})` : ''}</p>)
+        : <p>No pit stops recorded.</p>}</section>
+    </div>
+    <details className="driver-stage-details">
+      <summary>Full driver telemetry</summary>
+      <div className="driver-detail-facts">
+        <span>Tyre status <strong>{car.tyre.state.toUpperCase()} · {car.tyre.remainingCompetitiveLaps?.toFixed(1) ?? '—'} laps to limit</strong></span>
+        <span>Position <strong>P{position} · {placeCopy} from grid</strong></span>
+        <span>Command <strong>{car.pitStatus}</strong></span>
+        {car.mechanicalFault && <span>Vehicle fault <strong>{car.mechanicalFault.replaceAll('_', ' ')}</strong></span>}
+        {car.retired && <span>Retirement <strong>Lap {car.retirementLap} · {car.retirementReason}</strong></span>}
+      </div>
+      <section className="driver-recent-laps"><h4>Recent laps</h4>
+        {laps.slice(-8).reverse().map(lap => <p key={lap.lap}>Lap {lap.lap}: {formatTime(lap.time)} · {lap.tyre.toUpperCase()} ({lap.tyreAge}) · {lap.fuel.toFixed(1)} kg</p>)}
+      </section>
+    </details>
+  </section>;
+}
+
 function seasonSnapshots(rows = []) {
   const events = new Map();
   for (const row of rows) {
@@ -1121,7 +1344,10 @@ export function Simulate() {
       :event.type==='lapComplete'?[event.sectors[index]?.time]:[]
   ).filter(Number.isFinite)));
   const fastestSessionLap = phaseResult ? Math.min(...phaseResult.map(entry => entry.bestLap).filter(Number.isFinite)) : Infinity;
-  const selectedCar = raceState?.cars.find(car => String(car.driverId) === String(selectedDriverId));
+  const stageEntry = phaseResult?.find(entry => String(entry.driver.id) === String(selectedDriverId)) || phaseResult?.[0] || null;
+  const stagePosition = stageEntry ? phaseResult.findIndex(entry => String(entry.driver.id) === String(stageEntry.driver.id)) + 1 : 0;
+  const stageOpponent = stagePosition > 1 ? phaseResult[stagePosition - 2] : phaseResult?.[1] || null;
+  const selectedCar = raceState?.cars.find(car => String(car.driverId) === String(stageEntry?.driver.id));
   const teams = [...new Map(entries.map(e => [e.team.id, e.team])).values()];
   const practiceSubstitutionOptions = teams.map(team => {
     const lineup = practiceLineups.data?.find(item => String(item.team_id) === String(team.id));
@@ -1632,7 +1858,20 @@ export function Simulate() {
               <QueryStatus query={tyreImagesQuery} />
               <div className="results-panel"><div className="section-title"><h3>Live timing</h3><p>{raceState.done ? 'Chequered flag' : 'Simulation in progress'}</p></div>
                 {boostFeedback && <p className="boost-feedback" role="status">{boostFeedback}</p>}
-                <div className="scroll"><table className="race-table live-timing-table"><thead><tr><th>POS</th><th>DRIVER</th><th>GAP</th><th>INT</th><th>LAST</th><th>BEST</th><th>TYRE</th><th>AGE</th><th>WEAR</th><th>GRIP</th><th>PITS</th><th>FUEL</th><th>PIT COMMAND</th><th>STATUS</th><th>BOOST</th><th></th></tr></thead>
+                <div className="live-timing-layout">
+                  <TimingTower entries={phaseResult} lap={raceState.lap} totalLaps={raceState.totalLaps}
+                    selectedDriverId={selectedDriverId} defaultFocusIndex={Math.min(8, Math.max(0, phaseResult.length - 1))}
+                    onSelect={driverId => setSelectedDriverId(driverId)} />
+                  <div className="timing-stage-column">
+                    <DriverStage entry={stageEntry} car={selectedCar} opponent={stageOpponent} position={stagePosition}
+                      raceState={raceState} pitCompound={pitCompound} pitLap={pitLap} pitFeedback={pitFeedback}
+                      onPitCompound={setPitCompound} onPitLap={setPitLap} onPitCommand={issuePitCommand}
+                      onBoost={issueDriverBoost} onClose={() => setSelectedDriverId(null)}
+                      boostDisabled={raceState.done || stageEntry.retired || stageEntry.completed || stageEntry.boostLap != null || stageEntry.boostCooldownLaps > 0}
+                      boostLabel={stageEntry.boostLap != null ? 'BOOST ARMED' : stageEntry.boostCooldownLaps > 0 ? `BOOST · ${stageEntry.boostCooldownLaps}L` : 'BOOST'} />
+                    <details className="timing-details">
+                      <summary>Detailed timing and race controls</summary>
+                      <div className="scroll"><table className="race-table live-timing-table"><thead><tr><th>POS</th><th>DRIVER</th><th>GAP</th><th>INT</th><th>LAST</th><th>BEST</th><th>TYRE</th><th>AGE</th><th>WEAR</th><th>GRIP</th><th>PITS</th><th>FUEL</th><th>PIT COMMAND</th><th>STATUS</th><th>BOOST</th><th></th></tr></thead>
                   <tbody>{phaseResult.map((entry, index) => {
                     const leader = phaseResult[0], ahead = phaseResult[index - 1];
                     const gap = entry.lapsCompleted < leader.lapsCompleted ? `+${leader.lapsCompleted - entry.lapsCompleted} LAP` : index === 0 ? '—' : `+${(entry.totalTime - leader.totalTime).toFixed(3)}`;
@@ -1652,30 +1891,11 @@ export function Simulate() {
                       <td className="driver-grid-image-cell">{driverGridImage(entry.driver, selectedRace?.year) && <img className="driver-grid-image" src={driverGridImage(entry.driver, selectedRace?.year)} alt={`${entry.driver.name} grid image`} />}</td>
                     </tr>
                   })}</tbody></table></div>
+                    </details>
+                  </div>
+                </div>
               </div>
               {!!raceState.events.length && <div className="race-events"><h3>Race control</h3>{raceState.events.slice(-6).reverse().map((event, index) => <p key={`${event.type}-${event.lap}-${index}`}><strong>L{event.lap}</strong> · {event.type.replaceAll('_', ' ')}{event.reason ? ` — ${event.reason}` : ''}</p>)}</div>}
-              {selectedCar && <div className="driver-telemetry">
-                <div className="section-title"><h3>{selectedCar.entry.driver.name} · Car telemetry</h3><button onClick={() => setSelectedDriverId(null)}>Close</button></div>
-                <div className="telemetry-facts"><span>Fuel <strong>{selectedCar.fuelRemaining.toFixed(1)} kg</strong></span><span>Damage <strong>{(selectedCar.damage * 100).toFixed(0)}%</strong></span><span>Tyre <strong>{selectedCar.tyre.compound.toUpperCase()} · {selectedCar.tyre.age} laps</strong></span><span>Wear / grip <strong>{selectedCar.tyre.wear.toFixed(1)}% · {(selectedCar.tyre.grip * 100).toFixed(0)}%</strong></span><span>Tyre status <strong>{selectedCar.tyre.state.toUpperCase()} · {selectedCar.tyre.remainingCompetitiveLaps?.toFixed(1) ?? '—'} laps to limit</strong></span><span>Pit stops <strong>{selectedCar.pitStops}</strong></span><span>Position <strong>P{selectedCar.position} ({selectedCar.positionHistory[0] >= selectedCar.position ? '+' + (selectedCar.positionHistory[0] - selectedCar.position) : selectedCar.position - selectedCar.positionHistory[0]} places)</strong></span><span>Command <strong>{selectedCar.pitStatus}</strong></span>{selectedCar.mechanicalFault && <span>Vehicle fault <strong>{selectedCar.mechanicalFault.replaceAll('_', ' ')}</strong></span>}{selectedCar.retired && <span>Retirement <strong>Lap {selectedCar.retirementLap} · {selectedCar.retirementReason}</strong></span>}</div>
-                <div className="pit-command">
-                  <strong>Driver-specific pit command</strong>
-                  <small>Manual pit plans suppress automatic stops until executed. “Stay out” defers a planned stop one lap; weather and puncture emergencies can force an earlier stop.</small>
-                  <label>Next-stop compound<select value={pitCompound} onChange={event => setPitCompound(event.target.value)}>{['soft', 'medium', 'hard', 'intermediate', 'wet'].map(compound => <option key={compound} value={compound}>{compound.toUpperCase()}</option>)}</select></label>
-                  <label>Planned pit lap<input type="number" min={raceState.lap + 1} max={raceState.totalLaps - 1} value={pitLap} onChange={event => setPitLap(Number(event.target.value))} /></label>
-                  <button onClick={() => issuePitCommand('pit_this_lap')} disabled={selectedCar.retired || selectedCar.completed || raceState.done}>Pit this lap</button>
-                  <button onClick={() => issuePitCommand('pit_next_lap')} disabled={selectedCar.retired || selectedCar.completed || raceState.done}>Pit next lap</button>
-                  <button onClick={() => issuePitCommand('planned_stop')} disabled={selectedCar.retired || selectedCar.completed || raceState.done}>Schedule lap {Math.max(pitLap, raceState.lap + 1)}</button>
-                  <button onClick={() => issuePitCommand('set_compound')} disabled={selectedCar.retired || selectedCar.completed || raceState.done}>Set next-stop tyre</button>
-                  <button onClick={() => issuePitCommand('stay_out')} disabled={selectedCar.retired || selectedCar.completed || raceState.done}>Stay out</button>
-                  <button onClick={() => issuePitCommand('auto')} disabled={selectedCar.retired || selectedCar.completed || raceState.done}>Automatic strategy</button>
-                  <button onClick={() => issuePitCommand('cancel')} disabled={selectedCar.retired || selectedCar.completed || raceState.done}>Cancel queued instruction</button>
-                  {pitFeedback && <span role="status">{pitFeedback}</span>}
-                </div>
-                <div className="telemetry-columns"><div><h4>Recent laps</h4>{selectedCar.lapHistory.slice(-8).reverse().map(lap => <p key={lap.lap}>Lap {lap.lap}: {formatTime(lap.time)} · {lap.tyre.toUpperCase()} ({lap.tyreAge}) · {lap.fuel.toFixed(1)} kg</p>)}</div>
-                  <div><h4>Pit history</h4>{selectedCar.pitHistory.length ? selectedCar.pitHistory.map((pit, index) => <p key={`${pit.lap}-${index}`}>Lap {pit.lap}: {pit.from.toUpperCase()} → {pit.to.toUpperCase()} · +{pit.timeLoss.toFixed(1)} sec ({pit.stages.map(stage => `${stage.phase.replaceAll('_', ' ')} ${stage.seconds.toFixed(1)}s`).join(' → ')})</p>) : <p>No pit stops recorded.</p>}
-                    <h4>Incidents</h4>{selectedCar.events.filter(event => event.type !== 'overtake' && event.type !== 'attack_defended').length ? selectedCar.events.filter(event => event.type !== 'overtake' && event.type !== 'attack_defended').map((event, index) => <p key={`${event.type}-${index}`}>Lap {event.lap}: {event.type.replaceAll('_', ' ')}</p>) : <p>No incidents recorded.</p>}</div>
-                </div>
-              </div>}
             </>}
           </div>}
           {phaseResult && phase !== 'race' && phase !== 'sprint' && <div className="results-panel"><div className="section-title"><h3>{PHASE_LABELS[phase]} classification</h3><p>{isPractice ? 'Practice pace' : isQualifying ? 'Starting grid' : 'Session results'}</p></div>

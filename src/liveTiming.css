@@ -1,0 +1,371 @@
+.live-timing-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+}
+
+.timing-tower {
+  --u: calc(280px / 280);
+  --tower-bg: rgba(22, 23, 32, .8);
+  --bar-grad: linear-gradient(180deg, #1a1c1e, #2f2e33);
+  --line: #545454;
+  --grid: #252525;
+  --stripe: #343434;
+  --up: #72ef4b;
+  --down: #aa221a;
+  --battle: #bb4124;
+  --tyre-medium: #c4c14f;
+  --tyre-soft: #ee4b43;
+  --tyre-hard: #e9e9e9;
+  --font-timing: Formula1, "Titillium Web", "Exo 2", sans-serif;
+  position: sticky;
+  top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  align-self: start;
+  width: min(280px, 100%);
+  min-width: 0;
+  padding: 0 2px 10px var(--u);
+  overflow: hidden;
+  border: 0;
+  border-left: var(--u) solid var(--stripe);
+  border-radius: 20.6px 0 0 16.5px;
+  background: var(--tower-bg);
+  box-shadow: inset 2px 0 var(--stripe);
+  color: #fff;
+  backdrop-filter: blur(3px);
+  font-family: var(--font-timing);
+  text-shadow: 0 0 3px rgba(0, 0, 0, .7);
+}
+
+.timing-tower-header { display: grid; min-width: 0; }
+
+.timing-tower-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 5px 10px 4px 13px;
+}
+
+.timing-tower-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 136px;
+  width: 136px;
+  height: 47px;
+  color: #e7e7e7;
+  font: italic 900 39px/.9 var(--font-timing);
+  letter-spacing: -.12em;
+  text-shadow: 0 0 3px rgba(0, 0, 0, .7);
+}
+
+.timing-tower-brand strong {
+  color: #afb1b2;
+  font-size: 31px;
+  font-weight: 900;
+  letter-spacing: .13em;
+  line-height: 1;
+}
+
+.timing-tower-lap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 37px;
+  border-bottom: 1.4px solid var(--line);
+  background: var(--bar-grad);
+  color: #fff;
+  letter-spacing: .07em;
+}
+
+.timing-tower-lap em { font-size: 20.6px; font-style: italic; }
+.timing-tower-lap em:first-child { font-size: 22px; }
+
+.timing-tower-current-lap {
+  display: grid;
+  place-items: center;
+  min-width: 29px;
+  height: 27px;
+  border: 1px solid #fff;
+  font-size: 24px;
+  font-style: italic;
+  line-height: 1;
+}
+
+.timing-tower-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  min-width: 0;
+  padding: 0 5px 0 3px;
+}
+
+.timing-tower-item { min-width: 0; }
+
+.timing-tower-row {
+  display: grid;
+  grid-template-columns: 44px 38px minmax(0, 1fr) 76px 24px;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  height: 33px;
+  padding: 0 2px;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-timing);
+  text-shadow: 0 0 3px rgba(0, 0, 0, .7);
+}
+
+.timing-tower-row:hover { background: rgba(255, 255, 255, .08); }
+.timing-tower-row.selected { border-left-color: var(--team-color); background: rgba(255, 255, 255, .13); }
+.timing-tower-row.battle-target:not(.selected) { background: rgba(255, 255, 255, .045); }
+.timing-tower-row.retired { opacity: .46; }
+
+.timing-tower-position {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  color: #fff;
+  font-size: 20px;
+  font-style: italic;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.timing-position-chevron {
+  width: 19px;
+  height: 12px;
+  overflow: visible;
+  fill: none;
+  stroke: var(--up);
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  stroke-width: 2.2;
+}
+
+.timing-tower-position.lost { flex-direction: column; }
+.timing-tower-position.lost .timing-position-chevron { transform: rotate(180deg); stroke: var(--down); }
+.timing-tower-position.gained { flex-direction: column; }
+.timing-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+.timing-tower-team { display: grid; place-items: center; width: 38px; height: 33px; min-width: 0; }
+.timing-tower-team img { width: 38px; height: 33px; object-fit: contain; }
+.timing-tower-team img.mirror-logo,
+.timing-battle-team img.mirror-logo { transform: scaleX(-1); }
+.timing-tower-team small { font-size: 9px; }
+.timing-tower-code { overflow: hidden; font-size: 21px; font-weight: 500; text-overflow: clip; white-space: nowrap; }
+
+.timing-tower-gap {
+  overflow: hidden;
+  color: #fff;
+  font-size: 19px;
+  font-style: italic;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.timing-tower-gap.leader-gap { font-size: 14px; font-weight: 700; }
+.timing-tower-gap.out-gap { font-size: 17px; }
+.timing-tower-tyre { display: grid; place-items: center; color: var(--tyre-medium); font-size: 15px; font-weight: 700; }
+.timing-tower-tyre.soft { color: var(--tyre-soft); }
+.timing-tower-tyre.hard { color: var(--tyre-hard); }
+.timing-tower-tyre.intermediate { color: #64c76b; }
+.timing-tower-tyre.wet { color: #4a9cf5; }
+
+.timing-tower-row:focus-visible { position: relative; z-index: 1; outline: 2px solid #fff; outline-offset: -2px; }
+
+.timing-battle {
+  width: 274px;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-top: 1.4px solid var(--line);
+  background: #151319;
+}
+
+.timing-battle-divider { height: 1px; background: var(--line); }
+.timing-battle h4 { margin: 8px 0; color: var(--battle); font-size: 20.6px; font-style: italic; font-weight: 700; text-align: center; }
+
+.timing-battle-driver {
+  display: grid;
+  grid-template-columns: 18px 55px minmax(0, 1fr);
+  align-items: center;
+  height: 38px;
+  min-width: 0;
+  background-color: #e9e8ec;
+  background-image: repeating-linear-gradient(135deg, #d7d6d9 0 1px, transparent 1px 8px);
+}
+
+.timing-battle-position {
+  display: grid;
+  place-items: center;
+  height: 38px;
+  background: #010102;
+  color: #fff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.timing-battle-team { display: grid; place-items: center; width: 55px; height: 38px; background: var(--team-color); }
+.timing-battle-team img { width: 50px; height: 34px; object-fit: contain; }
+.timing-battle-driver strong { overflow: hidden; padding: 0 5px; color: #010102; font-size: 21px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.timing-battle-driver.unavailable { opacity: .45; }
+
+.timing-battle-gap {
+  display: grid;
+  place-items: center;
+  min-height: 84px;
+  background-color: #151319;
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 9.6px 9.6px;
+  color: #fff;
+  font-size: 46px;
+  font-style: italic;
+  line-height: 1;
+}
+
+.timing-stage-column { display: grid; gap: 10px; min-width: 0; }
+
+.driver-stage {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--team-color);
+}
+
+.driver-stage-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.driver-stage-identity { display: flex; align-items: center; gap: 9px; min-width: 0; margin-right: auto; }
+.driver-stage-identity img { width: 42px; height: 38px; object-fit: contain; }
+.driver-stage-identity p { margin: 0; color: var(--muted-text); font-size: .65rem; }
+.driver-stage-identity h3 { margin: 1px 0; font-size: 1.1rem; }
+.driver-stage-status { display: grid; gap: 3px; text-align: right; font-size: .72rem; }
+.driver-stage-status span { color: var(--muted-text); font-size: .62rem; }
+
+.driver-stage-close {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  background: var(--surface-muted);
+  color: var(--text);
+  font-size: 1.15rem;
+}
+
+.driver-stage-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.driver-stage-metrics > div { display: grid; gap: 3px; min-width: 0; padding: 8px; background: var(--surface-muted); border-bottom: 2px solid var(--line); }
+.driver-stage-metrics > div span { color: var(--muted-text); font-size: .58rem; text-transform: uppercase; }
+.driver-stage-metrics > div strong { overflow: hidden; font-size: .9rem; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+
+.driver-stage-actions { display: grid; gap: 7px; padding: 9px; background: var(--surface-muted); }
+.driver-stage-pit-inputs { display: flex; gap: 8px; }
+.driver-stage-pit-inputs label { display: grid; gap: 3px; font-size: .62rem; font-weight: 700; }
+.driver-stage-pit-inputs select,
+.driver-stage-pit-inputs input { min-height: 34px; padding: 5px 8px; border: 1px solid var(--line); background: var(--surface-control); color: var(--text); font: inherit; }
+.driver-stage-command-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+.driver-stage-command-buttons button { min-height: 38px; padding: 7px 10px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font-size: .65rem; font-weight: 700; }
+.driver-stage-command-buttons button:disabled { opacity: .5; }
+.driver-stage-command-buttons .driver-stage-boost { margin-left: auto; border-color: var(--red); background: var(--red); color: #fff; font-weight: 900; }
+.driver-stage-feedback { margin: 0; color: var(--red); font-size: .68rem; }
+
+.driver-last-laps { min-width: 0; padding: 8px; background: #17181e; color: #fff; }
+.driver-stage-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.driver-stage-section-heading h4,
+.driver-stage-lower h4 { margin: 0 0 6px; font-size: .72rem; }
+.driver-stage-section-heading > span { color: #b4b6bd; font-size: .58rem; }
+.driver-lap-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+.driver-lap-cell { display: grid; gap: 3px; min-width: 0; padding: 6px; background: #23252d; text-align: center; }
+.driver-lap-cell small { color: #b4b6bd; font-size: .55rem; }
+.driver-lap-cell strong { overflow: hidden; font-size: .72rem; font-variant-numeric: tabular-nums; text-overflow: ellipsis; }
+.driver-lap-cell > span { font-size: .6rem; font-variant-numeric: tabular-nums; }
+.driver-lap-cell .faster { color: #50d17a; }
+.driver-lap-cell .slower { color: #f16e6e; }
+.driver-lap-cell .same { color: #c6c7cb; }
+.driver-lap-strip > p { grid-column: 1 / -1; margin: 4px; font-size: .65rem; }
+.driver-stage-lower { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.driver-stage-lower > section { min-width: 0; padding: 8px; background: var(--surface-muted); }
+.driver-stage-lower p { margin: 3px 0; color: var(--muted-text); font-size: .62rem; overflow-wrap: anywhere; }
+.driver-stage-lower p strong { color: var(--text); }
+
+.driver-stage-details { min-width: 0; padding: 7px 8px; background: var(--surface-muted); }
+.driver-stage-details > summary { color: var(--text); font-size: .68rem; font-weight: 700; cursor: pointer; }
+.driver-detail-facts { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 8px 0; }
+.driver-detail-facts span { color: var(--muted-text); font-size: .62rem; }
+.driver-detail-facts strong { color: var(--text); }
+.driver-recent-laps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px 10px; }
+.driver-recent-laps h4 { grid-column: 1 / -1; margin: 3px 0; font-size: .68rem; }
+.driver-recent-laps p { margin: 0; color: var(--muted-text); font-size: .58rem; }
+
+.timing-details { min-width: 0; margin: 0; }
+.timing-details > summary { width: fit-content; padding: 7px 10px; border: 1px solid var(--line); background: var(--surface-muted); color: var(--text); font-size: .68rem; font-weight: 700; cursor: pointer; }
+.timing-details[open] > summary { margin-bottom: 8px; }
+.timing-details .scroll { overflow-x: auto; }
+.timing-details .live-timing-table { min-width: 1020px; }
+
+@media (max-width: 640px) {
+  .live-timing-layout { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .timing-tower { position: static; width: min(280px, 100%); --u: .8px; --font-timing: Formula1, "Titillium Web", "Exo 2", sans-serif; }
+  .timing-tower-brand { min-height: 48px; gap: 7px; padding: 4px 7px 3px 9px; }
+  .timing-tower-mark { flex-basis: min(136px, 50%); width: min(136px, 50%); height: 39px; font-size: clamp(29px, 10vw, 36px); }
+  .timing-tower-brand strong { font-size: clamp(20px, 8vw, 28px); }
+  .timing-tower-lap { gap: clamp(5px, 2vw, 10px); }
+  .timing-tower-lap em { font-size: clamp(16px, 6vw, 20.6px); }
+  .timing-tower-lap em:first-child { font-size: clamp(17px, 6.4vw, 22px); }
+  .timing-tower-current-lap { min-width: 25px; height: 25px; font-size: 21px; }
+  .timing-tower-rows { gap: 11px; padding: 0 4px 0 2px; }
+  .timing-tower-row { grid-template-columns: 44px 38px minmax(0, 1fr) clamp(55px, 21vw, 76px) 24px; height: 31px; gap: 1px; padding: 0 1px; }
+  .timing-tower-position { font-size: 17px; }
+  .timing-tower-team,
+  .timing-tower-team img { width: 34px; height: 30px; }
+  .timing-tower-code { font-size: clamp(16px, 6vw, 20px); }
+  .timing-tower-gap { font-size: clamp(14px, 5vw, 18px); }
+  .timing-tower-gap.leader-gap { font-size: 12px; }
+  .timing-tower-tyre { font-size: 14px; }
+  .timing-battle { width: min(274px, 100%); }
+  .timing-battle h4 { margin: 6px 0; font-size: clamp(16px, 6vw, 20.6px); }
+  .timing-battle-gap { min-height: 68px; font-size: clamp(34px, 13vw, 46px); }
+  .timing-battle-driver strong { font-size: clamp(16px, 6vw, 21px); }
+  .timing-stage-column { grid-row: 2; }
+  .driver-stage { padding: 9px; gap: 8px; }
+  .driver-stage-header { gap: 6px; }
+  .driver-stage-identity img { width: 32px; height: 30px; }
+  .driver-stage-identity h3 { font-size: .9rem; }
+  .driver-stage-status { font-size: .62rem; }
+  .driver-stage-status span { font-size: .52rem; }
+  .driver-stage-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .driver-stage-metrics > div { padding: 6px; }
+  .driver-stage-metrics > div span { font-size: .52rem; }
+  .driver-stage-metrics > div strong { font-size: .78rem; }
+  .driver-stage-pit-inputs select,
+  .driver-stage-pit-inputs input { min-width: 0; max-width: 100%; }
+  .driver-stage-command-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .driver-stage-command-buttons button { min-height: 42px; padding: 6px; font-size: .58rem; }
+  .driver-stage-command-buttons .driver-stage-boost { grid-column: 1 / -1; margin: 0; }
+  .driver-stage-lower { grid-template-columns: 1fr; }
+  .driver-recent-laps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .driver-stage-section-heading > span { max-width: 55%; text-align: right; }
+  .timing-details .live-timing-table { min-width: 1020px; }
+}
