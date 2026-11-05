@@ -187,11 +187,40 @@ export function Home() {
     {n.data && <p className="muted">{n.data.drivers} drivers, {n.data.teams} teams, {n.data.races} races loaded</p>}<QueryStatus query={n} /></section>
 }
 export function Drivers() {
+  const [driverTab, setDriverTab] = useState('current');
+  const currentSeason = new Date().getFullYear();
   const d = useQ(() => sb.from('drivers').select('*,driver_images(*)').order('name'));
-  return <><h2>Drivers</h2><QueryStatus query={d} empty="No drivers yet." /><div className="grid driver-grid">{d.data?.map(x => {
-    const image = latestImg(x, 'pole_url');
-    return <Link key={x.id} to={'/drivers/' + x.id} className={`card driver-card${image ? ' has-image' : ''}`}>{image && <img className="driver-pole-image" src={image} alt="" aria-hidden="true" />}<div className="driver-card-copy"><h3>{x.name}</h3><p><span className="driver-code">{x.code}</span> #{x.number}</p></div></Link>;
-  })}</div></>
+  const lineups = useQ(() => sb.from('team_driver_lineups')
+    .select('driver_1_id,driver_2_id,reserve_driver_id')
+    .eq('year', currentSeason));
+  const currentDriverIds = new Set((lineups.data || [])
+    .flatMap(lineup => [lineup.driver_1_id, lineup.driver_2_id, lineup.reserve_driver_id])
+    .filter(id => id !== null && id !== undefined)
+    .map(String));
+  const currentDrivers = (d.data || []).filter(driver => currentDriverIds.has(String(driver.id)));
+  const pastDrivers = (d.data || []).filter(driver => !currentDriverIds.has(String(driver.id)));
+  const selectedDrivers = driverTab === 'current' ? currentDrivers : pastDrivers;
+  return <><h2>Drivers</h2>
+    <QueryStatus query={d} empty="No drivers yet." />
+    <QueryStatus query={lineups} />
+    <div className="driver-season-tabs" role="tablist" aria-label="Driver seasons">
+      <button type="button" role="tab" id="current-drivers-tab" aria-controls="current-drivers-panel"
+        aria-selected={driverTab === 'current'} className={driverTab === 'current' ? 'active' : ''}
+        onClick={() => setDriverTab('current')}>Current season{lineups.data ? ` (${currentDrivers.length})` : ''}</button>
+      <button type="button" role="tab" id="past-drivers-tab" aria-controls="past-drivers-panel"
+        aria-selected={driverTab === 'past'} className={driverTab === 'past' ? 'active' : ''}
+        onClick={() => setDriverTab('past')}>Past drivers{lineups.data ? ` (${pastDrivers.length})` : ''}</button>
+    </div>
+    <section role="tabpanel" id={driverTab === 'current' ? 'current-drivers-panel' : 'past-drivers-panel'}
+      aria-labelledby={driverTab === 'current' ? 'current-drivers-tab' : 'past-drivers-tab'}>
+      {d.data && lineups.data && (selectedDrivers.length
+        ? <div className="grid driver-grid">{selectedDrivers.map(x => {
+          const image = driverGridImage(x);
+          return <Link key={x.id} to={'/drivers/' + x.id} className={`card driver-card${image ? ' has-image' : ''}`}>{image && <img className="driver-pole-image" src={image} alt="" aria-hidden="true" />}<div className="driver-card-copy"><h3>{x.name}</h3><p><span className="driver-code">{x.code}</span> #{x.number}</p></div></Link>;
+        })}</div>
+        : <p className="query-status">{driverTab === 'current' ? `No drivers assigned for ${currentSeason}.` : 'No past drivers.'}</p>)}
+    </section>
+  </>
 }
 export function Driver() {
   const { id } = useParams(); const d = useQ(() => sb.from('drivers').select('*,driver_images(*),driver_ratings(*)').eq('id', id).single(), [id]);
@@ -299,15 +328,38 @@ const CarCard = ({ c, sub, teamLogo, teamName }) => <details className="card car
   </div>
 </details>;
 export function Cars() {
+  const [selectedSeason, setSelectedSeason] = useState('current');
+  const currentSeason = new Date().getFullYear();
   const c = useQ(() => sb.from('cars').select('*,teams(name,logo_normal)').order('year', { ascending: false }));
-  return <><h2>Cars</h2><QueryStatus query={c} empty="No cars yet." /><div className="grid">{c.data?.map(x => <CarCard key={x.id} c={x} teamLogo={x.teams?.logo_normal} teamName={x.teams?.name} sub={x.engine || ''} />)}</div></>
+  const seasons = [...new Set((c.data || []).map(car => Number(car.year)).filter(Number.isFinite))]
+    .filter(year => year !== currentSeason)
+    .sort((a, b) => b - a);
+  const visibleCars = (c.data || []).filter(car => Number(car.year) === (selectedSeason === 'current' ? currentSeason : Number(selectedSeason)));
+  const selectedTabId = selectedSeason === 'current' ? 'current-cars-tab' : `cars-${selectedSeason}-tab`;
+  return <><h2>Cars</h2><QueryStatus query={c} empty="No cars yet." />
+    {c.data && c.data.length > 0 && <>
+      <div className="car-season-tabs" role="tablist" aria-label="Car model years">
+        <button type="button" role="tab" id="current-cars-tab" aria-controls="cars-panel"
+          aria-selected={selectedSeason === 'current'} className={selectedSeason === 'current' ? 'active' : ''}
+          onClick={() => setSelectedSeason('current')}>Current season ({(c.data || []).filter(car => Number(car.year) === currentSeason).length})</button>
+        {seasons.map(year => <button type="button" role="tab" key={year} id={`cars-${year}-tab`} aria-controls="cars-panel"
+          aria-selected={selectedSeason === String(year)} className={selectedSeason === String(year) ? 'active' : ''}
+          onClick={() => setSelectedSeason(String(year))}>{year}</button>)}
+      </div>
+      <section id="cars-panel" role="tabpanel" aria-labelledby={selectedTabId}>
+        {visibleCars.length
+          ? <div className="grid">{visibleCars.map(car => <CarCard key={car.id} c={car} teamLogo={car.teams?.logo_normal} teamName={car.teams?.name} sub={car.engine || ''} />)}</div>
+          : <p className="query-status">{selectedSeason === 'current' ? `No cars for ${currentSeason}.` : `No cars for ${selectedSeason}.`}</p>}
+      </section>
+    </>}
+  </>
 }
 export function Teams() {
   const t = useQ(() => sb.from('teams').select('*').order('name'));
   return <><h2>Teams</h2><QueryStatus query={t} empty="No teams yet." /><div className="grid team-grid">{t.data?.map(x => {
     const detailedLogo = Boolean(x.logo_detailed);
     const logo = x.logo_detailed || x.logo_normal;
-    return <Link key={x.id} to={'/teams/' + x.id} className={`card team-card ${detailedLogo ? 'has-detailed-logo' : 'has-normal-logo'}`} aria-label={x.name}>
+    return <Link key={x.id} to={'/teams/' + x.id} className={`card team-card ${detailedLogo ? 'has-detailed-logo' : 'has-normal-logo'}`} aria-label={x.name} style={{ backgroundColor: x.color || '#fff' }}>
       {logo && <img src={logo} alt={`${x.name} logo`} />}
     </Link>;
   })}</div></>
