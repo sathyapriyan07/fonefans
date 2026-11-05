@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'; import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { sb } from './supabase.js'; import { activateDriverBoost, advanceRaceIfRunning, advanceRaceLap, applyDriverPerformanceBoosts, applyPracticeSubstitutions, applyTeamPerformanceBoosts, calculateStandings, calculateTeammateHeadToHead, createRaceState, getBestCareerPositions, getCareerChampionships, getCareerRecords, getCareerStats, getClassification, getTeamCareerStats, getWeekendAwards, getWeekendPhases, practice, requiresMandatoryDryTyreCompounds, setPitInstruction, setTeamRaceAdjustments, simulateQualifyingWeekend } from './sim.js';
-import LiveTrackMap from './LiveTrackMap.jsx';
 import './liveTiming.css';
-import {buildTrackPath,getDirectionalTrackPoints,getLapProgress,getTrackDisplayPoint,hasUsableTrackPath,interpolateLapProgress,parseCircuitTrackPath} from './trackPath.js';
 import { CAR_ATTRIBUTES, CAR_OVERALL_ATTRIBUTES, getCarOverall, getCarScore, getNearestCarYear, rankCarsByAttribute } from './carRatings.js';
 import { filterTeamResultsBySeason, getTeamResultCoverage, getTeamResultYear } from './teamResults.js';
 function useQ(fn, deps = []) {
@@ -1267,7 +1265,6 @@ export function Simulate() {
   const [practiceSubstitutions, setPracticeSubstitutions] = useState({});
   const [resultSaveError, setResultSaveError] = useState(''); const [resultSaveFailed, setResultSaveFailed] = useState(false); const [resultSaveSaving, setResultSaveSaving] = useState(false); const [resultSaveNeedsAuth, setResultSaveNeedsAuth] = useState(false); const [resultSaveSuccess, setResultSaveSuccess] = useState('');
   const [raceState, setRaceState] = useState(null); const [isRunning, setIsRunning] = useState(false); const [raceViewTab, setRaceViewTab] = useState('timing'); const [raceTeamAdjustments, setRaceTeamAdjustments] = useState({}); const [simulationSpeed, setSimulationSpeed] = useState(1); const [weatherMode, setWeatherMode] = useState('dry'); const [selectedDriverId, setSelectedDriverId] = useState(null); const [pitCompound, setPitCompound] = useState('medium'); const [pitLap, setPitLap] = useState(1); const [pitFeedback, setPitFeedback] = useState(''); const [boostFeedback, setBoostFeedback] = useState('');
-  const [trackTestFeedback,setTrackTestFeedback]=useState('');
   const [nextRaceNotice, setNextRaceNotice] = useState('');
   const completedRaceRef = useRef(null);
   const resultSaveQueueRef = useRef([]);
@@ -1414,7 +1411,6 @@ export function Simulate() {
   };
   const selectRace = raceId => {
     setNextRaceNotice('');
-    setTrackTestFeedback('');
     setR(raceId ? String(raceId) : '');
     setWeekendStarted(false);
     setWeekendComplete(false);
@@ -1429,7 +1425,7 @@ export function Simulate() {
     if (simulationTab !== 'weekend' || !grid || races.loading || seasonResultsQuery.loading || rid || !races.data) return;
     if (upcomingRace) selectRace(upcomingRace.id);
   }, [simulationTab, grid?.id, races.loading, races.data, seasonResultsQuery.loading, seasonResultsQuery.data, rid]);
-  useEffect(() => { setR(''); setWeekendStarted(false); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setQualifyingSimulation(null); setRaceState(null); setIsRunning(false); setPracticeSubstitutions({}); setTrackTestFeedback('') }, [gid]);
+  useEffect(() => { setR(''); setWeekendStarted(false); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setQualifyingSimulation(null); setRaceState(null); setIsRunning(false); setPracticeSubstitutions({}) }, [gid]);
   useEffect(() => {
     if (!isRunning || !raceState || raceState.done) return;
     const timer = window.setInterval(() => setRaceState(current => current ? advanceRaceIfRunning(current, true) : current), Math.max(100, 1000 / simulationSpeed));
@@ -1469,7 +1465,7 @@ export function Simulate() {
       setResultSaveError('Wait for queued results to save, or retry the pending save, before restarting the weekend.');
       return;
     }
-    setNextRaceNotice(''); setResultSaveError(''); setResultSaveFailed(false); setResultSaveNeedsAuth(false); setResultSaveSuccess(''); setBoostFeedback(''); setTrackTestFeedback(''); setWeekendStarted(true); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setQualifyingSimulation(null); setRaceState(null)
+    setNextRaceNotice(''); setResultSaveError(''); setResultSaveFailed(false); setResultSaveNeedsAuth(false); setResultSaveSuccess(''); setBoostFeedback(''); setWeekendStarted(true); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setQualifyingSimulation(null); setRaceState(null)
   };
   const resetSeasonStandings = async () => {
     if (!grid || !window.confirm(`Delete all saved simulated results for ${grid.name} (${grid.year}) from Supabase? This cannot be undone.`)) return;
@@ -1536,57 +1532,6 @@ export function Simulate() {
     }
     setQualifyingSimulation(null);
     persistPhaseResults(phase,currentQualifying.results);
-  };
-  const runTrackPathTest=()=>{
-    const trackMap=selectedRace?.track_map||{};
-    const circuitPath=parseCircuitTrackPath(selectedRace?.circuit_path);
-    const hasCircuitPath=typeof selectedRace?.circuit_path==='string'&&selectedRace.circuit_path.trim().startsWith('{');
-    const points=hasCircuitPath?circuitPath.points:trackMap.pathPoints||[];
-    if(hasCircuitPath?points.length<3:!hasUsableTrackPath(trackMap)){setTrackTestFeedback('Test unavailable: save a closed track path first.');return}
-    const originalRandom=Math.random;
-    try{
-      let randomState=(Number(selectedRace.id)||1)>>>0;
-      Math.random=()=>{randomState=(Math.imul(randomState,1664525)+1013904223)>>>0;return randomState/4294967296};
-      const direction=hasCircuitPath?circuitPath.direction:trackMap.drivingDirection==='counterclockwise'?-1:1;
-      const startIndex=hasCircuitPath?circuitPath.startFinishIndex:trackMap.startFinishIndex;
-      const directional=getDirectionalTrackPoints(points,startIndex??0,direction);
-      const path=buildTrackPath(directional.points,{closed:true,width:trackMap.imageWidth||1200,height:trackMap.imageHeight||800});
-      const displayMap={...trackMap,pitLanePoints:hasCircuitPath?circuitPath.pitLanePoints:trackMap.pitLanePoints};
-      let testState=createRaceState({
-        entries:performanceEntries.map((entry,index)=>({...entry,grid:index+1})),
-        race:selectedRace,setups:activeSetups,weather:weatherMode,
-        laps:Number(selectedRace.laps)||57
-      });
-      const shown=new Map(testState.cars.map(car=>[String(car.driverId),getLapProgress(car.trackProgress,testState.totalLaps,testState.lap)]));
-      let checked=0,backwardCorrections=0,steps=0;
-      while(!testState.done&&steps<testState.totalLaps+1){
-        const next=advanceRaceLap(testState);
-        for(const car of next.cars){
-          const id=String(car.driverId),previous=shown.get(id)??0;
-          const raceProgress=car.retired?(car.retiredProgress??car.trackProgress):car.trackProgress;
-          const target=getLapProgress(raceProgress,next.totalLaps,next.lap);
-          let correction=target-previous;
-          if(correction>0.5)correction-=1;
-          else if(correction< -0.5)correction+=1;
-          if(target+1e-6<previous)backwardCorrections++;
-          const midpoint=car.retired||car.completed?target:interpolateLapProgress(previous,target,0.5);
-          const progress=car.retired||car.completed?target:interpolateLapProgress(previous,target,1);
-          const middlePoint=getTrackDisplayPoint(path,displayMap,midpoint);
-          const endPoint=getTrackDisplayPoint(path,displayMap,progress);
-          if(1+correction<=0||![middlePoint,endPoint].every(point=>point&&Number.isFinite(point.x)&&Number.isFinite(point.y)))
-            throw new Error(`Invalid or backward map progress for driver ${id} on lap ${next.lap}.`);
-          shown.set(id,progress);checked++;
-        }
-        testState=next;steps++;
-      }
-      if(!testState.done)throw new Error(`Race did not complete within ${steps} simulated laps.`);
-      setTrackTestFeedback(`Passed: ${steps} laps, ${checked} car positions checked; ${backwardCorrections} backward timing updates smoothed.`);
-    }catch(error){
-      console.error('Full-race track path test failed:',error);
-      setTrackTestFeedback(`Failed: ${error instanceof Error?error.message:String(error)}`);
-    }finally{
-      Math.random=originalRandom;
-    }
   };
   const advance = () => { setQualifyingSimulation(null); if (phaseIndex < phases.length - 1) setPhaseIndex(i => i + 1); else setWeekendComplete(true) };
   const issuePitCommand = (command) => {
@@ -1844,7 +1789,6 @@ export function Simulate() {
                 </article>;
               })}</div>
             </section> : <>
-              <LiveTrackMap state={raceState} race={selectedRace} selectedDriverId={selectedDriverId} onSelect={setSelectedDriverId} isRunning={isRunning} speed={simulationSpeed} onTestMode={runTrackPathTest} testModeFeedback={trackTestFeedback} />
               {raceState.done && <SessionPodium entries={phaseResult} race={selectedRace} phaseLabel={PHASE_LABELS[phase]} raceResult fastestLap={fastestSessionLap} />}
               <QueryStatus query={tyreImagesQuery} />
               <div className="results-panel"><div className="section-title"><h3>Live timing</h3><p>{raceState.done ? 'Chequered flag' : 'Simulation in progress'}</p></div>
