@@ -1,12 +1,28 @@
+@font-face {
+  font-family: TimingBold;
+  src: url('/Formula1-Bold_web_0.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: TimingRegular;
+  src: url('/Formula1-Regular_web_0.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
 .live-timing-layout {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: 220px minmax(0, 1fr);
   align-items: start;
   gap: 14px;
 }
 
 .timing-tower {
-  --u: calc(280px / 280);
+  --u: calc(220px / 280);
   --tower-bg: rgba(22, 23, 32, .8);
   --bar-grad: linear-gradient(180deg, #1a1c1e, #2f2e33);
   --line: #545454;
@@ -23,15 +39,15 @@
   top: 10px;
   display: flex;
   flex-direction: column;
-  gap: 11px;
+  gap: calc(var(--u) * 8);
   align-self: start;
-  width: min(280px, 100%);
+  width: min(calc(var(--u) * 280), 100%);
   min-width: 0;
-  padding: 0 2px 10px var(--u);
+  padding: 0 calc(var(--u) * 2) calc(var(--u) * 7) var(--u);
   overflow: hidden;
   border: 0;
   border-left: var(--u) solid var(--stripe);
-  border-radius: 20.6px 0 0 16.5px;
+  border-radius: calc(var(--u) * 20.6) 0 0 calc(var(--u) * 16.5);
   background: var(--tower-bg);
   box-shadow: inset 2px 0 var(--stripe);
   color: #fff;
@@ -45,27 +61,27 @@
 .timing-tower-brand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 58px;
-  padding: 5px 10px 4px 13px;
+  gap: calc(var(--u) * 8);
+  min-height: calc(var(--u) * 48);
+  padding: calc(var(--u) * 4) calc(var(--u) * 8) calc(var(--u) * 3) calc(var(--u) * 10);
 }
 
 .timing-tower-mark {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 136px;
-  width: 136px;
-  height: 47px;
+  flex: 0 0 calc(var(--u) * 106);
+  width: calc(var(--u) * 106);
+  height: calc(var(--u) * 38);
   color: #e7e7e7;
-  font: italic 900 39px/.9 var(--font-timing);
+  font: italic 900 calc(var(--u) * 31)/.9 var(--font-timing);
   letter-spacing: -.12em;
   text-shadow: 0 0 3px rgba(0, 0, 0, .7);
 }
 
 .timing-tower-brand strong {
   color: #afb1b2;
-  font-size: 31px;
+  font-size: calc(var(--u) * 24);
   font-weight: 900;
   letter-spacing: .13em;
   line-height: 1;
@@ -75,24 +91,26 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  height: 37px;
+  gap: calc(var(--u) * 7);
+  height: calc(var(--u) * 31);
   border-bottom: 1.4px solid var(--line);
   background: var(--bar-grad);
   color: #fff;
+  font-family: TimingRegular, var(--font-timing);
   letter-spacing: .07em;
 }
 
-.timing-tower-lap em { font-size: 20.6px; font-style: italic; }
-.timing-tower-lap em:first-child { font-size: 22px; }
+.timing-tower-lap em { font-size: calc(var(--u) * 16); font-style: italic; }
+.timing-tower-lap em:first-child { font-size: calc(var(--u) * 17); }
 
 .timing-tower-current-lap {
   display: grid;
   place-items: center;
-  min-width: 29px;
-  height: 27px;
+  min-width: calc(var(--u) * 23);
+  height: calc(var(--u) * 22);
   border: 1px solid #fff;
-  font-size: 24px;
+  font-family: TimingRegular, var(--font-timing);
+  font-size: calc(var(--u) * 19);
   font-style: italic;
   line-height: 1;
 }
@@ -100,21 +118,21 @@
 .timing-tower-rows {
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: calc(var(--u) * 6);
   min-width: 0;
-  padding: 0 5px 0 3px;
+  padding: 0 calc(var(--u) * 4) 0 calc(var(--u) * 2);
 }
 
 .timing-tower-item { min-width: 0; }
 
 .timing-tower-row {
   display: grid;
-  grid-template-columns: 44px 38px minmax(0, 1fr) 76px 24px;
+  grid-template-columns: calc(var(--u) * 35) calc(var(--u) * 30) minmax(0, 1fr) calc(var(--u) * 76) calc(var(--u) * 19);
   align-items: center;
   gap: 2px;
   width: 100%;
-  height: 33px;
-  padding: 0 2px;
+  height: calc(var(--u) * 27);
+  padding: 0 calc(var(--u) * 1);
   border: 0;
   border-left: 2px solid transparent;
   background: transparent;
@@ -136,49 +154,34 @@
   justify-content: center;
   gap: 1px;
   color: #fff;
-  font-size: 20px;
+  font-size: calc(var(--u) * 16);
   font-style: italic;
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
 
-.timing-position-chevron {
-  width: 19px;
-  height: 12px;
-  overflow: visible;
-  fill: none;
-  stroke: var(--up);
-  stroke-linecap: square;
-  stroke-linejoin: miter;
-  stroke-width: 2.2;
-}
-
-.timing-tower-position.lost { flex-direction: column; }
-.timing-tower-position.lost .timing-position-chevron { transform: rotate(180deg); stroke: var(--down); }
-.timing-tower-position.gained { flex-direction: column; }
-.timing-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-
-.timing-tower-team { display: grid; place-items: center; width: 38px; height: 33px; min-width: 0; }
-.timing-tower-team img { width: 38px; height: 33px; object-fit: contain; }
+.timing-tower-team { display: grid; place-items: center; width: calc(var(--u) * 30); height: calc(var(--u) * 27); min-width: 0; }
+.timing-tower-team img { width: calc(var(--u) * 30); height: calc(var(--u) * 27); object-fit: contain; }
 .timing-tower-team img.mirror-logo,
 .timing-battle-team img.mirror-logo { transform: scaleX(-1); }
-.timing-tower-team small { font-size: 9px; }
-.timing-tower-code { overflow: hidden; font-size: 21px; font-weight: 500; text-overflow: clip; white-space: nowrap; }
+.timing-tower-team small { font-size: calc(var(--u) * 8); }
+.timing-tower-code { overflow: hidden; font-family: TimingBold, var(--font-timing); font-size: calc(var(--u) * 15); font-weight: 700; text-overflow: clip; white-space: nowrap; }
 
 .timing-tower-gap {
   overflow: hidden;
   color: #fff;
-  font-size: 19px;
-  font-style: italic;
+  font-family: TimingRegular, var(--font-timing);
+  font-size: calc(var(--u) * 13);
+  font-style: normal;
   font-variant-numeric: tabular-nums;
   text-align: right;
   text-overflow: clip;
   white-space: nowrap;
 }
 
-.timing-tower-gap.leader-gap { font-size: 14px; font-weight: 700; }
-.timing-tower-gap.out-gap { font-size: 17px; }
-.timing-tower-tyre { display: grid; place-items: center; color: var(--tyre-medium); font-size: 15px; font-weight: 700; }
+.timing-tower-gap.leader-gap { font-family: TimingBold, var(--font-timing); font-size: calc(var(--u) * 11); font-weight: 700; }
+.timing-tower-gap.out-gap { font-size: calc(var(--u) * 13); }
+.timing-tower-tyre { display: grid; place-items: center; color: var(--tyre-medium); font-family: TimingBold, var(--font-timing); font-size: calc(var(--u) * 12); font-weight: 700; }
 .timing-tower-tyre.soft { color: var(--tyre-soft); }
 .timing-tower-tyre.hard { color: var(--tyre-hard); }
 .timing-tower-tyre.intermediate { color: #64c76b; }
@@ -187,7 +190,7 @@
 .timing-tower-row:focus-visible { position: relative; z-index: 1; outline: 2px solid #fff; outline-offset: -2px; }
 
 .timing-battle {
-  width: 274px;
+  width: calc(var(--u) * 274);
   max-width: 100%;
   margin: 0 auto;
   padding: 0;
@@ -198,13 +201,13 @@
 }
 
 .timing-battle-divider { height: 1px; background: var(--line); }
-.timing-battle h4 { margin: 8px 0; color: var(--battle); font-size: 20.6px; font-style: italic; font-weight: 700; text-align: center; }
+.timing-battle h4 { margin: calc(var(--u) * 6) 0; color: var(--battle); font-size: calc(var(--u) * 16); font-style: italic; font-weight: 700; text-align: center; }
 
 .timing-battle-driver {
   display: grid;
-  grid-template-columns: 18px 55px minmax(0, 1fr);
+  grid-template-columns: calc(var(--u) * 15) calc(var(--u) * 44) minmax(0, 1fr);
   align-items: center;
-  height: 38px;
+  height: calc(var(--u) * 31);
   min-width: 0;
   background-color: #e9e8ec;
   background-image: repeating-linear-gradient(135deg, #d7d6d9 0 1px, transparent 1px 8px);
@@ -213,28 +216,29 @@
 .timing-battle-position {
   display: grid;
   place-items: center;
-  height: 38px;
+  height: calc(var(--u) * 31);
   background: #010102;
   color: #fff;
-  font-size: 11px;
+  font-size: calc(var(--u) * 9);
   font-variant-numeric: tabular-nums;
 }
 
-.timing-battle-team { display: grid; place-items: center; width: 55px; height: 38px; background: var(--team-color); }
-.timing-battle-team img { width: 50px; height: 34px; object-fit: contain; }
-.timing-battle-driver strong { overflow: hidden; padding: 0 5px; color: #010102; font-size: 21px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.timing-battle-team { display: grid; place-items: center; width: calc(var(--u) * 44); height: calc(var(--u) * 31); background: var(--team-color); }
+.timing-battle-team img { width: calc(var(--u) * 40); height: calc(var(--u) * 28); object-fit: contain; }
+.timing-battle-driver strong { overflow: hidden; padding: 0 calc(var(--u) * 4); color: #010102; font-size: calc(var(--u) * 17); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .timing-battle-driver.unavailable { opacity: .45; }
 
 .timing-battle-gap {
   display: grid;
   place-items: center;
-  min-height: 84px;
+  min-height: calc(var(--u) * 62);
   background-color: #151319;
   background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
   background-size: 9.6px 9.6px;
   color: #fff;
-  font-size: 46px;
-  font-style: italic;
+  font-family: TimingRegular, var(--font-timing);
+  font-size: calc(var(--u) * 30);
+  font-style: normal;
   line-height: 1;
 }
 
@@ -327,27 +331,7 @@
 
 @media (max-width: 640px) {
   .live-timing-layout { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-  .timing-tower { position: static; width: min(280px, 100%); --u: .8px; --font-timing: Formula1, "Titillium Web", "Exo 2", sans-serif; }
-  .timing-tower-brand { min-height: 48px; gap: 7px; padding: 4px 7px 3px 9px; }
-  .timing-tower-mark { flex-basis: min(136px, 50%); width: min(136px, 50%); height: 39px; font-size: clamp(29px, 10vw, 36px); }
-  .timing-tower-brand strong { font-size: clamp(20px, 8vw, 28px); }
-  .timing-tower-lap { gap: clamp(5px, 2vw, 10px); }
-  .timing-tower-lap em { font-size: clamp(16px, 6vw, 20.6px); }
-  .timing-tower-lap em:first-child { font-size: clamp(17px, 6.4vw, 22px); }
-  .timing-tower-current-lap { min-width: 25px; height: 25px; font-size: 21px; }
-  .timing-tower-rows { gap: 11px; padding: 0 4px 0 2px; }
-  .timing-tower-row { grid-template-columns: 44px 38px minmax(0, 1fr) clamp(55px, 21vw, 76px) 24px; height: 31px; gap: 1px; padding: 0 1px; }
-  .timing-tower-position { font-size: 17px; }
-  .timing-tower-team,
-  .timing-tower-team img { width: 34px; height: 30px; }
-  .timing-tower-code { font-size: clamp(16px, 6vw, 20px); }
-  .timing-tower-gap { font-size: clamp(14px, 5vw, 18px); }
-  .timing-tower-gap.leader-gap { font-size: 12px; }
-  .timing-tower-tyre { font-size: 14px; }
-  .timing-battle { width: min(274px, 100%); }
-  .timing-battle h4 { margin: 6px 0; font-size: clamp(16px, 6vw, 20.6px); }
-  .timing-battle-gap { min-height: 68px; font-size: clamp(34px, 13vw, 46px); }
-  .timing-battle-driver strong { font-size: clamp(16px, 6vw, 21px); }
+  .timing-tower { position: static; width: min(205px, 100%); --u: calc(205px / 280); --font-timing: Formula1, "Titillium Web", "Exo 2", sans-serif; }
   .timing-stage-column { grid-row: 2; }
   .driver-stage { padding: 9px; gap: 8px; }
   .driver-stage-header { gap: 6px; }

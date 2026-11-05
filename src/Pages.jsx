@@ -1076,20 +1076,13 @@ function getRaceGap(entry, leader) {
 
 function TowerRow({ entry, index, leader, selected, focused, onSelect }) {
   const gap = getRaceGap(entry, leader);
-  const placesChange = (entry.gridPosition ?? entry.grid ?? index + 1) - (index + 1);
   const code = entry.driver?.code || entry.driver?.name?.trim().split(/\s+/).pop()?.toUpperCase() || '—';
   const compound = entry.tyre?.compound;
   return <button type="button" className={`timing-tower-row${selected ? ' selected' : ''}${focused ? ' battle-target' : ''}${entry.retired ? ' retired' : ''}`}
     style={{ '--team-color': entry.team?.color || '#d3202f' }} aria-pressed={selected}
-    aria-label={`Position ${index + 1}, ${entry.driver?.name || 'driver'}, ${gap}${placesChange ? `, ${Math.abs(placesChange)} places ${placesChange > 0 ? 'gained' : 'lost'}` : ''}`}
-    title={placesChange > 0 ? `${placesChange} places gained from grid` : placesChange < 0 ? `${Math.abs(placesChange)} places lost from grid` : 'No position change from grid'}
+    aria-label={`Position ${index + 1}, ${entry.driver?.name || 'driver'}, ${gap}`}
     onClick={onSelect}>
-    <span className={`timing-tower-position${placesChange < 0 ? ' lost' : placesChange > 0 ? ' gained' : ''}`}>
-      {placesChange > 0 && <svg className="timing-position-chevron" viewBox="0 0 19 12" aria-hidden="true"><path d="M1 10 9.5 2 18 10" /></svg>}
-      <span>{entry.retired ? 'OUT' : index + 1}</span>
-      {placesChange < 0 && <svg className="timing-position-chevron" viewBox="0 0 19 12" aria-hidden="true"><path d="M1 10 9.5 2 18 10" /></svg>}
-      {placesChange !== 0 && <span className="timing-visually-hidden">{Math.abs(placesChange)} place{Math.abs(placesChange) === 1 ? '' : 's'} {placesChange > 0 ? 'gained' : 'lost'}</span>}
-    </span>
+    <span className="timing-tower-position">{entry.retired ? 'OUT' : index + 1}</span>
     <span className="timing-tower-team">{entry.team?.logo_normal
       ? <img className={entry.team?.name?.toLowerCase().includes('red bull') ? 'mirror-logo' : ''} src={entry.team.logo_normal} alt={`${entry.team?.name || 'Team'} logo`} />
       : <small>{entry.team?.name?.slice(0, 3).toUpperCase() || 'F1'}</small>}</span>
@@ -1149,8 +1142,6 @@ function TimingTower({ entries, lap, totalLaps, selectedDriverId, defaultFocusIn
 function DriverStage({ entry, car, opponent, position, raceState, pitCompound, pitLap, pitFeedback,
   onPitCompound, onPitLap, onPitCommand, onBoost, onClose, boostDisabled, boostLabel }) {
   if (!entry || !car) return <section className="driver-stage"><p>No driver telemetry available.</p></section>;
-  const placeChange = (entry.gridPosition ?? entry.grid ?? position) - position;
-  const placeCopy = placeChange > 0 ? `${placeChange} gained` : placeChange < 0 ? `${Math.abs(placeChange)} lost` : 'No change';
   const incidents = car.events.filter(event => event.type !== 'overtake' && event.type !== 'attack_defended');
   const laps = entry.lapHistory || [];
   const opponentLaps = opponent?.lapHistory || [];
@@ -1162,7 +1153,7 @@ function DriverStage({ entry, car, opponent, position, raceState, pitCompound, p
         {entry.team?.logo_normal && <img src={entry.team.logo_normal} alt={`${entry.team.name || 'Team'} logo`} />}
         <div><p>{entry.team?.name || 'Team'} · P{position}</p><h3>{entry.driver?.name || 'Driver'}</h3></div>
       </div>
-      <div className="driver-stage-status"><strong>{tyreLetter(entry.tyre?.compound)} · {entry.tyre?.compound?.toUpperCase() || 'NO TYRE'}</strong><span>{entry.tyre?.age ?? '—'} laps · {placeCopy} from grid</span></div>
+      <div className="driver-stage-status"><strong>{tyreLetter(entry.tyre?.compound)} · {entry.tyre?.compound?.toUpperCase() || 'NO TYRE'}</strong><span>{entry.tyre?.age ?? '—'} laps on tyre</span></div>
       <button type="button" className="driver-stage-close" onClick={onClose} aria-label="Clear selected driver">×</button>
     </header>
     <div className="driver-stage-metrics" aria-label="Selected driver telemetry">
@@ -1210,7 +1201,7 @@ function DriverStage({ entry, car, opponent, position, raceState, pitCompound, p
       <summary>Full driver telemetry</summary>
       <div className="driver-detail-facts">
         <span>Tyre status <strong>{car.tyre.state.toUpperCase()} · {car.tyre.remainingCompetitiveLaps?.toFixed(1) ?? '—'} laps to limit</strong></span>
-        <span>Position <strong>P{position} · {placeCopy} from grid</strong></span>
+        <span>Position <strong>P{position}</strong></span>
         <span>Command <strong>{car.pitStatus}</strong></span>
         {car.mechanicalFault && <span>Vehicle fault <strong>{car.mechanicalFault.replaceAll('_', ' ')}</strong></span>}
         {car.retired && <span>Retirement <strong>Lap {car.retirementLap} · {car.retirementReason}</strong></span>}
