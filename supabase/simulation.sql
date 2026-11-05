@@ -69,3 +69,4 @@ create policy "admin" on public.tyre_images for all to authenticated using (true
 grant select on public.tyre_images to anon,authenticated;
 grant insert,update,delete on public.tyre_images to authenticated;
 grant usage,select on sequence public.tyre_images_id_seq to authenticated;
+

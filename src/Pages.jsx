@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'; import { Link, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react'; import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { sb } from './supabase.js'; import { activateDriverBoost, advanceRaceIfRunning, advanceRaceLap, applyDriverPerformanceBoosts, applyPracticeSubstitutions, applyTeamPerformanceBoosts, calculateStandings, calculateTeammateHeadToHead, createRaceState, getBestCareerPositions, getCareerChampionships, getCareerRecords, getCareerStats, getClassification, getTeamCareerStats, getWeekendAwards, getWeekendPhases, practice, requiresMandatoryDryTyreCompounds, setPitInstruction, setTeamRaceAdjustments, simulateQualifyingWeekend } from './sim.js';
 import LiveTrackMap from './LiveTrackMap.jsx';
 import {buildTrackPath,getDirectionalTrackPoints,getLapProgress,getTrackDisplayPoint,hasUsableTrackPath,interpolateLapProgress,parseCircuitTrackPath} from './trackPath.js';
+import { CAR_ATTRIBUTES, CAR_OVERALL_ATTRIBUTES, getCarOverall, getCarScore, getNearestCarYear, rankCarsByAttribute } from './carRatings.js';
 function useQ(fn, deps = []) {
   const [query, setQuery] = useState({ data: null, loading: true, error: null });
   const [attempt, setAttempt] = useState(0);
@@ -178,7 +179,7 @@ function SessionPodium({ entries, race, phaseLabel, fastestLap = Infinity, raceR
     })}</div>
   </section>;
 }
-const CAR = ['speed', 'race', 'overtaking', 'defence', 'performance', 'qualifying', 'reliability'];
+const CAR = CAR_OVERALL_ATTRIBUTES.map(attribute => attribute.key);
 const one = x => Array.isArray(x) ? x[0] : x;
 export function Home() {
   const n = useQ(async () => { const c = async t => { const { count, error } = await sb.from(t).select('*', { count: 'exact', head: true }); if (error) throw error; return count }; const [drivers, teams, races] = await Promise.all([c('drivers'), c('teams'), c('races')]); return { drivers, teams, races } });
@@ -316,43 +317,389 @@ export function Driver() {
         </section>
         <div className="driver-gallery">{years.map(year => <section className="driver-gallery-year" key={year}><h3>{year}</h3><div className="driver-gallery-grid">{images.filter(image => image.year === year).flatMap(image => ['pole_url', 'grid_url', 'card_url'].filter(key => image[key]).map(key => <figure key={`${image.id}-${key}`}><img src={image[key]} alt={`${driver.name} ${imageLabels[key]}, ${year}`} /><figcaption>{imageLabels[key]}</figcaption></figure>))}</div></section>)}</div></div></div></>
 }
-const CarCard = ({ c, sub, teamLogo, teamName }) => <details className="card car-card">
-  <summary className={`car-card-summary ${c.image_url ? 'has-image' : ''}`}>
-    {c.image_url && <img className="car-card-image" src={c.image_url} alt="" />}
-    <span className="car-card-title"><strong>{c.model}</strong><small>{c.year}</small></span>
-    {(teamLogo || teamName || sub) && <span className="car-card-team">{teamLogo && <img src={teamLogo} alt="" />}{teamName || sub}</span>}
-  </summary>
-  <div className="car-card-details">
-    {teamName && sub && <p className="car-card-engine">{sub}</p>}
-    {CAR.map(k => <Bar key={k} l={k} v={c[k]} />)}
-  </div>
-</details>;
-export function Cars() {
-  const [selectedSeason, setSelectedSeason] = useState('current');
-  const currentSeason = new Date().getFullYear();
-  const c = useQ(() => sb.from('cars').select('*,teams(name,logo_normal)').order('year', { ascending: false }));
-  const seasons = [...new Set((c.data || []).map(car => Number(car.year)).filter(Number.isFinite))]
-    .filter(year => year !== currentSeason)
-    .sort((a, b) => b - a);
-  const visibleCars = (c.data || []).filter(car => Number(car.year) === (selectedSeason === 'current' ? currentSeason : Number(selectedSeason)));
-  const selectedTabId = selectedSeason === 'current' ? 'current-cars-tab' : `cars-${selectedSeason}-tab`;
-  return <><h2>Cars</h2><QueryStatus query={c} empty="No cars yet." />
-    {c.data && c.data.length > 0 && <>
-      <div className="car-season-tabs" role="tablist" aria-label="Car model years">
-        <button type="button" role="tab" id="current-cars-tab" aria-controls="cars-panel"
-          aria-selected={selectedSeason === 'current'} className={selectedSeason === 'current' ? 'active' : ''}
-          onClick={() => setSelectedSeason('current')}>Current season ({(c.data || []).filter(car => Number(car.year) === currentSeason).length})</button>
-        {seasons.map(year => <button type="button" role="tab" key={year} id={`cars-${year}-tab`} aria-controls="cars-panel"
-          aria-selected={selectedSeason === String(year)} className={selectedSeason === String(year) ? 'active' : ''}
-          onClick={() => setSelectedSeason(String(year))}>{year}</button>)}
+const carRatingLabel = key => CAR_ATTRIBUTES.find(attribute => attribute.key === key)?.label || key;
+const carRatingText = value => value === null ? 'N/A' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 });
+const CAR_SORT_OPTIONS = [{ key: 'overall', label: 'Overall' }, { key: 'model', label: 'Model' }, ...CAR_ATTRIBUTES];
+
+function CarCard({ car, expanded, onExpandedChange, onZoom, overallRank, bestAttributes, carCardRefs }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const overall = getCarOverall(car);
+  const rated = CAR_ATTRIBUTES
+    .map(({ key, label }) => ({ key, label, value: getCarScore(car, key) }))
+    .filter(attribute => attribute.value !== null);
+  const strongest = rated.length ? Math.max(...rated.map(attribute => attribute.value)) : null;
+  const weakest = rated.length ? Math.min(...rated.map(attribute => attribute.value)) : null;
+  const imageAvailable = Boolean(car.image_url) && !imageFailed;
+  const teamLogo = car.teams?.logo_normal;
+  return <details className="card car-card" open={expanded} onToggle={event => onExpandedChange(car.id, event.currentTarget.open)}
+    ref={element => {
+      if (element) carCardRefs.current.set(String(car.id), element);
+      else carCardRefs.current.delete(String(car.id));
+    }}>
+    <summary className={`car-card-summary${imageAvailable ? ' has-image' : ''}`}>
+      {imageAvailable
+        ? <button type="button" className="car-card-image-button" aria-label={`Enlarge ${car.model} image`} onClick={event => { event.preventDefault(); event.stopPropagation(); onZoom({ src: car.image_url, alt: `${car.year} ${car.model}` }); }}>
+          <img className="car-card-image" src={car.image_url} alt={`${car.year} ${car.model}`} loading="lazy" onError={() => setImageFailed(true)} />
+        </button>
+        : <div className="car-card-image-placeholder" role="img" aria-label={`${car.model} image unavailable`}>Image unavailable</div>}
+      <span className="car-card-heading">
+        <span className="car-card-title"><strong>{car.model}</strong><small>{car.year}</small></span>
+        {(teamLogo || car.teams?.name || car.engine) && <span className="car-card-team">{teamLogo && <img src={teamLogo} alt={`${car.teams?.name || 'Team'} logo`} loading="lazy" />}{car.teams?.name || car.engine}</span>}
+        <span className="car-card-badges">
+          <span className="car-rank-badge">{overall === null ? 'Overall N/A' : `#${overallRank || '—'} overall · ${car.year}`}</span>
+          {bestAttributes.slice(0, 3).map(key => <span className="car-attribute-badge" key={key}>Best {carRatingLabel(key)}</span>)}
+          {bestAttributes.length > 3 && <span className="car-attribute-badge">+{bestAttributes.length - 3} attributes</span>}
+        </span>
+      </span>
+    </summary>
+    <div className="car-card-details">
+      {car.engine && <p className="car-card-engine">{car.engine}</p>}
+      <p className="car-card-overall">Overall score <strong>{carRatingText(overall)}</strong></p>
+      <p className="car-card-strengths">
+        <span>Strongest: <strong>{strongest === null ? 'N/A' : rated.filter(attribute => attribute.value === strongest).map(attribute => attribute.label).join(', ')}</strong></span>
+        <span>Weakest: <strong>{weakest === null ? 'N/A' : rated.filter(attribute => attribute.value === weakest).map(attribute => attribute.label).join(', ')}</strong></span>
+      </p>
+      <div className="car-card-ratings" aria-label={`${car.model} ratings`}>
+        {CAR_ATTRIBUTES.map(({ key, label }) => {
+          const value = getCarScore(car, key);
+          const isStrongest = value !== null && value === strongest;
+          const isWeakest = value !== null && value === weakest;
+          return <div className={`car-rating-row${isStrongest ? ' is-strongest' : ''}${isWeakest ? ' is-weakest' : ''}`} key={key}>
+            <span>{label}{isStrongest && <span className="car-rating-tag">Best</span>}{isWeakest && <span className="car-rating-tag">Lowest</span>}</span>
+            <span className="car-rating-track" role="img" aria-label={`${label}: ${carRatingText(value)}`}>
+              <i><b style={{ width: value === null ? '0%' : `${Math.max(0, Math.min(100, value))}%` }} /></i><em>{carRatingText(value)}</em>
+            </span>
+          </div>;
+        })}
       </div>
-      <section id="cars-panel" role="tabpanel" aria-labelledby={selectedTabId}>
-        {visibleCars.length
-          ? <div className="grid">{visibleCars.map(car => <CarCard key={car.id} c={car} teamLogo={car.teams?.logo_normal} teamName={car.teams?.name} sub={car.engine || ''} />)}</div>
-          : <p className="query-status">{selectedSeason === 'current' ? `No cars for ${currentSeason}.` : `No cars for ${selectedSeason}.`}</p>}
+    </div>
+  </details>;
+}
+
+function CarRatingsLeaderboard({ cars, onSelectCar, expandedAttributes, onToggleAttribute, allTime }) {
+  const attributes = useMemo(() => [
+    { key: 'overall', label: 'Overall' },
+    ...CAR_ATTRIBUTES
+  ], []);
+  const rankings = useMemo(() => Object.fromEntries(attributes.map(({ key }) =>
+    [key, rankCarsByAttribute(cars, key)]
+  )), [attributes, cars]);
+  return <section className="car-attribute-leaderboard">
+    <h3>{allTime ? 'All-time car leaderboard' : 'Best cars by attribute'}</h3>
+    <p className="muted">Overall is the average of the seven standard ratings. Missing values are excluded; rows with no rating show N/A.</p>
+    <div className="car-attribute-list">{attributes.map(({ key, label }) => {
+      const ranked = rankings[key];
+      const expanded = expandedAttributes.has(key);
+      const cutoff = ranked[2]?.rank;
+      const shown = expanded ? ranked : cutoff === undefined ? [] : ranked.filter(item => item.rank <= cutoff);
+      return <section className="car-attribute-group" key={key}>
+        <h4>{label}</h4>
+        {shown.length
+          ? <ol>{shown.map(({ car, score, rank, tieCount }) => <li key={car.id}>
+            <span className={`car-attribute-rank car-attribute-rank-${rank <= 3 ? rank : 'other'}`}>#{rank}</span>
+            <button type="button" className="car-attribute-entry" onClick={() => onSelectCar(car)}>
+              {car.teams?.logo_normal && <img src={car.teams.logo_normal} alt={`${car.teams.name || 'Team'} logo`} loading="lazy" />}
+              <strong>{car.model}</strong>{allTime && <small>{car.year}</small>}
+            </button>
+            <strong className="car-attribute-rating">{carRatingText(score)}</strong>
+            {tieCount > 1 && <span className="car-tie-label">Tied · {tieCount} cars</span>}
+          </li>)}</ol>
+          : <p className="car-attribute-empty">N/A</p>}
+        {ranked.length > shown.length && <button type="button" className="car-leaderboard-toggle" aria-expanded={expanded} onClick={() => onToggleAttribute(key)}>
+          {expanded ? 'Show top 3' : `Show all ${ranked.length}`}
+        </button>}
+      </section>;
+    })}</div>
+  </section>;
+}
+
+function CarEvolutionChart({ cars, selectedTeam, onSelectTeam }) {
+  const teamOptions = useMemo(() => {
+    const groups = new Map();
+    for (const car of cars) {
+      if (car.team_id == null) continue;
+      const key = String(car.team_id);
+      if (!groups.has(key)) groups.set(key, { id: key, name: car.teams?.name || `Team ${key}`, logo: car.teams?.logo_normal });
+    }
+    return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [cars]);
+  const activeTeam = teamOptions.find(team => team.id === selectedTeam) || teamOptions[0];
+  const points = useMemo(() => {
+    if (!activeTeam) return [];
+    const yearly = new Map();
+    for (const car of cars) {
+      if (String(car.team_id) !== activeTeam.id) continue;
+      const year = Number(car.year);
+      const score = getCarOverall(car);
+      if (!Number.isInteger(year) || score === null) continue;
+      yearly.set(year, Math.max(yearly.get(year) ?? -Infinity, score));
+    }
+    return [...yearly].sort((a, b) => a[0] - b[0]);
+  }, [activeTeam, cars]);
+  const width = 720, height = 220, margin = { top: 16, right: 24, bottom: 32, left: 42 };
+  const x = index => margin.left + (points.length <= 1 ? (width - margin.left - margin.right) / 2 : index * (width - margin.left - margin.right) / (points.length - 1));
+  const y = value => margin.top + (100 - value) * (height - margin.top - margin.bottom) / 100;
+  return <section className="car-evolution">
+    <div className="car-evolution-heading"><div><h3>Car evolution</h3><p>Best overall rating for each team by year</p></div>
+      <label>Team <select value={activeTeam?.id || ''} onChange={event => onSelectTeam(event.target.value)} aria-label="Team for car evolution">
+        {teamOptions.map(team => <option value={team.id} key={team.id}>{team.name}</option>)}
+      </select></label>
+    </div>
+    {points.length
+      ? <div className="car-evolution-chart"><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Car overall rating evolution for ${activeTeam?.name}`}>
+        <title>Best car overall rating by season for {activeTeam?.name}</title>
+        {[0, 25, 50, 75, 100].map(value => <g key={value}><line x1={margin.left} x2={width - margin.right} y1={y(value)} y2={y(value)} /><text x={margin.left - 8} y={y(value) + 4} textAnchor="end">{value}</text></g>)}
+        <polyline points={points.map(([, score], index) => `${x(index)},${y(score)}`).join(' ')} />
+        {points.map(([year, score], index) => <g key={year}><circle cx={x(index)} cy={y(score)} r="5"><title>{year}: {score.toFixed(1)}</title></circle><text x={x(index)} y={height - 8} textAnchor="middle">{year}</text></g>)}
+      </svg></div>
+      : <p className="muted">No rated cars are available for this team.</p>}
+  </section>;
+}
+
+function handleSeasonTabKeyDown(event, tabs, active, onSelect) {
+  const currentIndex = tabs.findIndex(tab => tab.key === active);
+  const nextIndex = event.key === 'ArrowRight' ? (currentIndex + 1) % tabs.length
+    : event.key === 'ArrowLeft' ? (currentIndex - 1 + tabs.length) % tabs.length
+      : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
+  if (nextIndex < 0) return;
+  event.preventDefault();
+  onSelect(tabs[nextIndex].key);
+  document.getElementById(tabs[nextIndex].id)?.focus();
+}
+
+export function Cars() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const currentSeason = new Date().getFullYear();
+  const c = useQ(() => sb.from('cars').select('*,teams(id,name,logo_normal)').order('year', { ascending: false }));
+  const cars = c.data || [];
+  const years = useMemo(() => [...new Set(cars.map(car => Number(car.year)).filter(Number.isInteger))].sort((a, b) => b - a), [cars]);
+  const storedSeason = searchParams.get('season') || 'current';
+  const selectedSeason = storedSeason === 'all' || storedSeason === 'current' || years.includes(Number(storedSeason)) ? storedSeason : 'current';
+  const allTimeYear = searchParams.get('year') || 'all';
+  const selectedYearFilter = allTimeYear === 'all' || years.includes(Number(allTimeYear)) ? allTimeYear : 'all';
+  const filter = searchParams.get('filter') || '';
+  const storedSort = searchParams.get('sort') || 'overall';
+  const sortBy = CAR_SORT_OPTIONS.some(option => option.key === storedSort) ? storedSort : 'overall';
+  const expandedParam = searchParams.get('car') || '';
+  const evolutionTeamParam = searchParams.get('team') || '';
+  const [expandedCarIds, setExpandedCarIds] = useState(() => new Set(expandedParam && expandedParam !== 'all' ? [expandedParam] : []));
+  const [expandedAttributes, setExpandedAttributes] = useState(() => new Set());
+  const [zoomImage, setZoomImage] = useState(null);
+  const carCardRefs = useRef(new Map());
+  useEffect(() => {
+    if (!zoomImage) return undefined;
+    const handleKeyDown = event => {
+      if (event.key === 'Escape') setZoomImage(null);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [zoomImage]);
+  const availableSeasons = years.filter(year => year !== currentSeason);
+  const tabs = [
+    { key: 'current', label: `Current season ${currentSeason}`, id: 'cars-current-tab' },
+    ...availableSeasons.map(year => ({ key: String(year), label: String(year), id: `cars-${year}-tab` })),
+    { key: 'all', label: 'All-time', id: 'cars-all-tab' }
+  ];
+  const updateQuery = patch => setSearchParams(previous => {
+    const next = new URLSearchParams(previous);
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null || value === undefined || value === '') next.delete(key);
+      else next.set(key, String(value));
+    }
+    return next;
+  }, { replace: true });
+  const selectSeason = season => updateQuery({ season, year: season === 'all' ? selectedYearFilter : null });
+  const dataSeason = selectedSeason === 'current' ? currentSeason : Number(selectedSeason);
+  const seasonCars = useMemo(() => selectedSeason === 'all'
+    ? cars.filter(car => selectedYearFilter === 'all' || Number(car.year) === Number(selectedYearFilter))
+    : cars.filter(car => Number(car.year) === dataSeason),
+  [cars, dataSeason, selectedSeason, selectedYearFilter]);
+  const normalizedFilter = filter.trim().toLocaleLowerCase();
+  const visibleCars = useMemo(() => seasonCars.filter(car => {
+    if (!normalizedFilter) return true;
+    return [car.model, car.teams?.name, car.engine, car.year].some(value => String(value || '').toLocaleLowerCase().includes(normalizedFilter));
+  }), [seasonCars, normalizedFilter]);
+  const sortedCars = useMemo(() => [...visibleCars].sort((a, b) => {
+    if (sortBy === 'model') return String(a.model).localeCompare(String(b.model)) || Number(b.year) - Number(a.year);
+    const left = getCarScore(a, sortBy), right = getCarScore(b, sortBy);
+    if (left === null || right === null) return left === right ? String(a.model).localeCompare(String(b.model)) : left === null ? 1 : -1;
+    return right - left || String(a.model).localeCompare(String(b.model));
+  }), [visibleCars, sortBy]);
+  const overallRanks = useMemo(() => new Map(rankCarsByAttribute(visibleCars, 'overall').map(item => [String(item.car.id), item.rank])), [visibleCars]);
+  const bestAttributesByCar = useMemo(() => {
+    const byCar = new Map();
+    for (const attribute of CAR_ATTRIBUTES) {
+      for (const item of rankCarsByAttribute(visibleCars, attribute.key)) {
+        if (item.rank !== 1) break;
+        const key = String(item.car.id), attributes = byCar.get(key) || [];
+        attributes.push(attribute.key);
+        byCar.set(key, attributes);
+      }
+    }
+    return byCar;
+  }, [visibleCars]);
+  const seasonSummary = useMemo(() => {
+    const overallValues = visibleCars.map(getCarOverall).filter(value => value !== null);
+    const teamAverages = new Map();
+    for (const car of visibleCars) {
+      if (car.team_id == null) continue;
+      const value = getCarOverall(car);
+      if (value === null) continue;
+      const key = String(car.team_id);
+      const current = teamAverages.get(key) || { name: car.teams?.name || 'Team', sum: 0, count: 0 };
+      current.sum += value;
+      current.count += 1;
+      teamAverages.set(key, current);
+    }
+    const topTeam = [...teamAverages.values()].sort((a, b) =>
+      b.sum / b.count - a.sum / a.count || a.name.localeCompare(b.name))[0];
+    return {
+      carCount: visibleCars.length,
+      average: overallValues.length ? overallValues.reduce((sum, value) => sum + value, 0) / overallValues.length : null,
+      topTeam
+    };
+  }, [visibleCars]);
+  const deltas = useMemo(() => {
+    if (selectedSeason === 'all') return [];
+    const year = dataSeason;
+    const bestPerTeam = targetYear => {
+      const best = new Map();
+      for (const car of cars.filter(item => Number(item.year) === targetYear)) {
+        const score = getCarOverall(car);
+        if (score === null || car.team_id == null) continue;
+        const key = String(car.team_id), current = best.get(key);
+        if (!current || score > current.score) best.set(key, { car, score });
+      }
+      return best;
+    };
+    const current = bestPerTeam(year), previous = bestPerTeam(year - 1);
+    return [...current].map(([teamId, value]) => ({ teamId, ...value, previous: previous.get(teamId) || null }))
+      .sort((a, b) => {
+        const aDelta = a.previous ? a.score - a.previous.score : Number.NEGATIVE_INFINITY;
+        const bDelta = b.previous ? b.score - b.previous.score : Number.NEGATIVE_INFINITY;
+        return bDelta - aDelta;
+      });
+  }, [cars, dataSeason, selectedSeason]);
+  const teamOptions = useMemo(() => [...new Map(cars.filter(car => car.team_id != null).map(car => [String(car.team_id), { id: String(car.team_id), name: car.teams?.name || `Team ${car.team_id}` }])).values()].sort((a, b) => a.name.localeCompare(b.name)), [cars]);
+  const selectedEvolutionTeam = teamOptions.some(team => team.id === evolutionTeamParam) ? evolutionTeamParam : teamOptions[0]?.id || '';
+  const isExpandAll = expandedParam === 'all';
+
+  useEffect(() => {
+    if (expandedParam === 'all') setExpandedCarIds(new Set(cars.map(car => String(car.id))));
+    else if (expandedParam && cars.some(car => String(car.id) === expandedParam)) {
+      setExpandedCarIds(current => new Set([...current, expandedParam]));
+    }
+  }, [expandedParam, cars]);
+  useEffect(() => {
+    if (expandedParam && expandedParam !== 'all') {
+      carCardRefs.current.get(expandedParam)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [expandedParam, sortedCars]);
+
+  const handleExpandedChange = (id, open) => {
+    const key = String(id), next = new Set(expandedCarIds);
+    if (open) next.add(key);
+    else next.delete(key);
+    setExpandedCarIds(next);
+    if (open) updateQuery({ car: key });
+    else if (isExpandAll) updateQuery({ car: null });
+    else if (expandedParam === key) updateQuery({ car: [...next].at(-1) || null });
+  };
+  const expandAll = () => {
+    const next = new Set(visibleCars.map(car => String(car.id)));
+    setExpandedCarIds(next);
+    updateQuery({ car: 'all' });
+  };
+  const collapseAll = () => {
+    setExpandedCarIds(new Set());
+    updateQuery({ car: null });
+  };
+  const selectLeaderboardCar = car => {
+    setSearchParams(previous => {
+      const next = new URLSearchParams(previous);
+      next.delete('filter');
+      next.set('car', String(car.id));
+      return next;
+    }, { replace: true });
+    setExpandedCarIds(current => new Set([...current, String(car.id)]));
+  };
+  const nearestYear = getNearestCarYear(cars, dataSeason);
+  const filteredDeltas = deltas.filter(item => !normalizedFilter || [item.car.model, item.car.teams?.name, item.car.year].some(value => String(value || '').toLocaleLowerCase().includes(normalizedFilter)));
+  const yearsForTabs = [{ key: 'all', value: 'all', label: 'All seasons' }, ...years.map(year => ({ key: String(year), value: String(year), label: String(year) }))];
+
+  return <section className="cars-page">
+    <h2>Cars</h2>
+    <QueryStatus query={c} empty="No cars have been added yet." />
+    {c.loading && <div className="car-loading" aria-label="Loading cars" aria-busy="true">
+      <div className="car-skeleton car-skeleton-leaderboard" />
+      <div className="grid">{Array.from({ length: 6 }, (_, index) => <div className="car-skeleton car-skeleton-card" key={index} />)}</div>
+    </div>}
+    {cars.length > 0 && <>
+      <div className="car-season-tabs" role="tablist" aria-label="Car model years" onKeyDown={event => handleSeasonTabKeyDown(event, tabs, selectedSeason, selectSeason)}>
+        {tabs.map(tab => <button type="button" role="tab" id={tab.id} aria-controls="cars-panel" aria-selected={selectedSeason === tab.key}
+          tabIndex={selectedSeason === tab.key ? 0 : -1} className={selectedSeason === tab.key ? 'active' : ''} key={tab.key}
+          onClick={() => selectSeason(tab.key)}>{tab.label}{tab.key === 'current' ? ` (${cars.filter(car => Number(car.year) === currentSeason).length})` : ''}</button>)}
+      </div>
+      {selectedSeason === 'all' && <label className="car-alltime-filter">Season <select value={selectedYearFilter} onChange={event => updateQuery({ year: event.target.value })}>
+        {yearsForTabs.map(option => <option key={option.key} value={option.value}>{option.label}</option>)}
+      </select></label>}
+      <section id="cars-panel" role="tabpanel" aria-labelledby={tabs.find(tab => tab.key === selectedSeason)?.id || 'cars-current-tab'}>
+        {selectedSeason !== 'all' && visibleCars.length > 0 && <div className="car-season-summary">
+          <div><small>CARS</small><strong>{seasonSummary.carCount}</strong></div>
+          <div><small>AVERAGE OVERALL</small><strong>{seasonSummary.average === null ? 'N/A' : seasonSummary.average.toFixed(1)}</strong></div>
+          <div className="car-summary-team"><small>TOP TEAM · AVG OVERALL</small><strong>{seasonSummary.topTeam?.name || 'N/A'}</strong></div>
+        </div>}
+        {selectedSeason === 'all' && visibleCars.length > 0 && <div className="car-season-summary">
+          <div><small>CARS</small><strong>{seasonSummary.carCount}</strong></div>
+          <div><small>AVERAGE OVERALL</small><strong>{seasonSummary.average === null ? 'N/A' : seasonSummary.average.toFixed(1)}</strong></div>
+          <div className="car-summary-team"><small>TOP TEAM · AVG OVERALL</small><strong>{seasonSummary.topTeam?.name || 'N/A'}</strong></div>
+        </div>}
+        {visibleCars.length > 0
+          ? <>
+            <CarRatingsLeaderboard cars={visibleCars} onSelectCar={selectLeaderboardCar} expandedAttributes={expandedAttributes}
+              onToggleAttribute={key => setExpandedAttributes(current => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; })}
+              allTime={selectedSeason === 'all'} />
+            {selectedSeason !== 'all' && <section className="car-season-deltas">
+              <h3>Best car change vs. previous season</h3>
+              {filteredDeltas.length
+                ? <div className="scroll"><table><thead><tr><th>Team</th><th>Best car</th><th>{dataSeason - 1} overall</th><th>{dataSeason} overall</th><th>Change</th></tr></thead><tbody>{filteredDeltas.map(item => {
+                  const delta = item.previous ? item.score - item.previous.score : null;
+                  return <tr key={item.teamId}><td>{item.car.teams?.name || 'Team'}</td><td>{item.car.model}</td>
+                    <td>{item.previous ? item.previous.score.toFixed(1) : 'N/A'}</td><td>{item.score.toFixed(1)}</td>
+                    <td className={delta === null ? '' : delta > 0 ? 'car-delta-up' : delta < 0 ? 'car-delta-down' : 'car-delta-same'}>
+                      {delta === null ? 'No previous data' : `${delta > 0 ? '+' : ''}${delta.toFixed(1)}${delta > 0 ? ' ↑' : delta < 0 ? ' ↓' : ' →'}`}
+                    </td>
+                  </tr>;
+                })}</tbody></table></div>
+                : <p className="muted">{dataSeason - 1} car data is not available for comparison.</p>}
+            </section>}
+            <CarEvolutionChart cars={cars} selectedTeam={selectedEvolutionTeam} onSelectTeam={team => updateQuery({ team })} />
+            <div className="car-controls">
+              <label>Filter cars <input type="search" value={filter} onChange={event => updateQuery({ filter: event.target.value || null })} placeholder="Model, team, or engine" /></label>
+              <label>Sort cars <select value={sortBy} onChange={event => updateQuery({ sort: event.target.value })}>{CAR_SORT_OPTIONS.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}</select></label>
+              <button type="button" onClick={isExpandAll || (visibleCars.length > 0 && visibleCars.every(car => expandedCarIds.has(String(car.id)))) ? collapseAll : expandAll}>
+                {isExpandAll || (visibleCars.length > 0 && visibleCars.every(car => expandedCarIds.has(String(car.id)))) ? 'Collapse all' : 'Expand all'}
+              </button>
+            </div>
+            {sortedCars.length
+              ? <div className="grid car-grid">{sortedCars.map(car => <CarCard key={car.id} car={car}
+                expanded={isExpandAll || expandedCarIds.has(String(car.id))} onExpandedChange={handleExpandedChange}
+                onZoom={setZoomImage} overallRank={overallRanks.get(String(car.id))} bestAttributes={bestAttributesByCar.get(String(car.id)) || []}
+                carCardRefs={carCardRefs} />)}</div>
+              : <p className="query-status">No cars match “{filter}”. Clear the filter to see this season’s cars.</p>}
+          </>
+          : <div className="car-empty-state"><p>{cars.length ? selectedSeason === 'all' ? 'No cars match the selected season and filter.' : `No cars for ${selectedSeason === 'current' ? currentSeason : selectedSeason}.` : 'No car data available.'}</p>
+            {cars.length > 0 && nearestYear !== null && selectedSeason !== 'all' && <button type="button" onClick={() => selectSeason(String(nearestYear))}>View {nearestYear} cars</button>}
+          </div>}
       </section>
     </>}
-  </>
+    {zoomImage && <div className="car-image-dialog-backdrop" role="presentation" onClick={() => setZoomImage(null)}>
+      <section className="car-image-dialog" role="dialog" aria-modal="true" aria-label={`${zoomImage.alt} enlarged image`} onClick={event => event.stopPropagation()}>
+        <button type="button" aria-label="Close enlarged car image" onClick={() => setZoomImage(null)}>×</button>
+        <img src={zoomImage.src} alt={zoomImage.alt} />
+      </section>
+    </div>}
+  </section>;
 }
 export function Teams() {
   const t = useQ(() => sb.from('teams').select('*').order('name'));
@@ -441,10 +788,141 @@ export function Team() {
     </section>
     <QueryStatus query={{ ...t, data: team.cars || [] }} empty="No cars registered for this team." /><div className="grid">{[...(team.cars || [])].sort((a, b) => b.year - a.year).map(c => <CarCard key={c.id} c={c} sub={c.engine} teamLogo={team.logo_normal} teamName={team.name} />)}</div></>
 }
+async function loadCircuitResults(circuitName) {
+  const { data: races, error: raceError } = await sb.from('races')
+    .select('id,year,round,name,circuit,country,circuit_image_url,date')
+    .eq('circuit', circuitName)
+    .order('year', { ascending: false }).order('round');
+  if (raceError) throw raceError;
+  if (!races?.length) return { races: [], results: [] };
+  const results = [];
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await sb.from('race_results')
+      .select('grid_id,race_id,driver_id,team_id,session_type,position,points,pole_position,race_win,fastest_lap,retired,status,drivers(id,name,code),teams(id,name,logo_normal,color)')
+      .in('race_id', races.map(race => race.id))
+      .order('race_id').order('session_type').order('position')
+      .range(offset, offset + 999);
+    if (error) throw error;
+    results.push(...(data || []));
+    if (!data || data.length < 1000) return { races, results };
+  }
+}
+
 export function Races() {
   const r = useQ(() => sb.from('races').select('*').order('year', { ascending: false }).order('round'));
-  return <><h2>Races</h2><QueryStatus query={r} empty="No races yet." /><table><tbody>{r.data?.map(x => <tr key={x.id}><td>{x.year}</td><td>R{x.round}</td><td>{x.name}</td><td>{x.circuit}</td><td>{x.date}</td><td>{x.is_sprint && 'Sprint'}</td></tr>)}</tbody></table></>
+  return <><h2>Races</h2><QueryStatus query={r} empty="No races yet." /><table><tbody>{r.data?.map(x => <tr key={x.id}><td>{x.year}</td><td>R{x.round}</td><td>{x.name}</td><td>{x.circuit && <Link to={`/circuits/${encodeURIComponent(x.circuit)}`}>{x.circuit}</Link>}</td><td>{x.date}</td><td>{x.is_sprint && 'Sprint'}</td></tr>)}</tbody></table></>
 }
+
+export function Circuits() {
+  const races = useQ(() => sb.from('races').select('id,year,name,circuit,country,circuit_image_url').order('year', { ascending: false }));
+  const circuits = [...(races.data || []).reduce((groups, race) => {
+    const name = race.circuit?.trim();
+    if (!name) return groups;
+    const circuit = groups.get(name) || { name, races: [] };
+    circuit.races.push(race);
+    groups.set(name, circuit);
+    return groups;
+  }, new Map()).values()].sort((a, b) => a.name.localeCompare(b.name));
+  return <section className="circuits-page">
+    <h2>Circuits</h2>
+    <QueryStatus query={races} empty="No circuits found in the race calendar." />
+    <div className="grid circuit-grid">{circuits.map(circuit => {
+      const latestRace = circuit.races[0];
+      const years = circuit.races.map(race => Number(race.year)).filter(Number.isFinite);
+      return <Link key={circuit.name} to={`/circuits/${encodeURIComponent(circuit.name)}`} className="card circuit-card">
+        {latestRace.circuit_image_url
+          ? <img src={latestRace.circuit_image_url} alt={`${circuit.name} circuit`} />
+          : <div className="circuit-card-placeholder" aria-hidden="true">F1</div>}
+        <div><h3>{circuit.name}</h3><p>{latestRace.country || 'Circuit'} · {circuit.races.length} race{circuit.races.length === 1 ? '' : 's'}</p>
+          {years.length > 0 && <small>{Math.min(...years)}–{Math.max(...years)}</small>}</div>
+      </Link>;
+    })}</div>
+  </section>;
+}
+
+function CircuitStatsTable({ title, rows, entity, metric, metricLabel }) {
+  const [showAll, setShowAll] = useState(false);
+  const sortedRows = [...rows]
+    .filter(row => Number(row[metric]) > 0)
+    .sort((a, b) => Number(b[metric]) - Number(a[metric]) || a.name.localeCompare(b.name));
+  const visibleRows = showAll ? sortedRows : sortedRows.slice(0, 10);
+  return <section className="circuit-stats">
+    <header className="circuit-leaderboard-heading"><h3>{title}</h3><span>{metricLabel}</span></header>
+    {sortedRows.length
+      ? <><div className="scroll circuit-stats-scroll"><table><thead><tr><th aria-label="Rank">#</th><th>{entity}</th><th>{metricLabel}</th></tr></thead><tbody>{visibleRows.map((row, index) => <tr key={row.id} className={index < 3 ? `circuit-leaderboard-top-${index + 1}` : undefined}>
+        <td className="circuit-leaderboard-rank">{index + 1}</td><td><Link className="circuit-stat-entity" to={`/${entity === 'Driver' ? 'drivers' : 'teams'}/${row.id}`}>
+          {row.logo && <img src={row.logo} alt="" />}{row.name}
+        </Link></td><td className="circuit-leaderboard-score">{Number(row[metric]).toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
+      </tr>)}</tbody></table></div>
+      {sortedRows.length > 10 && <button type="button" className="circuit-leaderboard-toggle" onClick={() => setShowAll(current => !current)}>{showAll ? 'Show top 10' : `Show all ${sortedRows.length}`}</button>}</>
+      : <p className="muted">No {metricLabel.toLowerCase()} recorded for {title.toLowerCase()} at this circuit.</p>}
+  </section>;
+}
+
+export function Circuit() {
+  const { name } = useParams();
+  const circuit = useQ(() => loadCircuitResults(name || ''), [name]);
+  const [selectedMetric, setSelectedMetric] = useState('points');
+  const metrics = [
+    ['wins', 'Wins'], ['poles', 'Poles'], ['podiums', 'Podiums'],
+    ['points', 'Points'], ['races', 'Races'], ['fastestLaps', 'Fastest laps']
+  ];
+  const races = circuit.data?.races || [];
+  const results = circuit.data?.results || [];
+  const drivers = new Map();
+  const teams = new Map();
+  const addStats = (collection, subject, id, result) => {
+    if (!id || !subject) return null;
+    const key = String(id);
+    const stats = collection.get(key) || {
+      id, name: subject.name || `${entityLabel(collection)} #${id}`, code: subject.code || '',
+      logo: subject.logo_normal || '', wins: 0, poles: 0, podiums: 0, points: 0,
+      races: new Set(), fastestLaps: 0
+    };
+    const event = `${result.grid_id}:${result.race_id}`;
+    if (result.session_type === 'race') {
+      stats.races.add(event);
+      const position = Number(result.position);
+      if (result.race_win || position === 1) stats.wins += 1;
+      if (position >= 1 && position <= 3 && !result.retired && result.status !== 'Retired') stats.podiums += 1;
+      if (result.fastest_lap) stats.fastestLaps += 1;
+    } else if (result.session_type === 'qualifying' && (result.pole_position || Number(result.position) === 1)) {
+      stats.poles += 1;
+    }
+    if (result.session_type === 'race' || result.session_type === 'sprint') stats.points += Number(result.points) || 0;
+    collection.set(key, stats);
+    return stats;
+  };
+  const entityLabel = collection => collection === drivers ? 'Driver' : 'Team';
+  for (const result of results) {
+    addStats(drivers, result.drivers, result.driver_id, result);
+    addStats(teams, result.teams, result.team_id, result);
+  }
+  const driverStats = [...drivers.values()].map(({ races: starts, ...stats }) => ({ ...stats, races: starts.size }));
+  const teamStats = [...teams.values()].map(({ races: starts, ...stats }) => ({ ...stats, races: starts.size }));
+  const image = races.find(race => race.circuit_image_url)?.circuit_image_url;
+  if (circuit.loading || circuit.error) return <section className="circuit-detail"><Link to="/circuits">← All circuits</Link><h2>{name || 'Circuit'}</h2><QueryStatus query={circuit} /></section>;
+  if (!races.length) return <section className="circuit-detail"><Link to="/circuits">← All circuits</Link><h2>Circuit not found</h2></section>;
+  return <section className="circuit-detail">
+    <Link to="/circuits">← All circuits</Link>
+    <header className="circuit-detail-heading">
+      {image && <img src={image} alt={`${name} circuit map`} />}
+      <div><p className="eyebrow">CIRCUIT</p><h2>{name}</h2><p>{[...new Set(races.map(race => race.country).filter(Boolean))].join(' · ')}</p><strong>{races.length} race{races.length === 1 ? '' : 's'} in calendar</strong></div>
+    </header>
+    <p className="muted circuit-stats-note">Race starts and race awards are from Grand Prix results. Points include Grand Prix and sprint sessions; fastest laps exclude sprint sessions.</p>
+    <div className="circuit-metric-tabs" role="tablist" aria-label="Circuit leaderboard categories">
+      {metrics.map(([key, label]) => <button type="button" role="tab" id={`circuit-${key}-tab`} aria-controls="circuit-leaderboards-panel"
+        aria-selected={selectedMetric === key} className={selectedMetric === key ? 'active' : ''} key={key}
+        onClick={() => setSelectedMetric(key)}>{label}</button>)}
+    </div>
+    <section id="circuit-leaderboards-panel" role="tabpanel" aria-labelledby={`circuit-${selectedMetric}-tab`} className="circuit-leaderboards">
+      <CircuitStatsTable key={`${selectedMetric}-drivers`} title="Driver leaderboard" rows={driverStats} entity="Driver" metric={selectedMetric} metricLabel={metrics.find(([key]) => key === selectedMetric)?.[1]} />
+      <CircuitStatsTable key={`${selectedMetric}-teams`} title="Team leaderboard" rows={teamStats} entity="Team" metric={selectedMetric} metricLabel={metrics.find(([key]) => key === selectedMetric)?.[1]} />
+    </section>
+    <section className="circuit-race-history"><h3>Races at this circuit</h3><div className="scroll"><table><thead><tr><th>Season</th><th>Round</th><th>Race</th><th>Date</th></tr></thead><tbody>{races.map(race => <tr key={race.id}><td>{race.year}</td><td>{race.round ? `R${race.round}` : '—'}</td><td>{race.name}</td><td>{race.date || '—'}</td></tr>)}</tbody></table></div></section>
+  </section>;
+}
+
 export function Results() {
   const results = useQ(loadSavedRaceResults);
   const [selectedYear, setSelectedYear] = useState('');
@@ -473,11 +951,11 @@ export function Results() {
         {activeWeekend && activeSession && <div className="results-classification">
           <header className="results-classification-heading"><div><small>{activeWeekend.year} · ROUND {activeWeekend.round || '—'}</small><h3>{activeWeekend.raceName}</h3><span>{sessionLabel(activeSession.session_type)} classification</span></div>{activeWeekend.sessions.some(session => session.session_type === 'sprint') && <strong className="results-sprint-tag">SPRINT WEEKEND</strong>}</header>
           <nav className="results-session-nav" aria-label={`${activeWeekend.raceName} sessions`}>{activeWeekend.sessions.map(session => <button type="button" key={session.session_type} className={session.session_type === activeSession.session_type ? 'active' : ''} aria-current={session.session_type === activeSession.session_type ? 'true' : undefined} onClick={() => setSelectedSession(session.session_type)}>{sessionLabel(session.session_type)}</button>)}</nav>
-          <div className="scroll results-table-scroll"><table className="race-table results-table"><thead><tr><th>POS</th><th>DRIVER</th><th>GRID</th><th>STATUS</th><th>LAPS</th><th>TIME</th><th>BEST</th><th>PTS</th><th>AWARDS</th><th></th></tr></thead><tbody>
+          <div className="scroll results-table-scroll"><table className="race-table live-timing-table results-table"><thead><tr><th>POS</th><th>DRIVER</th><th>GRID</th><th>STATUS</th><th>LAPS</th><th>TIME</th><th>BEST</th><th>PTS</th><th>AWARDS</th><th></th></tr></thead><tbody>
             {classification.map((row, index) => {
               const saved = row.result || {}; const driver = saved.driver || row.drivers || {}; const team = saved.team || row.teams || {}; const gridPosition = saved.gridPosition ?? saved.grid ?? '—'; const gridNumber = Number(gridPosition); const positionChange = Number.isFinite(gridNumber) ? gridNumber - Number(row.position) : 0; const time = saved.totalTime ?? row.total_time; const bestLap = saved.bestLap ?? row.best_lap; return <tr key={`${row.driver_id}-${index}`} className={index === 0 ? 'leader' : ''} style={{ '--team-color': team.color || '#d3202f' }}>
                 <td className="position-cell"><span className="position-number">{row.position === 1 ? 'P1' : row.position}</span>{Number.isFinite(gridNumber) && <span className={`position-change ${positionChange > 0 ? 'up' : positionChange < 0 ? 'down' : 'same'}`} title={positionChange > 0 ? `${positionChange} place${positionChange === 1 ? '' : 's'} gained` : positionChange < 0 ? `${Math.abs(positionChange)} place${positionChange === -1 ? '' : 's'} lost` : 'No position change'}>{positionChange > 0 ? '▲' : positionChange < 0 ? '▼' : '→'}</span>}</td>
-                <td><Link className="results-driver-link" to={`/drivers/${driver.id || row.driver_id}`}><span className="driver-result"><span className="team-logo" title={team.name || 'Team'}>{team.logo_normal && <img src={team.logo_normal} alt="" />}</span><strong className={driver.code ? 'driver-code' : undefined}>{driver.code || driver.name || 'Driver'}</strong></span><small>{driver.name || `Driver #${row.driver_id}`}{saved.substituteFor && <> · SUB for {saved.substituteFor.code ? <span className="driver-code">{saved.substituteFor.code}</span> : saved.substituteFor.name}</>}</small></Link></td>
+                <td><Link className="results-driver-link" to={`/drivers/${driver.id || row.driver_id}`} aria-label={driver.name || `Driver #${row.driver_id}`} title={driver.name || `Driver #${row.driver_id}`}><span className="driver-result"><span className="team-logo" title={team.name || 'Team'}>{team.logo_normal && <img src={team.logo_normal} alt="" />}</span><strong className={driver.code ? 'driver-code' : undefined}>{driver.code || driver.name?.trim().split(/\s+/).pop()?.toUpperCase() || 'DRIVER'}</strong></span></Link></td>
                 <td>{gridPosition === '—' ? '—' : `P${gridPosition}`}</td><td><span className={`results-status ${row.retired ? 'is-retired' : ''}`}>{row.retired ? 'RETIRED' : row.status || 'FINISHED'}</span></td>
                 <td>{row.laps_completed || saved.lapsCompleted || '—'}</td>
                 <td>{time !== null && time !== undefined && Number.isFinite(Number(time)) ? formatTime(Number(time)) : '—'}</td>
@@ -507,7 +985,13 @@ export function Grids() {
   return <><h2>Grids</h2><p className="muted">A grid is a set of driver and car pairings. Create grids in Admin, then fill them here (sign-in required to edit).</p>
     <QueryStatus query={g} empty="No grids yet." /><QueryStatus query={teams} empty="No teams or cars available." /><QueryStatus query={drivers} empty="No drivers available." />
     {(g.data || []).map(x => <div key={x.id} className="card wide"><h3>{x.name} <small>{x.year}</small></h3>
-      <div className="f1-starting-grid">{(x.grid_entries || []).map((e, i) => <div key={e.id} className={`f1-grid-slot ${i % 2 === 0 ? 'pole-side' : 'off-side'}`}><span className="f1-grid-pos">P{i + 1}</span><span className="f1-grid-driver">{e.drivers?.name}</span><span className="f1-grid-team">{e.teams?.name}</span><button className="f1-grid-remove" onClick={() => del(e.id)} title="Remove">×</button></div>)}</div>
+      <div className="f1-starting-grid">{Array.from({ length: Math.ceil((x.grid_entries || []).length / 2) }, (_, rowIndex) => {
+        const rowEntries = (x.grid_entries || []).slice(rowIndex * 2, rowIndex * 2 + 2);
+        return <div key={rowIndex} className="f1-grid-row">{rowEntries.map((e, sideIndex) => {
+          const position = rowIndex * 2 + sideIndex;
+          return <div key={e.id} className={`f1-grid-slot ${sideIndex === 0 ? 'pole-side' : 'off-side'}`}><span className="f1-grid-pos">P{position + 1}</span><span className="f1-grid-driver">{e.drivers?.name}</span><span className="f1-grid-team">{e.teams?.name}</span><button className="f1-grid-remove" onClick={() => del(e.id)} title="Remove">×</button></div>;
+        })}</div>;
+      })}</div>
       <div className="row"><select onChange={e => setF({ ...f, driver: e.target.value })}><option value="">Driver</option>{driverRows.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select>
         <select onChange={e => setF({ ...f, car: e.target.value })}><option value="">Car</option>{teamRows.flatMap(t => (t.cars || []).map(c => <option key={c.id} value={c.id}>{t.name} {c.model} ({c.year})</option>))}</select>
         <button className="btn" onClick={() => add(x.id)}>Add to grid</button></div></div>)}</>
