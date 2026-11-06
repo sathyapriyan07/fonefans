@@ -705,9 +705,9 @@ export function Cars() {
 export function Teams() {
   const t = useQ(() => sb.from('teams').select('*').order('name'));
   return <><h2>Teams</h2><QueryStatus query={t} empty="No teams yet." /><div className="grid team-grid">{t.data?.map(x => {
-    const detailedLogo = Boolean(x.logo_detailed);
-    const logo = x.logo_detailed || x.logo_normal;
-    return <Link key={x.id} to={'/teams/' + x.id} className={`card team-card ${detailedLogo ? 'has-detailed-logo' : 'has-normal-logo'}`} aria-label={x.name} style={{ backgroundColor: x.color || '#fff' }}>
+    const normalLogo = Boolean(x.logo_normal);
+    const logo = x.logo_normal || x.logo_detailed;
+    return <Link key={x.id} to={'/teams/' + x.id} className={`card team-card ${normalLogo ? 'has-normal-logo' : 'has-detailed-logo'}`} aria-label={x.name} style={{ backgroundColor: 'var(--paper)' }}>
       {logo && <img src={logo} alt={`${x.name} logo`} />}
     </Link>;
   })}</div></>
@@ -1062,80 +1062,6 @@ const DEFAULT_SETUP = { aero: 50, suspension: 50, tyreCare: 50 };
 const DEFAULT_STRATEGY = { tyre: 'auto', stops: 'auto' };
 const formatTime = seconds => Number.isFinite(seconds) ? `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(3).padStart(6, '0')}` : '—';
 const tyreLetter = compound => ({ soft: 'S', medium: 'M', hard: 'H', intermediate: 'I', wet: 'W' }[compound] || '—');
-const ordinalPlace = value => `${value}${value % 100 >= 11 && value % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[value % 10] || 'th')}`;
-
-function getRaceGap(entry, leader) {
-  if (!entry || !leader) return '—';
-  if (entry.retired) return 'Out';
-  if (entry.lapsCompleted < leader.lapsCompleted) return `+${leader.lapsCompleted - entry.lapsCompleted} Lap`;
-  if (String(entry.driver?.id) === String(leader.driver?.id)) return 'Leader';
-  return `+${(entry.totalTime - leader.totalTime).toFixed(3)}`;
-}
-
-function TowerRow({ entry, index, leader, selected, focused, onSelect }) {
-  const gap = getRaceGap(entry, leader);
-  const code = entry.driver?.code || entry.driver?.name?.trim().split(/\s+/).pop()?.toUpperCase() || '—';
-  const compound = entry.tyre?.compound;
-  return <button type="button" className={`timing-tower-row${selected ? ' selected' : ''}${focused ? ' battle-target' : ''}${entry.retired ? ' retired' : ''}`}
-    style={{ '--team-color': entry.team?.color || '#d3202f' }} aria-pressed={selected}
-    aria-label={`Position ${index + 1}, ${entry.driver?.name || 'driver'}, ${gap}`}
-    onClick={onSelect}>
-    <span className="timing-tower-position">{entry.retired ? 'OUT' : index + 1}</span>
-    <span className="timing-tower-team">{entry.team?.logo_normal
-      ? <img className={entry.team?.name?.toLowerCase().includes('red bull') ? 'mirror-logo' : ''} src={entry.team.logo_normal} alt={`${entry.team?.name || 'Team'} logo`} />
-      : <small>{entry.team?.name?.slice(0, 3).toUpperCase() || 'F1'}</small>}</span>
-    <strong className="timing-tower-code">{code}</strong>
-    <span className={`timing-tower-gap${gap === 'Leader' ? ' leader-gap' : ''}${entry.retired ? ' out-gap' : ''}`}>{gap}</span>
-    <span className={`timing-tower-tyre ${compound || ''}`} aria-label={compound ? `${compound} tyres` : 'Tyre compound unavailable'} title={compound ? `${compound} tyres` : 'Tyre compound unavailable'}>{tyreLetter(compound)}</span>
-  </button>;
-}
-
-function BattleCard({ ahead, behind, position, gap }) {
-  const stripe = (entry, label, fallbackPosition) => <div className={`timing-battle-driver${entry ? '' : ' unavailable'}`} aria-label={entry ? `${label}: ${entry.driver?.name || 'Driver'}` : `${label}: no car`}>
-    <span className="timing-battle-position">{entry ? fallbackPosition : '—'}</span>
-    <span className="timing-battle-team" style={{ '--team-color': entry?.team?.color || '#555' }}>
-      {entry?.team?.logo_normal && <img className={entry.team?.name?.toLowerCase().includes('red bull') ? 'mirror-logo' : ''} src={entry.team.logo_normal} alt={`${entry.team?.name || 'Team'} logo`} />}
-    </span>
-    <strong>{entry?.driver?.code || entry?.driver?.name || 'NO CAR'}</strong>
-  </div>;
-  return <section className="timing-battle" aria-label={`Battle for ${ordinalPlace(position)}`}>
-    <div className="timing-battle-divider" />
-    <h4>BATTLE FOR {ordinalPlace(position)}</h4>
-    {stripe(ahead, 'Ahead', position - 1)}
-    <div className="timing-battle-gap" aria-label={`Gap to car ahead: ${gap}`}>{gap}</div>
-    {stripe(behind, 'Behind', position + 1)}
-  </section>;
-}
-
-function TimingTower({ entries, lap, totalLaps, selectedDriverId, defaultFocusIndex, onSelect }) {
-  const leader = entries[0];
-  const focusIndex = entries.findIndex(entry => String(entry.driver?.id) === String(selectedDriverId));
-  const activeFocusIndex = focusIndex >= 0 ? focusIndex : defaultFocusIndex;
-  const focusedEntry = entries[activeFocusIndex];
-  const ahead = activeFocusIndex > 0 ? entries[activeFocusIndex - 1] : null;
-  const behind = activeFocusIndex >= 0 && activeFocusIndex < entries.length - 1 ? entries[activeFocusIndex + 1] : null;
-  const adjacent = ahead || behind;
-  const battleGap = focusedEntry && adjacent
-    ? focusedEntry.lapsCompleted !== adjacent.lapsCompleted
-      ? `+${Math.abs(focusedEntry.lapsCompleted - adjacent.lapsCompleted)} Lap`
-      : `+${Math.abs(focusedEntry.totalTime - adjacent.totalTime).toFixed(3)}`
-    : '—';
-  return <aside className="timing-tower" aria-label="Race live timing tower">
-    <header className="timing-tower-header">
-      <div className="timing-tower-brand"><span className="timing-tower-mark" aria-label="F1">F1</span><strong>RACE</strong></div>
-      <div className="timing-tower-lap"><em>LAP</em><span className="timing-tower-current-lap">{lap}</span><em>/{totalLaps}</em></div>
-    </header>
-    <div className="timing-tower-rows">
-      {entries.map((entry, index) => {
-        return <div className="timing-tower-item" key={entry.driver?.id}>
-          <TowerRow entry={entry} index={index} leader={leader} selected={String(entry.driver?.id) === String(selectedDriverId)}
-            focused={index === activeFocusIndex} onSelect={() => onSelect(entry.driver?.id)} />
-        </div>;
-      })}
-    </div>
-    {focusedEntry && <BattleCard ahead={ahead} behind={behind} position={activeFocusIndex + 1} gap={battleGap} />}
-  </aside>;
-}
 
 function DriverStage({ entry, car, opponent, position, raceState, pitCompound, pitLap, pitFeedback,
   onPitCompound, onPitLap, onPitCommand, onBoost, onClose, boostDisabled, boostLabel }) {
@@ -1795,17 +1721,8 @@ export function Simulate() {
               <div className="results-panel"><div className="section-title"><h3>Live timing</h3><p>{raceState.done ? 'Chequered flag' : 'Simulation in progress'}</p></div>
                 {boostFeedback && <p className="boost-feedback" role="status">{boostFeedback}</p>}
                 <div className="live-timing-layout">
-                  <TimingTower entries={phaseResult} lap={raceState.lap} totalLaps={raceState.totalLaps}
-                    selectedDriverId={selectedDriverId} defaultFocusIndex={Math.min(8, Math.max(0, phaseResult.length - 1))}
-                    onSelect={driverId => setSelectedDriverId(driverId)} />
                   <div className="timing-stage-column">
-                    <DriverStage entry={stageEntry} car={selectedCar} opponent={stageOpponent} position={stagePosition}
-                      raceState={raceState} pitCompound={pitCompound} pitLap={pitLap} pitFeedback={pitFeedback}
-                      onPitCompound={setPitCompound} onPitLap={setPitLap} onPitCommand={issuePitCommand}
-                      onBoost={issueDriverBoost} onClose={() => setSelectedDriverId(null)}
-                      boostDisabled={raceState.done || stageEntry.retired || stageEntry.completed || stageEntry.boostLap != null || stageEntry.boostCooldownLaps > 0}
-                      boostLabel={stageEntry.boostLap != null ? 'BOOST ARMED' : stageEntry.boostCooldownLaps > 0 ? `BOOST · ${stageEntry.boostCooldownLaps}L` : 'BOOST'} />
-                    <details className="timing-details">
+                    <details className="timing-details" open>
                       <summary>Detailed timing and race controls</summary>
                       <div className="scroll"><table className="race-table live-timing-table"><thead><tr><th>POS</th><th>DRIVER</th><th>GAP</th><th>INT</th><th>LAST</th><th>BEST</th><th>TYRE</th><th>AGE</th><th>WEAR</th><th>GRIP</th><th>PITS</th><th>FUEL</th><th>PIT COMMAND</th><th>STATUS</th><th>BOOST</th><th></th></tr></thead>
                   <tbody>{phaseResult.map((entry, index) => {
@@ -1828,6 +1745,12 @@ export function Simulate() {
                     </tr>
                   })}</tbody></table></div>
                     </details>
+                    <DriverStage entry={stageEntry} car={selectedCar} opponent={stageOpponent} position={stagePosition}
+                      raceState={raceState} pitCompound={pitCompound} pitLap={pitLap} pitFeedback={pitFeedback}
+                      onPitCompound={setPitCompound} onPitLap={setPitLap} onPitCommand={issuePitCommand}
+                      onBoost={issueDriverBoost} onClose={() => setSelectedDriverId(null)}
+                      boostDisabled={raceState.done || stageEntry.retired || stageEntry.completed || stageEntry.boostLap != null || stageEntry.boostCooldownLaps > 0}
+                      boostLabel={stageEntry.boostLap != null ? 'BOOST ARMED' : stageEntry.boostCooldownLaps > 0 ? `BOOST · ${stageEntry.boostCooldownLaps}L` : 'BOOST'} />
                   </div>
                 </div>
               </div>
@@ -1836,12 +1759,12 @@ export function Simulate() {
           </div>}
           {phaseResult && phase !== 'race' && phase !== 'sprint' && <div className="results-panel"><div className="section-title"><h3>{PHASE_LABELS[phase]} classification</h3><p>{isPractice ? 'Practice pace' : isQualifying ? 'Starting grid' : 'Session results'}</p></div>
             {(isPractice || isQualifying) && <SessionPodium entries={phaseResult} race={selectedRace} phaseLabel={PHASE_LABELS[phase]} fastestLap={fastestSessionLap} />}
-            <div className={`scroll ${isPractice ? 'practice-classification-scroll' : ''}`}><table className={`race-table session-classification-table ${isPractice ? 'practice-classification-table' : ''}`}><thead><tr><th>POS</th><th>DRIVER</th><th>GAP</th><th>BEST LAP</th>{!isPractice && <th>CAR</th>}<th></th></tr></thead>
+            <div className={`scroll ${isPractice ? 'practice-classification-scroll' : isQualifying ? 'qualifying-classification-scroll' : ''}`}><table className={`race-table session-classification-table ${isPractice ? 'practice-classification-table' : ''} ${isQualifying ? 'qualifying-classification-table' : ''}`}><thead><tr><th>POS</th><th>DRIVER</th><th>GAP</th>{!isPractice && !isQualifying && <><th>BEST LAP</th><th>CAR</th></>}<th></th></tr></thead>
               <tbody>{phaseResult.map((entry, index) => {
                 const gap = Number.isFinite(entry.bestLap) && Number.isFinite(fastestSessionLap) && entry.bestLap > fastestSessionLap ? `+${(entry.bestLap - fastestSessionLap).toFixed(3)}` : '—';
                 return <tr key={`${entry.driver.id}-${index}`} className={index === 0 ? 'leader' : ''}>
-                  <td className="position-cell">{getPosition(entry, index)}</td><td><span className="driver-result"><span className="team-logo">{entry.team.logo_normal && <img src={entry.team.logo_normal} alt={`${entry.team.name} logo`} />}</span><strong className={isPractice && entry.driver.code ? 'driver-code' : undefined}>{isPractice ? (entry.driver.code || entry.driver.name.trim().split(/\s+/).pop()?.toUpperCase()) : entry.driver.name.trim().split(/\s+/).pop()?.toUpperCase()}</strong></span></td>
-                  <td>{gap}</td><td>{formatTime(entry.bestLap)}</td>{!isPractice && <td>{entry.cars?.model || entry.c.model || '—'}</td>}<td className="driver-grid-image-cell">{driverGridImage(entry.driver, selectedRace?.year) && <img className="driver-grid-image" src={driverGridImage(entry.driver, selectedRace?.year)} alt={`${entry.driver.name} grid image`} />}</td>
+                  <td className="position-cell">{getPosition(entry, index)}</td><td><span className="driver-result"><span className="team-logo">{entry.team.logo_normal && <img src={entry.team.logo_normal} alt={`${entry.team.name} logo`} />}</span><strong>{entry.driver.name.trim().split(/\s+/).pop()?.toUpperCase() || '—'}</strong></span></td>
+                  <td>{gap}</td>{!isPractice && !isQualifying && <><td>{formatTime(entry.bestLap)}</td><td>{entry.cars?.model || entry.c.model || '—'}</td></>}<td className="driver-grid-image-cell">{driverGridImage(entry.driver, selectedRace?.year) && <img className="driver-grid-image" src={driverGridImage(entry.driver, selectedRace?.year)} alt={`${entry.driver.name} grid image`} />}</td>
                 </tr>
               })}</tbody></table></div>
           </div>}

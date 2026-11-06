@@ -16,7 +16,7 @@
 
 .live-timing-layout {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 14px;
 }
@@ -332,8 +332,7 @@
 
 @media (max-width: 640px) {
   .live-timing-layout { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-  .timing-tower { position: static; width: min(205px, 100%); --u: calc(205px / 280); --font-timing: TimingBold, Formula1, "Titillium Web", "Exo 2", sans-serif; }
-  .timing-stage-column { grid-row: 2; }
+  .timing-stage-column { grid-row: auto; }
   .driver-stage { padding: 9px; gap: 8px; }
   .driver-stage-header { gap: 6px; }
   .driver-stage-identity img { width: 32px; height: 30px; }
