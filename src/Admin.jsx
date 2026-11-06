@@ -31,10 +31,17 @@ function raceNumberPlaceholder(key,form){
  }
  return RACE_NUMBER_DEFAULTS[key]||'';
 }
-function Crud({table}){const F=T[table];const [rows,setRows]=useState([]);const [opts,setOpts]=useState({});const [form,setForm]=useState({});const [saving,setSaving]=useState(false);
- const load=async()=>{setRows((await sb.from(table).select('*').order('id',{ascending:false}).limit(200)).data||[]);
-  const o={};for(const f of F.filter(f=>f.t==='ref'))o[f.k]=(await sb.from(f.table).select('*')).data||[];setOpts(o)};
- useEffect(()=>{setForm({});load()},[table]);
+function Crud({table}){const F=T[table];const PAGE_SIZE=25;const [rows,setRows]=useState([]);const [opts,setOpts]=useState({});const [form,setForm]=useState({});const [saving,setSaving]=useState(false);const [page,setPage]=useState(0);const [count,setCount]=useState(0);const [loading,setLoading]=useState(true);const [loadError,setLoadError]=useState('');const [refresh,setRefresh]=useState(0);
+ useEffect(()=>{setForm({});setPage(0)},[table]);
+ useEffect(()=>{let active=true;
+  const loadPage=async()=>{setLoading(true);setLoadError('');
+   const {data,count:total,error}=await sb.from(table).select('*',{count:'exact'}).order('id',{ascending:false}).range(page*PAGE_SIZE,(page+1)*PAGE_SIZE-1);
+   if(error){if(active)setLoadError(error.message);if(active)setLoading(false);return}
+   const o={};for(const f of F.filter(f=>f.t==='ref')){const {data:options,error:optionsError}=await sb.from(f.table).select('*');if(optionsError){if(active)setLoadError(optionsError.message);if(active)setLoading(false);return}o[f.k]=options||[]}
+   if(active){setRows(data||[]);setCount(total||0);setOpts(o);setLoading(false)}
+  };
+  loadPage();return()=>{active=false};
+ },[table,page,refresh]);
  const set=(k,v)=>setForm({...form,[k]:v});
  const save=async()=>{setSaving(true);try{const p={...form};
   if(table==='races'&&typeof p.circuit_path==='string'&&p.circuit_path.trim()){
@@ -59,9 +66,9 @@ function Crud({table}){const F=T[table];const [rows,setRows]=useState([]);const 
   }
   Object.keys(p).forEach(k=>{if(p[k]==='')delete p[k]});
   const {error}=p.id?await sb.from(table).update(p).eq('id',p.id):await sb.from(table).insert(p);
-  if(error)return alert(error.message);setForm({});load();
+  if(error)return alert(error.message);setForm({});setRefresh(value=>value+1);
  }catch(error){alert(`Save failed: ${error instanceof Error?error.message:String(error)}`)}finally{setSaving(false)}};
- const del=async id=>{if(confirm('Delete this row?')){const {error}=await sb.from(table).delete().eq('id',id);if(error)alert(error.message);load()}};
+ const del=async id=>{if(confirm('Delete this row?')){const {error}=await sb.from(table).delete().eq('id',id);if(error)alert(error.message);else if(rows.length===1&&page>0)setPage(value=>value-1);else setRefresh(value=>value+1)}};
  const show=(r,f)=>f.t==='ref'?(opts[f.k]?.find(o=>o.id===r[f.k])?.[f.label]??r[f.k]):f.t==='optionalBool'?r[f.k]===true?'Required':r[f.k]===false?'Not required':'Season default':String(r[f.k]??'');
  return <><div className="form">{F.filter(f=>!(table==='races'&&f.k==='circuit_path')).map(f=><label key={f.k}>{f.k}{f.t==='ref'?<select value={form[f.k]||''} onChange={e=>set(f.k,e.target.value)}><option value="">none</option>{opts[f.k]?.map(o=><option key={o.id} value={o.id}>{o[f.label]}</option>)}</select>
   :f.t==='area'?<textarea value={form[f.k]||''} onChange={e=>set(f.k,e.target.value)}/>
@@ -79,6 +86,8 @@ function Crud({table}){const F=T[table];const [rows,setRows]=useState([]);const 
   :<input type={f.t==='number'?'number':f.t==='date'?'date':'text'} value={form[f.k]??''} placeholder={table==='races'&&f.t==='number'?raceNumberPlaceholder(f.k,form):undefined} onChange={e=>set(f.k,e.target.value)}/>}</label>)}
   {table==='races'&&<TrackPathEditor key={form.id||'new-race'} race={form} value={form.circuit_path||''} image={form.circuit_image_url} onChange={value=>set('circuit_path',value)}/>}
   <div className="row"><button className="btn" onClick={save} disabled={saving}>{saving?'Saving…':form.id?'Update':'Create'}</button>{form.id&&<button onClick={()=>setForm({})}>Cancel</button>}</div></div>
+  <div className="admin-crud-toolbar"><span>{count.toLocaleString()} records · page {count? page+1:0} of {Math.max(1,Math.ceil(count/PAGE_SIZE))}</span><div><button type="button" disabled={page===0||loading} onClick={()=>setPage(value=>Math.max(0,value-1))}>Previous</button><button type="button" disabled={(page+1)*PAGE_SIZE>=count||loading} onClick={()=>setPage(value=>value+1)}>Next</button></div></div>
+  {loadError&&<p className="query-status query-error" role="alert">Could not load {table}: {loadError}</p>}{loading&&<p className="query-status" role="status">Loading records…</p>}
   <div className="scroll"><table><thead><tr>{F.map(f=><th key={f.k}>{f.k}</th>)}<th/></tr></thead><tbody>{rows.map(r=><tr key={r.id}>{F.map(f=><td key={f.k}>{show(r,f)}</td>)}<td><button onClick={()=>setForm(r)}>edit</button> <button onClick={()=>del(r.id)}>delete</button></td></tr>)}</tbody></table></div></>}
 const J='https://api.jolpi.ca/ergast/f1/';
 function Import(){const [year,setY]=useState(new Date().getFullYear());const [log,setLog]=useState([]);const L=m=>setLog(l=>[...l,m]);
@@ -124,9 +133,35 @@ function Lineups(){const [year,setYear]=useState(new Date().getFullYear());const
   {teams.map(team=><article className="lineup-team" key={team.id}><h3>{team.name} <small>{year}</small></h3><div className="lineup-slots">{slots.map(([key,label])=><label key={key}>{label}<select disabled={Boolean(error)||savingTeam!==null} value={lineups[String(team.id)]?.[key]||''} onChange={event=>setSlot(team.id,key,event.target.value)}><option value="">Not assigned</option>{drivers.map(driver=><option key={driver.id} value={driver.id}>{driver.name}</option>)}</select></label>)}</div><div className="row"><button className="btn" disabled={loading||Boolean(error)||savingTeam!==null} onClick={()=>save(team)}>{savingTeam===team.id?'Saving…':'Save lineup'}</button></div></article>)}
   {message&&<p role="status" className={message.startsWith('Could not')||message.includes('choose a different')||message.startsWith('Enter a valid')?'query-status query-error':'query-status'}>{message}</p>}
  </section>}
-export default function Admin(){const [s,setS]=useState(null);const [tab,setTab]=useState('import');const [e,setE]=useState({});
+const ADMIN_GROUPS=[
+ {label:'Overview',items:['dashboard']},
+ {label:'Operations',items:['import','lineups']},
+ {label:'Drivers & teams',items:['drivers','driver_ratings','driver_images','teams','team_driver_lineups']},
+ {label:'Cars & grids',items:['cars','grids','grid_entries']},
+ {label:'Race data',items:['races','race_results']},
+ {label:'Media',items:['tyre_images']}
+];
+const ADMIN_LABELS={dashboard:'Dashboard',import:'Data imports',lineups:'Driver lineups',driver_ratings:'Driver ratings',driver_images:'Driver images',team_driver_lineups:'Team lineups',grid_entries:'Grid entries',race_results:'Race results',tyre_images:'Tyre images'};
+function AdminDashboard({onSelect}){
+ const [counts,setCounts]=useState(null);const [error,setError]=useState('');
+ useEffect(()=>{let active=true;
+  Promise.all(Object.keys(T).map(async table=>{const {count,error:queryError}=await sb.from(table).select('*',{count:'exact',head:true});if(queryError)throw queryError;return [table,count||0]}))
+   .then(entries=>{if(active)setCounts(Object.fromEntries(entries))})
+   .catch(queryError=>{if(active)setError(queryError instanceof Error?queryError.message:String(queryError))});
+  return()=>{active=false};
+ },[]);
+ const totalRecords=counts?Object.values(counts).reduce((sum,count)=>sum+count,0):0;
+ return <section className="admin-dashboard"><header><p className="eyebrow">PITWALL MANAGEMENT</p><h3>Database overview</h3><p>Live record counts from the connected Supabase project.</p></header>
+  {error&&<p className="query-status query-error" role="alert">Could not load database totals: {error}</p>}
+  <div className="admin-dashboard-summary"><div><span>TABLES</span><strong>{Object.keys(T).length}</strong></div><div><span>RECORDS</span><strong>{counts?totalRecords.toLocaleString():'—'}</strong></div><button type="button" className="btn" onClick={()=>onSelect('import')}>Open imports</button></div>
+  <div className="admin-module-cards">{Object.entries(T).map(([table])=><button type="button" className="admin-module-card" key={table} onClick={()=>onSelect(table)}><span>{ADMIN_LABELS[table]||table.replaceAll('_',' ')}</span><strong>{counts?counts[table].toLocaleString():'—'}</strong><small>Manage records</small></button>)}</div>
+ </section>;
+}
+export default function Admin(){const [s,setS]=useState(null);const [tab,setTab]=useState('dashboard');const [e,setE]=useState({});
  useEffect(()=>{sb.auth.getSession().then(r=>setS(r.data.session));const {data}=sb.auth.onAuthStateChange((_,x)=>setS(x));return()=>data.subscription.unsubscribe()},[]);
  if(!s)return <div className="form"><h2>Admin sign in</h2><label>email<input onChange={x=>setE({...e,email:x.target.value})}/></label><label>password<input type="password" onChange={x=>setE({...e,password:x.target.value})}/></label>
   <button className="btn" onClick={async()=>{const {error}=await sb.auth.signInWithPassword(e);if(error)alert(error.message)}}>Sign in</button></div>;
- return <><div className="row"><h2>Admin</h2><button onClick={()=>sb.auth.signOut()}>Sign out</button></div>
- <div className="tabs">{['import','lineups',...Object.keys(T)].map(k=><button key={k} className={k===tab?'on':''} onClick={()=>setTab(k)}>{k.replace('_',' ')}</button>)}</div>{tab==='import'?<Import/>:tab==='lineups'?<Lineups/>:<Crud table={tab}/>}</>}
+ return <section className="admin-page"><div className="admin-page-heading"><div><p className="eyebrow">MANAGEMENT</p><h2>Admin</h2><span>{s.user?.email}</span></div><button type="button" onClick={()=>sb.auth.signOut()}>Sign out</button></div>
+  <nav className="admin-module-nav" aria-label="Admin modules">{ADMIN_GROUPS.map(group=><section key={group.label}><h3>{group.label}</h3><div>{group.items.map(key=><button type="button" key={key} className={tab===key?'active':''} aria-current={tab===key?'page':undefined} onClick={()=>setTab(key)}>{ADMIN_LABELS[key]||key.replaceAll('_',' ')}</button>)}</div></section>)}</nav>
+  {tab==='dashboard'?<AdminDashboard onSelect={setTab}/>:tab==='import'?<Import/>:tab==='lineups'?<Lineups/>:<Crud table={tab}/>}
+ </section>}

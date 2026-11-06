@@ -1,0 +1,140 @@
+.driver-grid .driver-card{min-height:82px}
+.driver-grid .driver-card-copy{display:grid;gap:3px;max-width:100%}
+.driver-grid .driver-card.has-image .driver-card-copy{max-width:72%}
+.driver-grid .driver-card-copy h3{font-size:.84rem}
+.driver-grid .driver-card-copy>p{margin:0;font-size:.62rem;line-height:1.2}
+.driver-grid .driver-card-meta{display:flex;align-items:center;gap:5px;min-width:0;color:var(--muted-text);font-size:.6rem;line-height:1}
+.driver-grid .driver-card-meta>img{width:16px;height:11px;object-fit:cover}
+.driver-grid .driver-card-meta>strong{margin-left:auto;color:var(--red);font-size:.62rem;white-space:nowrap}
+.driver-grid .driver-card-copy .driver-card-team{display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden;color:var(--muted-text);text-overflow:ellipsis;white-space:nowrap}
+.driver-grid .driver-card-team img{width:16px;height:14px;flex:0 0 16px;object-fit:contain}
+.driver-grid .driver-card .driver-pole-image{height:64px;max-width:26%}
+.entity-profile-tabs{position:sticky;top:0;z-index:5;display:flex;gap:4px;overflow-x:auto;margin:8px 0 16px;padding:5px;background:var(--surface);border-bottom:1px solid var(--line);scrollbar-width:thin}
+.entity-profile-tabs a{flex:0 0 auto;padding:8px 10px;color:var(--muted-text);font-size:.68rem;font-weight:700;text-decoration:none;white-space:nowrap}
+.entity-profile-tabs a:hover,.entity-profile-tabs a:focus-visible{background:var(--surface-muted);color:var(--text)}
+.entity-profile-tabs a:focus-visible{outline:2px solid var(--red);outline-offset:-2px}
+.driver-profile-top,.driver-team-history,.teammate-head-to-head,.race-history,.driver-gallery,.team-lineup-history,.team-driver-leaderboards,.team-cars-section{scroll-margin-top:54px}
+.team-cars-section{margin:20px 0}
+.team-cars-section>h3{margin:0 0 10px}
+.driver-comparison{display:grid;gap:12px;margin:24px 0;padding:14px;background:var(--surface);border:1px solid var(--line)}
+.driver-comparison .section-title{margin:0}
+.driver-comparison .section-title p{margin:3px 0 0;color:var(--muted-text);font-size:.75rem}
+.driver-comparison-selectors{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.driver-comparison-selectors label{display:grid;gap:5px;font-size:.7rem;font-weight:700}
+.driver-comparison-selectors select{width:100%;min-width:0;padding:8px;font-size:.75rem}
+.driver-comparison-table{min-width:360px;font-variant-numeric:tabular-nums}
+.driver-comparison-table th,.driver-comparison-table td{padding:8px;font-size:.72rem}
+.driver-comparison-table thead th:not(:first-child),.driver-comparison-table td{text-align:center}
+.driver-comparison-table tbody th{font-weight:600}
+.car-comparison{display:grid;gap:10px;margin:18px 0;padding:14px;background:var(--surface);border:1px solid var(--line)}
+.car-comparison .section-title{margin:0}
+.car-comparison .section-title p{margin:3px 0 0;color:var(--muted-text);font-size:.75rem}
+.car-comparison-selectors{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.car-comparison-selectors label{display:grid;gap:5px;font-size:.7rem;font-weight:700}
+.car-comparison-selectors select{width:100%;min-width:0;padding:8px;font-size:.72rem}
+.car-comparison-table{min-width:440px;font-variant-numeric:tabular-nums}
+.car-comparison-table th,.car-comparison-table td{padding:7px 8px;font-size:.68rem}
+.car-comparison-table thead th:not(:first-child),.car-comparison-table td{text-align:center}
+.car-comparison-table thead th small{display:block;margin-top:3px;color:var(--muted-text);font-size:.58rem}
+.car-comparison-score{display:block;font-weight:800}
+.car-comparison-track{display:block;height:4px;margin-top:4px;overflow:hidden;background:var(--surface-muted)}
+.car-comparison-track i{display:block;height:100%;background:var(--red)}
+.page-heading h2{margin:.15em 0}
+.page-heading .eyebrow{margin:0;color:var(--muted-text);font-size:.64rem;font-weight:800;letter-spacing:.1em}
+.page-heading .muted{margin:4px 0}
+.grid-page-controls{display:flex;align-items:end;justify-content:space-between;gap:12px;margin:12px 0}
+.grid-page-controls>label{display:grid;gap:5px;min-width:min(100%,220px);font-size:.7rem;font-weight:700}
+.grid-page-controls select,.grid-entry-controls select{min-width:0;padding:7px 9px;font-size:.73rem}
+.grid-view-tabs{display:flex;gap:3px;padding:3px;background:var(--surface-muted)}
+.grid-view-tabs button{padding:7px 10px;border:0;background:transparent;color:var(--text);font-size:.67rem;font-weight:700}
+.grid-view-tabs button.active{background:var(--ink);color:#fff}
+.grid-season-card{margin:14px 0;padding:12px;background:var(--surface);border:1px solid var(--line)}
+.grid-season-heading{display:flex;align-items:end;justify-content:space-between;gap:10px;padding-bottom:9px;border-bottom:1px solid var(--line)}
+.grid-season-heading .eyebrow{margin:0;color:var(--muted-text);font-size:.62rem;font-weight:800;letter-spacing:.08em}
+.grid-season-heading h3{margin:2px 0 0;font-size:1rem}
+.grid-season-heading>span{color:var(--muted-text);font-size:.67rem}
+.grids-page .f1-grid-slot{border-left-color:var(--team-color,var(--red))}
+.grids-page .f1-grid-slot.off-side{border-right-color:var(--team-color,var(--red))}
+.grids-page .f1-grid-pos{color:var(--team-color,var(--red))}
+.f1-grid-flag{width:17px;height:12px;flex:0 0 17px;object-fit:cover}
+.f1-grid-car{flex:0 1 24%;min-width:0;overflow:hidden;color:var(--muted-text);font-size:.6rem;text-overflow:ellipsis;white-space:nowrap}
+.starting-grid-table{min-width:520px}
+.starting-grid-table .f1-grid-flag{margin-right:6px;vertical-align:middle}
+.grid-entry-controls{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0 0}
+.grid-entry-controls select{flex:1 1 170px}
+.grid-entry-controls .btn{padding:7px 10px;font-size:.72rem}
+.race-calendar-controls{display:grid;grid-template-columns:minmax(140px,.45fr) minmax(200px,1fr);gap:10px;margin:12px 0}
+.race-calendar-controls label{display:grid;gap:5px;font-size:.69rem;font-weight:700}
+.race-calendar-controls select,.race-calendar-controls input{width:100%;min-width:0;padding:8px 10px;font-size:.75rem}
+.race-calendar-table{min-width:850px;font-variant-numeric:tabular-nums}
+.race-calendar-table th{white-space:nowrap}
+.race-calendar-table td{font-size:.76rem}
+.race-calendar-status{display:inline-block;padding:3px 6px;background:var(--surface-muted);color:var(--muted-text);font-size:.62rem;font-weight:700;white-space:nowrap}
+.race-calendar-status.complete{background:#e5f2e9;color:#267348}
+.race-calendar-status.upcoming{background:#fff1e0;color:#9a5615}
+.race-detail{display:grid;gap:12px;min-width:0}
+.race-detail-back{width:fit-content;font-size:.72rem;font-weight:700;text-decoration:none}
+.race-detail-heading{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);align-items:center;gap:18px;padding:14px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--red)}
+.race-detail-heading>img{width:100%;height:175px;object-fit:contain;background:var(--surface-muted)}
+.race-detail-heading .eyebrow{margin:0;color:var(--muted-text);font-size:.64rem;font-weight:800;letter-spacing:.08em}
+.race-detail-heading h2{margin:4px 0;font-size:1.35rem}
+.race-detail-heading p,.race-detail-heading span{margin:3px 0;color:var(--muted-text);font-size:.75rem}
+.race-detail-tabs{display:flex;gap:5px;overflow-x:auto;padding:5px;background:var(--surface-muted)}
+.race-detail-tabs button{flex:0 0 auto;padding:8px 11px;border:0;background:transparent;color:var(--text);font-size:.68rem;font-weight:700;white-space:nowrap}
+.race-detail-tabs button.active{background:var(--ink);color:#fff}
+.race-detail-overview{display:grid;gap:10px}
+.race-detail-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.race-detail-metrics>div{display:grid;gap:4px;padding:11px;background:var(--surface);border:1px solid var(--line)}
+.race-detail-metrics small{color:var(--muted-text);font-size:.61rem;font-weight:700}
+.race-detail-metrics strong{font-size:.83rem}
+.race-detail-winner{padding:14px;background:var(--surface);border-left:4px solid var(--red)}
+.race-detail-winner .eyebrow{margin:0;color:var(--muted-text);font-size:.62rem;font-weight:800}
+.race-detail-winner h3{margin:4px 0;font-size:1rem}
+.race-detail-winner>span{font-size:.73rem;color:var(--muted-text)}
+.race-detail-schedule{padding:14px;background:var(--surface);border:1px solid var(--line)}
+.race-detail-schedule h3{margin:0 0 7px;font-size:.9rem}
+.race-detail-schedule p{margin:4px 0;color:var(--muted-text);font-size:.75rem}
+.race-detail-table{min-width:700px;font-variant-numeric:tabular-nums}
+.race-detail-table th{white-space:nowrap}
+.race-detail-table td{font-size:.72rem}
+.race-detail-p1{background:#fff6e6}
+.race-detail-p2{background:#f0f3f5}
+.race-detail-p3{background:#f5ece7}
+.admin-page{display:grid;gap:14px;min-width:0}
+.admin-page-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.admin-page-heading .eyebrow{margin:0;color:var(--muted-text);font-size:.64rem;font-weight:800;letter-spacing:.1em}
+.admin-page-heading h2{margin:2px 0;font-size:1.35rem}
+.admin-page-heading span{color:var(--muted-text);font-size:.68rem}
+.admin-module-nav{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;padding:12px;background:var(--surface);border:1px solid var(--line)}
+.admin-module-nav section{min-width:0}
+.admin-module-nav h3{margin:0 0 5px;color:var(--muted-text);font-size:.62rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+.admin-module-nav section>div{display:grid;gap:2px}
+.admin-module-nav button{padding:7px 8px;border:0;background:transparent;color:var(--text);font-size:.68rem;text-align:left;text-transform:capitalize}
+.admin-module-nav button:hover,.admin-module-nav button.active{background:var(--surface-muted);color:var(--red)}
+.admin-dashboard{display:grid;gap:12px}
+.admin-dashboard>header{padding:14px;background:var(--surface);border-left:4px solid var(--red)}
+.admin-dashboard>header .eyebrow{margin:0;color:var(--muted-text);font-size:.62rem;font-weight:800;letter-spacing:.08em}
+.admin-dashboard>header h3{margin:3px 0;font-size:1rem}
+.admin-dashboard>header p:last-child{margin:0;color:var(--muted-text);font-size:.72rem}
+.admin-dashboard-summary{display:flex;align-items:center;gap:10px;padding:12px;background:var(--surface);border:1px solid var(--line)}
+.admin-dashboard-summary>div{display:grid;gap:3px;min-width:110px}
+.admin-dashboard-summary span{color:var(--muted-text);font-size:.6rem;font-weight:700}
+.admin-dashboard-summary strong{font-size:1rem;font-variant-numeric:tabular-nums}
+.admin-dashboard-summary .btn{margin-left:auto;padding:7px 10px;font-size:.7rem}
+.admin-module-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:7px}
+.admin-module-card{display:grid;justify-items:start;gap:3px;min-width:0;padding:11px;background:var(--surface);border:1px solid var(--line);text-align:left;text-transform:capitalize}
+.admin-module-card:hover{border-color:var(--red)}
+.admin-module-card span{font-size:.7rem;font-weight:700}
+.admin-module-card strong{font-size:1.05rem;font-variant-numeric:tabular-nums}
+.admin-module-card small{color:var(--muted-text);font-size:.6rem}
+.admin-crud-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;color:var(--muted-text);font-size:.67rem}
+.admin-crud-toolbar>div{display:flex;gap:5px}
+.admin-crud-toolbar button{padding:6px 9px;font-size:.66rem}
+.admin-crud-toolbar button:disabled{opacity:.45;cursor:not-allowed}
+.results-table-controls{display:grid;grid-template-columns:minmax(130px,1fr) minmax(140px,.8fr) minmax(120px,.65fr) auto;align-items:end;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--surface)}
+.results-table-controls label{display:grid;gap:4px;min-width:0;font-size:.62rem;font-weight:700}
+.results-table-controls input,.results-table-controls select{width:100%;min-width:0;padding:7px 8px;font-size:.68rem}
+.results-table-controls>button{padding:7px 9px;font-size:.67rem;font-weight:700;white-space:nowrap}
+.results-table-controls>button:disabled{opacity:.5;cursor:not-allowed}
+@media(max-width:600px){.driver-grid .driver-card{min-height:74px;padding:7px}.driver-grid .driver-card.has-image .driver-card-copy{max-width:72%}.driver-grid .driver-card-copy h3{font-size:.72rem}.driver-grid .driver-card-meta{gap:3px;font-size:.55rem}.driver-grid .driver-card-meta>strong{font-size:.57rem}.driver-grid .driver-card-team img{width:14px;height:12px;flex-basis:14px}.driver-grid .driver-card-copy>p{font-size:.55rem}.driver-grid .driver-card .driver-pole-image{height:58px;max-width:28%}}
+@media(max-width:600px){.driver-comparison,.car-comparison{padding:10px}.driver-comparison-selectors,.car-comparison-selectors{grid-template-columns:1fr;gap:7px}.driver-comparison-table th,.driver-comparison-table td,.car-comparison-table th,.car-comparison-table td{padding:7px 5px;font-size:.66rem}.entity-profile-tabs{margin:5px 0 12px}.entity-profile-tabs a{padding:7px 8px;font-size:.63rem}.grid-page-controls{align-items:stretch;flex-direction:column}.grid-page-controls>label{width:100%}.grid-view-tabs{width:100%}.grid-view-tabs button{flex:1}.grid-season-card{padding:9px}.grid-season-heading{align-items:start}.grid-season-heading h3{font-size:.85rem}.grids-page .f1-grid-slot{gap:4px;padding:7px 4px}.grids-page .f1-grid-pos{min-width:20px;font-size:.58rem}.grids-page .f1-grid-driver{font-size:.65rem}.grids-page .f1-grid-flag{width:13px;height:9px;flex-basis:13px}.grids-page .f1-grid-car{display:none}.grid-entry-controls select{flex:1 1 130px}.race-calendar-controls{grid-template-columns:1fr;gap:7px}.race-calendar-controls label{width:100%}.race-calendar-table{min-width:790px}.race-calendar-table td{padding:7px 5px;font-size:.68rem}.results-table-controls{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:8px}.results-table-controls>button{min-height:34px}.race-detail-heading{grid-template-columns:1fr;gap:9px;padding:10px}.race-detail-heading>img{height:130px}.race-detail-heading h2{font-size:1.1rem}.race-detail-metrics{gap:5px}.race-detail-metrics>div{padding:8px}.race-detail-metrics small{font-size:.55rem}.race-detail-metrics strong{font-size:.68rem}.race-detail-winner{padding:11px}.admin-module-nav{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:9px}.admin-module-nav button{padding:7px 5px;font-size:.61rem}.admin-dashboard-summary{flex-wrap:wrap;padding:9px}.admin-dashboard-summary>div{min-width:70px;flex:1}.admin-dashboard-summary .btn{margin:0}.admin-module-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-module-card{padding:9px}.admin-crud-toolbar{align-items:flex-start;flex-direction:column}.admin-crud-toolbar>div{width:100%}.admin-crud-toolbar button{flex:1}}
