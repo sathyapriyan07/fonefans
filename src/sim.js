@@ -148,6 +148,7 @@ function ratings(entry,circuit){
   fuelEfficiency:carRating(c,'fuel_efficiency',['performance']),
   wetPerformance:carRating(c,'wet_performance',['performance']),
   drs:carRating(c,'drs_effectiveness',['speed']),
+  teamPerformance:value(entry.team,'performance'),
   pitCrewExecution:value(entry.team,'pit_crew_execution',50),
   strategyQuality:value(entry.team,'strategy_quality',100),
   reliabilityManagement:value(entry.team,'reliability_management',50),
@@ -336,7 +337,7 @@ function calculateLap(car,state,lapNumber,weather,trafficSeconds=0){
  const tyreDelta=tyreModel.pace+tyreModel.warmup/(age+1)+Math.pow(age,1.16)*degradation+(1-car.tyre.grip)*2.2+car.tyre.overheating*0.8+car.tyre.graining*0.5;
  const wetPenalty=Math.abs(weather.wetness-(compound==='wet'?0.95:compound==='intermediate'?0.55:0.05))*2.2;
  const wetAbility=(rating.wetAbility-50)*weather.wetness*0.012;
- const carDelta=paceDelta(rating.carPace,0.035)+paceDelta(rating.carRace,0.012);
+ const carDelta=paceDelta(rating.carPace,0.035)+paceDelta(rating.carRace,0.012)+paceDelta(rating.teamPerformance,0.015);
  const driverDelta=paceDelta(rating.driverPace,0.018);
  const damageDelta=car.damage*(0.18+circuit.highSpeed*0.08);
  const weatherDelta=weather.intensity*0.7+wetPenalty-wetAbility-paceDelta(rating.wetPerformance,0.006)*weather.wetness;
@@ -1180,7 +1181,7 @@ export function simulateQualifyingSession(entries,options={}){
   const invalid=rng.next()<0.008;
   const yellow=options.yellowFlag===true||options.yellowFlag!==false&&rng.next()<0.025;
   const wetPenalty=Math.abs(lapWeather.wetness-(compound==='wet'?0.95:compound==='intermediate'?0.55:0.05))*2.2;
-  const lapTime=circuit.baselineLap+paceDelta(rating.driverQualifying,0.025)+paceDelta(rating.carQualifying,0.035)+paceDelta(rating.carSpeed,0.008)+tyre.pace+tyreAge+tyreTempEffect+wetPenalty+execution+(mistake?1.2+rng.next()*2.5:0)+traffic-tow-trackEvolution+lapWeather.wetness*(2-rating.wetAbility/100);
+  const lapTime=circuit.baselineLap+paceDelta(rating.driverQualifying,0.025)+paceDelta(rating.carQualifying,0.035)+paceDelta(rating.carSpeed,0.008)+paceDelta(rating.teamPerformance,0.015)+tyre.pace+tyreAge+tyreTempEffect+wetPenalty+execution+(mistake?1.2+rng.next()*2.5:0)+traffic-tow-trackEvolution+lapWeather.wetness*(2-rating.wetAbility/100);
   const sectors=[lapTime*0.31,lapTime*0.34,lapTime*0.35];sectors[2]=lapTime-sectors[0]-sectors[1];
   const sectorSplits=sectors.map((time,index)=>({time,sector:index+1}));
   timeline.push({t:lapStart,clock:lapStartClock,type:'lapStart',driverId:item.entry.driver?.id,run:item.run+1,sectors:[],tyreCompound:compound});

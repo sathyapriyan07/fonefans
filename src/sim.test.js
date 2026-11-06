@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyDriverPerformanceBoosts,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getCareerChampionships,getCareerRecords,getCareerStats,getClassification,getTeamCareerStats,getWeekendAwards,practice,qualify,requiresMandatoryDryTyreCompounds,setPitInstruction,setTeamRaceAdjustments,simulateQualifyingSession,simulateQualifyingWeekend,simulateRace,TYRES} from './sim.js';
 
-function entry(id,{driver={},car={}}={}){
+function entry(id,{driver={},team={},car={}}={}){
  return {
   driver:{id,name:`Driver ${id}`,...driver},
-  team:{id:`team-${id}`,name:`Team ${id}`},
+  team:{id:`team-${id}`,name:`Team ${id}`,...team},
   d:{speed:70,race:70,qualifying:70,experience:60,consistency:75,overtaking:60,defence:60,...driver},
   c:{speed:70,race:70,performance:70,qualifying:70,reliability:90,...car}
  };
@@ -273,6 +273,13 @@ test('qualifying is deterministic for the same seed and produces Q1, Q2, and Q3 
  ]);
 });
 
+test('team performance affects qualifying pace alongside driver and car ratings',()=>{
+ const run=performance=>simulateQualifyingSession([entry(1,{team:{performance}})],{
+  session:'Q3',seed:'team-performance-qualifying',noise:0,redFlag:false,yellowFlag:false,weatherChange:false
+ });
+ assert.ok(run(100).standings[0].bestLap<run(0).standings[0].bestLap);
+});
+
 test('qualifying counts laps started before the flag even when they finish after it',()=>{
  const entries=Array.from({length:20},(_,index)=>entry(index+1));
  const session=simulateQualifyingSession(entries,{session:'Q1',seed:'flag-test'});
@@ -416,6 +423,23 @@ test('a significantly faster car generally sets a faster race time',()=>{
  fast.grid=1;slow.grid=2;
  const result=simulateRace({entries:[fast,slow],race:circuit,laps:15,strategies:{'team-1':{stops:0},'team-2':{stops:0}}});
  assert.ok(result.state.cars.find(car=>car.driverId===1).totalTime<result.state.cars.find(car=>car.driverId===2).totalTime);
+});
+
+test('team performance affects race pace alongside driver and car ratings',()=>{
+ const originalRandom=Math.random;
+ Math.random=()=>0.5;
+ try{
+  const raceLap=performance=>{
+   const state=createRaceState({
+    entries:[entry(1,{team:{performance}}),entry(2,{team:{performance:50}})],
+    race:{...circuit,laps:1},laps:1
+   });
+   return advanceRaceLap(state).cars.find(car=>car.driverId===1).lastLap;
+  };
+  assert.ok(raceLap(100)<raceLap(0));
+ }finally{
+  Math.random=originalRandom;
+ }
 });
 
 test('every car completes a full race with finite timing state',()=>{

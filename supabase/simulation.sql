@@ -25,6 +25,7 @@ alter table public.cars
   add column if not exists drs_effectiveness int;
 
 alter table public.teams
+  add column if not exists performance int default 50,
   add column if not exists pit_crew_execution int,
   add column if not exists strategy_quality int,
   add column if not exists reliability_management int,

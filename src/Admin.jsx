@@ -5,7 +5,7 @@ const T={
  drivers:[t('name'),t('code'),n('number'),{k:'bio',t:'area'},t('nationality'),img('nationality_logo'),t('jolpica_id')],
  driver_images:[ref('driver_id','drivers'),n('year'),img('pole_url'),img('grid_url'),img('card_url')],
  driver_ratings:[ref('driver_id','drivers'),...RAT.map(n)],
- teams:[t('name'),img('logo_detailed'),img('logo_normal'),t('color'),n('pit_crew_execution'),n('strategy_quality'),n('reliability_management'),n('operational_consistency'),n('damage_repair_efficiency'),t('jolpica_id')],
+ teams:[t('name'),img('logo_detailed'),img('logo_normal'),t('color'),n('performance'),n('pit_crew_execution'),n('strategy_quality'),n('reliability_management'),n('operational_consistency'),n('damage_repair_efficiency'),t('jolpica_id')],
  cars:[ref('team_id','teams'),n('year'),t('model'),img('image_url'),t('engine'),...CAR.map(n)],
  tyre_images:[select('compound',['soft','medium','hard','intermediate','wet']),img('image_url')],
  grids:[t('name'),n('year')],
