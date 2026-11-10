@@ -1062,6 +1062,22 @@ th {
     display: none !important;
   }
 
+  .race-live .timing-details .live-timing-table tbody tr:not(.timing-row-expanded) td:nth-child(n+3):nth-child(-n+14) {
+    display: none !important;
+  }
+
+  .race-live .timing-details .live-timing-table tbody tr.timing-row-expanded td:nth-child(3),
+  .race-live .timing-details .live-timing-table tbody tr.timing-row-expanded td:nth-child(4),
+  .race-live .timing-details .live-timing-table tbody tr.timing-row-expanded td:nth-child(5),
+  .race-live .timing-details .live-timing-table tbody tr.timing-row-expanded td:nth-child(6),
+  .race-live .timing-details .live-timing-table tbody tr.timing-row-expanded td:nth-child(7),
+  .race-live .timing-details .live-timing-table tbody tr.timing-row-expanded td:nth-child(8),
+  .race-live .timing-details .live-timing-table tbody tr.timing-row-expanded td:nth-child(11),
+  .race-live .timing-details .live-timing-table tbody tr.timing-row-expanded td:nth-child(13),
+  .race-live .timing-details .live-timing-table tbody tr.timing-row-expanded td:nth-child(14) {
+    display: flex !important;
+  }
+
   .race-live .timing-details .live-timing-table tbody td:nth-child(1) {
     grid-column: span 1 !important;
     background: var(--surface-muted);
@@ -1153,6 +1169,15 @@ th {
     padding: 4px 2px;
     font-size: 0.58rem;
     letter-spacing: 0;
+  }
+
+  .race-live .timing-details .live-timing-table tbody tr:not(.timing-row-expanded) td:nth-child(1),
+  .race-live .timing-details .live-timing-table tbody tr:not(.timing-row-expanded) td:nth-child(2),
+  .race-live .timing-details .live-timing-table tbody tr:not(.timing-row-expanded) td:nth-child(16),
+  .race-live .timing-details .live-timing-table tbody tr.timing-row-expanded td:nth-child(1),
+  .race-live .timing-details .live-timing-table tbody tr.timing-row-expanded td:nth-child(2),
+  .race-live .timing-details .live-timing-table tbody tr.timing-row-expanded td:nth-child(16) {
+    cursor: pointer;
   }
 
   .race-live .timing-details .live-timing-table .driver-grid-image {
