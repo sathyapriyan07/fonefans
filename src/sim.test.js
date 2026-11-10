@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyDriverPerformanceBoosts,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getCareerChampionships,getCareerRecords,getCareerStats,getClassification,getTeamCareerStats,getWeekendAwards,practice,qualify,requiresMandatoryDryTyreCompounds,setPitInstruction,setTeamRaceAdjustments,simulateQualifyingSession,simulateQualifyingWeekend,simulateRace,TYRES} from './sim.js';
+import {activateDriverBoost,advanceRaceIfRunning,advanceRaceLap,applyDriverPerformanceBoosts,applyPracticeSubstitutions,applyTeamPerformanceBoosts,calculateStandings,calculateTeammateHeadToHead,createRaceState,getBestCareerPositions,getCareerChampionships,getCareerRecords,getCareerStats,getClassification,getTeamCareerStats,getWeekendAwards,practice,qualify,requiresMandatoryDryTyreCompounds,setDriverRaceAdjustments,setPitInstruction,setTeamRaceAdjustments,simulateQualifyingSession,simulateQualifyingWeekend,simulateRace,TYRES} from './sim.js';
 
 function entry(id,{driver={},team={},car={}}={}){
  return {
@@ -816,4 +816,29 @@ test('live team adjustments affect both teammates and can boost or reduce race p
  assert.equal(getClassification(repeated).find(car=>car.driver.id===1).teamRaceAdjustments.pace,-6);
  assert.throws(()=>setTeamRaceAdjustments(initial,'missing',{}),/not in this race/);
  assert.throws(()=>setTeamRaceAdjustments({...initial,done:true},'team-1',{}),/after the chequered flag/);
+});
+
+test('live driver pace and performance boosts affect only the selected driver and compose with team adjustments',()=>{
+ const entries=[entry(1),{...entry(2),team:{id:'team-1',name:'Team 1'}},entry(3)];
+ const initial=createRaceState({entries,race:{...circuit,laps:5},laps:5});
+ const firstCar=initial.cars.find(car=>car.driverId===1);
+ const adjusted=setDriverRaceAdjustments(initial,1,{pace:1,performance:1});
+ const boostedCar=adjusted.cars.find(car=>car.driverId===1);
+ const teammate=adjusted.cars.find(car=>car.driverId===2);
+ const otherCar=adjusted.cars.find(car=>car.driverId===3);
+ assert.equal(boostedCar.ratings.driverPace,firstCar.baseRatings.driverPace+1);
+ assert.equal(boostedCar.ratings.carPerformance,firstCar.baseRatings.carPerformance+1);
+ assert.equal(boostedCar.ratings.carRace,firstCar.baseRatings.carRace+1);
+ assert.deepEqual(teammate.ratings,teammate.baseRatings);
+ assert.deepEqual(otherCar.ratings,otherCar.baseRatings);
+ const teamAdjusted=setTeamRaceAdjustments(adjusted,'team-1',{performance:2,pace:3});
+ const combined=teamAdjusted.cars.find(car=>car.driverId===1);
+ assert.equal(combined.ratings.driverPace,boostedCar.ratings.driverPace);
+ assert.equal(combined.ratings.carPerformance,firstCar.baseRatings.carPerformance+3);
+ assert.equal(combined.ratings.carRace,firstCar.baseRatings.carRace+6);
+ const capped=setDriverRaceAdjustments(initial,1,{pace:99,performance:99});
+ assert.equal(capped.cars.find(car=>car.driverId===1).driverRaceAdjustments.pace,20);
+ assert.equal(capped.cars.find(car=>car.driverId===1).driverRaceAdjustments.performance,20);
+ assert.throws(()=>setDriverRaceAdjustments(initial,99,{pace:1}),/not in this race/);
+ assert.throws(()=>setDriverRaceAdjustments({...initial,done:true},1,{pace:1}),/after the chequered flag/);
 });

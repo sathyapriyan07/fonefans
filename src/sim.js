@@ -711,20 +711,41 @@ export function setTeamRaceAdjustments(previous,teamId,adjustments={}){
  const cars=previous.cars.map(car=>{
   if(String(car.teamId)!==String(teamId))return car;
   const base=car.baseRatings||car.ratings;
-  const {performance,pace,overtake,defense}=teamRaceAdjustments;
-  const ratings={
-   ...base,
-   carPace:clamp(base.carPace+performance*0.5+pace,0,100),
-   carPerformance:clamp(base.carPerformance+performance,0,100),
-   carRace:clamp(base.carRace+performance+pace,0,100),
-   carQualifying:clamp(base.carQualifying+performance+pace,0,100),
-   carSpeed:clamp(base.carSpeed+performance*0.5+pace,0,100),
-   overtaking:clamp(base.overtaking+overtake,0,100),
-   defence:clamp(base.defence+defense,0,100)
-  };
-  return {...car,ratings,teamRaceAdjustments};
+  return {...car,ratings:raceAdjustedRatings(base,teamRaceAdjustments,car.driverRaceAdjustments),teamRaceAdjustments};
  });
  return {...previous,cars};
+}
+export function setDriverRaceAdjustments(previous,driverId,adjustments={}){
+ if(previous.done)throw new Error('Driver performance cannot be changed after the chequered flag.');
+ const matching=previous.cars.find(car=>String(car.driverId)===String(driverId));
+ if(!matching)throw new Error('The selected driver is not in this race.');
+ if(matching.retired||matching.completed)throw new Error('A retired or finished driver cannot receive a performance boost.');
+ const bounded=value=>clamp(Number.isFinite(Number(value))?Math.round(Number(value)):0,-20,20);
+ const driverRaceAdjustments={
+  performance:bounded(adjustments.performance),
+  pace:bounded(adjustments.pace)
+ };
+ const cars=previous.cars.map(car=>{
+  if(String(car.driverId)!==String(driverId))return car;
+  const base=car.baseRatings||car.ratings;
+  return {...car,ratings:raceAdjustedRatings(base,car.teamRaceAdjustments,driverRaceAdjustments),driverRaceAdjustments};
+ });
+ return {...previous,cars};
+}
+function raceAdjustedRatings(base,team={},driver={}){
+ const {performance=0,pace=0,overtake=0,defense=0}=team;
+ const driverPerformance=driver.performance||0,driverPace=driver.pace||0;
+ return {
+  ...base,
+  driverPace:clamp(base.driverPace+driverPace,0,100),
+  carPace:clamp(base.carPace+performance*0.5+pace+driverPerformance*0.5,0,100),
+  carPerformance:clamp(base.carPerformance+performance+driverPerformance,0,100),
+  carRace:clamp(base.carRace+performance+pace+driverPerformance,0,100),
+  carQualifying:clamp(base.carQualifying+performance+pace+driverPerformance,0,100),
+  carSpeed:clamp(base.carSpeed+performance*0.5+pace+driverPerformance*0.5,0,100),
+  overtaking:clamp(base.overtaking+overtake,0,100),
+  defence:clamp(base.defence+defense,0,100)
+ };
 }
 export function getClassification(state){
  return rankCars(state.cars).map((car,index)=>({
@@ -733,6 +754,7 @@ export function getClassification(state){
   boostLap:car.boostLap,boostReadyLap:car.boostReadyLap??1,
   boostCooldownLaps:Math.max(0,(car.boostReadyLap??1)-(state.lap+1)),
   teamRaceAdjustments:car.teamRaceAdjustments,
+  driverRaceAdjustments:car.driverRaceAdjustments,
   lapsCompleted:car.lapsCompleted,totalTime:car.totalTime,
   bestLap:car.bestLap,lastLap:car.lastLap,lastSectors:car.lastSectors,
   fuelRemaining:car.fuelRemaining,damage:car.damage,tyre:car.tyre,pitStops:car.pitStops,pitHistory:car.pitHistory,

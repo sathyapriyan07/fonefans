@@ -30,6 +30,14 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: TimingSurname;
+  src: url('/c6e2547e6fd7e039-s.p.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+}
+
 :root {
   font-family: Poppins, sans-serif;
   font-synthesis: none;
@@ -69,6 +77,56 @@
   --surface-muted: #edf0f1;
   --surface-control: #fff;
   --muted-text: #647078;
+}
+
+.race-performance-panel .race-driver-boosts {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.race-performance-panel .race-driver-boost {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.race-performance-panel .race-driver-boost > strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.race-performance-panel .race-driver-boost button {
+  min-width: 0;
+  padding: 5px 7px;
+  font-size: 0.62rem;
+  white-space: nowrap;
+}
+
+.race-performance-panel .race-driver-boost button span {
+  color: var(--muted-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.race-performance-panel .race-driver-boost .race-driver-boost-reset {
+  padding-right: 5px;
+  padding-left: 5px;
+}
+
+.race-live .live-timing-table .live-driver-name > span:first-child {
+  font-family: DriverCode, Formula1, sans-serif;
+}
+
+.race-live .live-timing-table .live-driver-surname {
+  font-family: TimingSurname, Poppins, sans-serif;
 }
 
 * {
@@ -847,537 +905,264 @@ th {
   }
 }
 
-.grid-preview {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 0 0 12px;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-left: 2px solid var(--red);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-
-.grid-preview > div:first-child {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.grid-preview .eyebrow {
-  color: var(--muted-text);
-  font-size: 0.62rem;
-}
-
-.grid-preview strong {
-  overflow: hidden;
-  font-size: 0.86rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.grid-preview small {
-  color: var(--muted-text);
-  font-size: 0.7rem;
-}
-
-.grid-preview-teams {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.grid-preview-teams > span {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 26px;
-}
-
-.grid-preview-teams img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-}
-
-.grid-preview-teams i {
-  width: 4px;
-  height: 20px;
-  background: var(--team-color);
-}
-
-.session-step-copy {
-  display: grid;
-  gap: 1px;
-  text-align: left;
-}
-
-.session-step-copy strong {
-  color: inherit;
-  font-size: inherit;
-  font-weight: 600;
-}
-
-.session-step-copy small {
-  color: var(--muted-text);
-  font-size: 0.64rem;
-  font-weight: 400;
-}
-
-.session-step.current .session-step-copy small {
-  color: var(--text);
-}
-
-.race-status {
-  display: grid;
-  grid-template-columns: minmax(190px, 1.4fr) minmax(145px, 1fr) auto minmax(160px, 1fr);
-  align-items: stretch;
-  gap: 0;
-  overflow: hidden;
-}
-
-.race-status > div {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 3px;
-  min-width: 0;
-  min-height: 72px;
-  padding: 10px 14px;
-  border-right: 1px solid var(--line);
-}
-
-.race-status > div:last-child {
-  border-right: 0;
-}
-
-.race-status .race-event-identity strong {
-  overflow: hidden;
-  font-size: 1rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.race-status .race-event-identity small,
-.race-status .race-weather small {
-  color: var(--muted-text);
-  font-size: 0.68rem;
-}
-
-.race-status .race-lap-progress strong,
-.race-status .race-weather strong {
-  font-size: 0.82rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.race-lap-progress progress {
-  width: 100%;
-  height: 4px;
-  margin-top: 3px;
-  appearance: none;
-  border: 0;
-  border-radius: 0;
-  background: var(--surface-muted);
-}
-
-.race-lap-progress progress::-webkit-progress-bar {
-  background: var(--surface-muted);
-}
-
-.race-lap-progress progress::-webkit-progress-value {
-  background: var(--red);
-}
-
-.race-lap-progress progress::-moz-progress-bar {
-  background: var(--red);
-}
-
-.race-status .control-state {
-  align-items: flex-start;
-  min-width: 132px;
-  border-radius: 0;
-  background: #237b4b;
-  color: #fff;
-  font-size: 0.76rem;
-}
-
-.race-status .control-state.yellow {
-  background: #b27b12;
-  color: #fff;
-}
-
-.race-status .control-state small {
-  font-size: 0.62rem;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-}
-
-.race-controls {
-  align-items: center;
-  gap: 6px;
-  padding: 8px;
-}
-
-.race-controls button {
-  min-height: 34px;
-  padding: 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text);
-  font-size: 0.72rem;
-  font-weight: 500;
-}
-
-.race-controls .race-primary-control {
-  border-color: var(--red);
-  background: var(--red);
-  color: #fff;
-  font-weight: 600;
-}
-
-.race-controls .race-destructive-control {
-  color: var(--muted-text);
-}
-
-.race-controls .race-destructive-control:first-of-type {
-  margin-left: auto;
-}
-
-.race-controls button:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.race-controls label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  color: var(--muted-text);
-  font-size: 0.7rem;
-}
-
-.race-controls select {
-  min-height: 32px;
-  padding: 4px 8px;
-  border: 1px solid var(--line);
-  background: var(--surface-control);
-  color: var(--text);
-}
-
-.race-live .timing-details .scroll,
-.qualifying-live > .scroll,
-.session-classification-scroll,
-.practice-classification-scroll,
-.qualifying-classification-scroll {
-  max-width: 100%;
-  overflow: auto;
-  overscroll-behavior-x: contain;
-}
-
-.race-live .live-timing-table {
-  min-width: 1240px;
-  border-collapse: separate;
-  border-spacing: 0;
-}
-
-.race-live .live-timing-table th,
-.qualifying-live .qualifying-timing-table th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  white-space: nowrap;
-}
-
-.race-live .live-timing-table th:first-child,
-.race-live .live-timing-table td:first-child {
-  position: sticky;
-  left: 0;
-  z-index: 3;
-  min-width: 56px;
-  background: var(--surface);
-}
-
-.race-live .live-timing-table th:nth-child(2),
-.race-live .live-timing-table td:nth-child(2) {
-  position: sticky;
-  left: 56px;
-  z-index: 2;
-  min-width: 116px;
-  background: var(--surface);
-}
-
-.race-live .live-timing-table thead th:first-child,
-.race-live .live-timing-table thead th:nth-child(2) {
-  z-index: 4;
-  background: var(--ink);
-}
-
-.race-live .live-timing-table th:nth-child(4),
-.race-live .live-timing-table td:nth-child(4),
-.race-live .live-timing-table th:nth-child(5),
-.race-live .live-timing-table td:nth-child(5),
-.race-live .live-timing-table th:nth-child(6),
-.race-live .live-timing-table td:nth-child(6),
-.race-live .live-timing-table th:nth-child(7),
-.race-live .live-timing-table td:nth-child(7),
-.race-live .live-timing-table th:nth-child(9),
-.race-live .live-timing-table td:nth-child(9),
-.race-live .live-timing-table th:nth-child(10),
-.race-live .live-timing-table td:nth-child(10),
-.race-live .live-timing-table th:nth-child(11),
-.race-live .live-timing-table td:nth-child(11),
-.race-live .live-timing-table th:nth-child(12),
-.race-live .live-timing-table td:nth-child(12),
-.race-live .live-timing-table th:nth-child(13),
-.race-live .live-timing-table td:nth-child(13) {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.race-live .live-timing-table .team-name-cell {
-  min-width: 128px;
-  white-space: nowrap;
-}
-
-.race-live .driver-select {
-  border-left: 2px solid var(--team-color, transparent);
-}
-
-.driver-number {
-  color: var(--muted-text);
-  font-size: 0.62rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.race-live .selected-driver-row td {
-  background-color: color-mix(in srgb, var(--red) 8%, var(--surface));
-}
-
-.race-live .selected-driver-row td:first-child,
-.race-live .selected-driver-row td:nth-child(2) {
-  background-color: color-mix(in srgb, var(--red) 10%, var(--surface));
-}
-
-.race-live .selected-driver-row .driver-select {
-  color: var(--text);
-}
-
-.race-live .live-timing-table .leader td:first-child {
-  border-left: 2px solid var(--red);
-}
-
-.session-best-time {
-  color: #36b36b;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.session-classification-table .team-name-cell {
-  min-width: 140px;
-}
-
-.race-support-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.8fr);
-  align-items: start;
-  gap: 12px;
-  margin-top: 12px;
-}
-
-.race-context-column {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-}
-
-.live-track-placeholder {
-  padding: 12px;
-  border: 1px solid var(--line);
-}
-
-.track-map-placeholder {
-  display: grid;
-  align-content: center;
-  justify-items: start;
-  min-height: 150px;
-  padding: 18px;
-  border: 1px dashed var(--line);
-  background:
-    linear-gradient(90deg, transparent 49.8%, var(--line) 50%, transparent 50.2%),
-    linear-gradient(transparent 49.8%, var(--line) 50%, transparent 50.2%),
-    var(--surface-muted);
-  background-size: 28px 28px;
-}
-
-.track-map-placeholder strong {
-  padding: 4px 7px;
-  background: var(--surface);
-  color: var(--muted-text);
-  font-size: 0.65rem;
-  letter-spacing: 0.04em;
-}
-
-.track-map-placeholder p {
-  max-width: 34ch;
-  margin: 8px 0 0;
-  padding: 5px 7px;
-  background: var(--surface);
-  color: var(--muted-text);
-  font-size: 0.7rem;
-}
-
-.race-context-column .race-events {
-  max-height: 320px;
-  overflow: auto;
-  padding: 12px;
-}
-
-.race-context-column .race-events h3 {
-  margin: 0 0 8px;
-}
-
-.race-context-column .race-events p {
-  margin: 0;
-  padding: 7px 0;
-  border-top: 1px solid var(--line);
-  line-height: 1.45;
-}
-
-.driver-stage-metrics {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-}
-
-.driver-stage-metrics > div strong {
-  font-variant-numeric: tabular-nums;
-}
-
-.qualifying-live .scroll {
-  max-height: min(60vh, 620px);
-}
-
-.qualifying-timing-table {
-  min-width: 900px;
-  border-collapse: separate;
-  border-spacing: 0;
-}
-
-.qualifying-live .qualifying-timing-table th:first-child,
-.qualifying-live .qualifying-timing-table td:first-child {
-  position: sticky;
-  left: 0;
-  z-index: 3;
-  background: var(--surface);
-}
-
-.qualifying-live .qualifying-timing-table thead th:first-child {
-  z-index: 4;
-  background: var(--ink);
-}
-
-.qualifying-live .qualifying-timing-table .team-name-cell {
-  min-width: 130px;
-  white-space: nowrap;
-}
-
-@media (max-width: 900px) {
-  .race-support-grid {
+@media (max-width: 600px) {
+  .race-performance-panel .performance-team-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "team reset"
+      "controls controls";
+    align-items: start;
+    gap: 12px;
+  }
+
+  .race-performance-panel .performance-team-heading {
+    grid-area: team;
+  }
+
+  .race-performance-panel .race-performance-controls {
+    display: grid;
+    grid-area: controls;
     grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-@media (max-width: 700px) {
-  .race-status {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .race-status > div:nth-child(2) {
-    border-right: 0;
-  }
-
-  .race-status > div:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--line);
-  }
-
-  .race-status .control-state {
+    gap: 12px;
     min-width: 0;
   }
 
-  .race-controls {
-    flex-wrap: wrap;
+  .race-performance-panel .race-performance-controls .performance-boost-control {
+    display: grid;
+    grid-area: auto;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 7px 10px;
+    min-width: 0;
+    padding-bottom: 10px;
   }
 
-  .race-controls .race-destructive-control:first-of-type {
-    margin-left: 0;
+  .race-performance-panel .race-performance-controls .performance-boost-control > span,
+  .race-performance-panel .race-performance-controls .performance-boost-control input,
+  .race-performance-panel .race-performance-controls .performance-boost-control small {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+
+  .race-performance-panel .race-performance-controls .performance-boost-control > span {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    line-height: 1.35;
+  }
+
+  .race-performance-panel .race-performance-controls .performance-boost-control input {
+    width: 100%;
+    margin: 0;
+  }
+
+  .race-performance-panel .race-performance-controls .performance-boost-control small {
+    display: block;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .race-performance-panel .performance-reset {
+    grid-area: reset;
+    justify-self: end;
+    max-width: 100%;
+  }
+
+  .race-performance-panel .race-driver-boosts {
+    gap: 6px;
+  }
+
+  .race-performance-panel .race-driver-boost {
+    gap: 5px;
+  }
+
+  .race-performance-panel .race-driver-boost > strong {
+    font-size: 0.66rem;
+  }
+
+  .race-performance-panel .race-driver-boost button {
+    padding: 5px 6px;
+    font-size: 0.56rem;
   }
 }
 
 @media (max-width: 600px) {
-  .grid-preview {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 8px;
+  .race-live .timing-details .scroll {
+    width: 100%;
+    overflow-x: hidden;
   }
 
-  .grid-preview-teams {
+  .race-live .timing-details .live-timing-table {
+    display: block;
+    width: 100%;
+    min-width: 0;
     max-width: 100%;
-    flex-wrap: wrap;
+    table-layout: fixed;
   }
 
-  .session-step {
-    justify-items: start;
-    min-height: 54px;
-    gap: 6px;
-  }
-
-  .session-step-copy small {
-    font-size: 0.58rem;
-  }
-
-  .race-status > div {
-    min-height: 64px;
-    padding: 8px 10px;
-  }
-
-  .race-status .race-event-identity strong {
-    font-size: 0.86rem;
-  }
-
-  .race-controls button {
-    flex: 1 1 auto;
-  }
-
-  .race-controls label {
-    flex: 1 1 100%;
-    justify-content: space-between;
-  }
-
-  .race-controls select {
-    flex: 0 0 110px;
-  }
-
-  .race-live .live-timing-table {
-    min-width: 1380px;
-  }
-
-  .race-live .live-timing-table th:nth-child(5),
-  .race-live .live-timing-table td:nth-child(5) {
+  .race-live .timing-details .live-timing-table thead {
     display: none;
   }
 
-  .race-live .live-timing-table th:nth-child(2),
-  .race-live .live-timing-table td:nth-child(2) {
-    left: 56px;
+  .race-live .timing-details .live-timing-table tbody {
+    display: grid;
+    width: 100%;
+    gap: 8px;
   }
 
-  .track-map-placeholder {
-    min-height: 112px;
+  .race-live .timing-details .live-timing-table tbody tr {
+    display: grid;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    column-gap: 0;
+    row-gap: 1px;
+    padding: 1px;
+    border: 1px solid var(--line);
+    background: var(--line);
   }
 
-  .driver-stage-metrics {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .race-live .timing-details .live-timing-table tbody td:nth-child(n) {
+    display: flex !important;
+    box-sizing: border-box;
+    width: auto !important;
+    min-width: 0;
+    max-width: 100%;
+    grid-column: auto !important;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 4px;
+    padding: 6px;
+    border: 0;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 0.68rem;
+    line-height: 1.2;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .race-live .timing-details .live-timing-table tbody td:nth-child(n)::before {
+    content: attr(data-label);
+    color: var(--muted-text);
+    font-size: 0.55rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    line-height: 1.2;
+    text-transform: uppercase;
+  }
+
+  .race-live .timing-details .live-timing-table tbody td:nth-child(9),
+  .race-live .timing-details .live-timing-table tbody td:nth-child(10),
+  .race-live .timing-details .live-timing-table tbody td:nth-child(12) {
+    display: none !important;
+  }
+
+  .race-live .timing-details .live-timing-table tbody td:nth-child(1) {
+    grid-column: span 1 !important;
+    background: var(--surface-muted);
+  }
+
+  .race-live .timing-details .live-timing-table tbody td:nth-child(2) {
+    grid-column: 2 / span 4 !important;
+    grid-row: 1 !important;
+    background: var(--surface-muted);
+  }
+
+  .race-live .timing-details .live-timing-table tbody td:nth-child(n+3):nth-child(-n+14) {
+    grid-column: span 2 !important;
+  }
+
+  .race-live .timing-details .live-timing-table tbody td:nth-child(15) {
+    grid-column: 1 / -1 !important;
+  }
+
+  .race-live .timing-details .live-timing-table tbody td:nth-child(1),
+  .race-live .timing-details .live-timing-table tbody td:nth-child(16) {
+    grid-row: 1 !important;
+  }
+
+  .race-live .timing-details .live-timing-table tbody td:nth-child(16) {
+    grid-column: 6 !important;
+    width: 100% !important;
+    align-items: flex-end;
+    background: var(--surface-muted);
+  }
+
+  .race-live .timing-details .live-timing-table tbody td:nth-child(16) .driver-grid-image {
+    width: 40px;
+    height: 42px;
+    object-position: right bottom;
+  }
+
+  .race-live .timing-details .live-timing-table tbody td:nth-child(1)::before,
+  .race-live .timing-details .live-timing-table tbody td:nth-child(2)::before,
+  .race-live .timing-details .live-timing-table tbody td:nth-child(16)::before {
+    display: none;
+  }
+
+  .race-live .timing-details .live-timing-table tbody td:nth-child(1),
+  .race-live .timing-details .live-timing-table tbody td:nth-child(2),
+  .race-live .timing-details .live-timing-table tbody td:nth-child(16) {
+    border: 0;
+  }
+
+  .race-live .timing-details .live-timing-table tbody td:nth-child(16)::before {
+    text-align: center;
+  }
+
+  .race-live .timing-details .live-timing-table .position-cell {
+    font-size: 0.68rem;
+    white-space: normal;
+  }
+
+  .race-live .timing-details .live-timing-table .position-number {
+    margin: 0;
+  }
+
+  .race-live .timing-details .live-timing-table .driver-select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .race-live .timing-details .live-timing-table .driver-result {
+    min-width: 0;
+    gap: 4px;
+  }
+
+  .race-live .timing-details .live-timing-table .driver-result > strong {
+    display: inline-flex;
+    flex: 0 1 auto;
+    align-items: baseline;
+    gap: 3px;
+    min-width: 0;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .race-live .timing-details .live-timing-table .driver-boost {
+    width: 100%;
+    min-width: 0;
+    align-self: stretch;
+    padding: 4px 2px;
+    font-size: 0.58rem;
+    letter-spacing: 0;
+  }
+
+  .race-live .timing-details .live-timing-table .driver-grid-image {
+    max-width: 100%;
+    height: 26px;
+    object-fit: contain;
+  }
+
+  .race-live .timing-details .live-timing-table .tyre-compound-image {
+    width: 28px;
+    height: 20px;
   }
 }
