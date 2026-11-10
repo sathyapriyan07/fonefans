@@ -1,0 +1,848 @@
+@font-face {
+  font-family: Poppins;
+  src: url('/Poppins-Regular.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: Poppins;
+  src: url('/Poppins-Medium.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: Poppins;
+  src: url('/Poppins-SemiBold.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: Poppins;
+  src: url('/Poppins-Bold.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+:root {
+  font-family: Poppins, sans-serif;
+  font-synthesis: none;
+  color-scheme: dark;
+  --ink: #171b1f;
+  --text: #e8ebed;
+  --paper: #111518;
+  --red: #d3202f;
+  --purple: var(--red);
+  --line: #323a40;
+  --surface: #1a2024;
+  --surface-muted: #22292e;
+  --surface-control: #151a1e;
+  --muted-text: #a1aab0;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --ink: #1c2226;
+  --text: #20272b;
+  --paper: #f3f5f5;
+  --line: #d7dcde;
+  --surface: #fff;
+  --surface-muted: #edf0f1;
+  --surface-control: #fff;
+  --muted-text: #647078;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  background: var(--paper);
+}
+
+body {
+  min-width: 320px;
+  margin: 0;
+  background: var(--paper);
+  color: var(--text);
+  font: 400 15px/1.5 Poppins, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1,
+h2,
+.app-brand {
+  font-family: Formula1, Poppins, sans-serif;
+  font-weight: 700;
+}
+
+h1 {
+  margin: 0.2em 0;
+  font-size: clamp(1.9rem, 3.2vw, 2.6rem);
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  margin: 0.5em 0;
+  font-size: clamp(1.4rem, 2.2vw, 1.85rem);
+  line-height: 1.2;
+}
+
+h3,
+h4,
+h5,
+h6 {
+  font-family: Poppins, sans-serif;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+small {
+  color: var(--muted-text);
+  font-weight: 400;
+}
+
+main {
+  width: 100%;
+  max-width: 1520px;
+  margin: 0 auto;
+  padding: 24px clamp(16px, 2.4vw, 32px) 48px;
+}
+
+nav a,
+.btn,
+button,
+select,
+input,
+textarea {
+  font-family: Poppins, sans-serif;
+}
+
+button,
+select,
+input,
+textarea,
+.btn {
+  border-radius: var(--radius-sm);
+}
+
+button,
+select,
+input,
+textarea {
+  color: var(--text);
+}
+
+input,
+select,
+textarea {
+  border-color: var(--line);
+  background: var(--surface-control);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted-text);
+  opacity: 1;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
+}
+
+table {
+  background: var(--surface);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+td,
+th {
+  border-color: var(--line);
+}
+
+.scroll {
+  min-width: 0;
+  overscroll-behavior-x: contain;
+  scrollbar-color: var(--muted-text) var(--surface-muted);
+}
+
+.muted,
+.query-status,
+.page-heading .muted {
+  color: var(--muted-text);
+}
+
+.eyebrow,
+.page-heading .eyebrow {
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+.btn {
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.btn.ghost {
+  border-color: var(--line);
+}
+
+.tabs .on,
+.driver-season-tabs button.active,
+.car-season-tabs button.active,
+.grid-view-tabs button.active,
+.race-detail-tabs button.active,
+.race-view-tabs button.on {
+  background: var(--ink);
+  color: #fff;
+}
+
+.card,
+.driver-gallery-grid figure,
+.lineup-team,
+.team-lineup-season,
+.driver-team-season,
+.teammate-h2h-card,
+.query-status,
+.circuit-panel,
+.weekend-empty,
+.team-panel,
+.strategy-card,
+.strategy-toggle,
+.practice-podium-card,
+.race-events,
+.driver-telemetry,
+.live-track-panel,
+.standings-panel,
+.performance-panel,
+.race-performance-panel,
+.boost-feedback,
+.race-history,
+.weekend-history-item,
+.results-classification,
+.practice-substitution,
+.driver-comparison,
+.car-comparison,
+.car-attribute-leaderboard,
+.race-detail-heading,
+.race-detail-schedule,
+.race-detail-metrics > div,
+.race-detail-winner,
+.grid-season-card,
+.admin-module-nav,
+.admin-dashboard > header,
+.admin-dashboard-summary,
+.admin-module-card,
+.form,
+.driver-stage {
+  background-color: var(--surface);
+  color: var(--text);
+}
+
+.card,
+.lineup-team,
+.team-lineup-season,
+.driver-team-season,
+.race-history,
+.results-classification,
+.grid-season-card,
+.race-detail-heading,
+.race-detail-schedule,
+.race-detail-metrics > div,
+.car-attribute-leaderboard,
+.admin-module-nav,
+.admin-dashboard-summary,
+.admin-module-card,
+.form,
+.driver-stage {
+  border-color: var(--line);
+}
+
+.race-controls,
+.race-view-tabs,
+.career-achievements-toggle,
+.career-achievement,
+.driver-stage-metrics > div,
+.driver-stage-lower > section,
+.driver-stage-details,
+.grid-view-tabs {
+  background-color: var(--surface-muted);
+  color: var(--text);
+}
+
+.race-table th {
+  background: var(--ink);
+  color: #fff;
+}
+
+.driver-stage-metrics strong,
+.dashboard-count strong,
+.dashboard-points,
+.race-detail-metrics strong,
+.car-season-summary strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.query-status {
+  border-left-color: var(--red);
+}
+
+@media (max-width: 600px) {
+  main {
+    padding: 16px 12px 32px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.weekend {
+  --panel: var(--surface);
+  --muted: var(--muted-text);
+}
+
+.weekend-heading {
+  align-items: center;
+  margin: 20px 0 16px;
+}
+
+.weekend-heading .eyebrow,
+.circuit-panel .eyebrow,
+.finish-banner .eyebrow,
+.session-header .eyebrow {
+  color: var(--muted-text);
+  font-size: 0.76rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.race-round {
+  display: grid;
+  gap: 2px;
+  min-width: 82px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--red);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted-text);
+  font-size: 0.76rem;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.race-round strong {
+  color: var(--text);
+  font-size: 1.25rem;
+  line-height: 1.1;
+}
+
+.simulation-navigation {
+  align-items: end;
+  margin: 0 0 12px;
+}
+
+.simulation-navigation > label {
+  color: var(--muted-text);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.simulation-navigation .tabs {
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.simulation-navigation .tabs button {
+  padding: 7px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted-text);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.simulation-navigation .tabs button.on {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+:root[data-theme='dark'] .simulation-navigation .tabs button.on {
+  background: var(--surface);
+}
+
+.weekend-select {
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--red);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.weekend-select label {
+  color: var(--muted-text);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.weekend-start {
+  min-height: 40px;
+}
+
+.circuit-panel {
+  gap: 16px;
+  margin: 12px 0;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+}
+
+.circuit-panel h3 {
+  font-size: 1.1rem;
+}
+
+.circuit-panel p {
+  color: var(--muted-text);
+  font-size: 0.78rem;
+}
+
+.circuit-facts {
+  align-items: center;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.circuit-facts span:first-child {
+  font-size: 1.35rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.circuit-facts small {
+  color: var(--muted-text);
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+
+.weekend-empty {
+  margin-top: 12px;
+  padding: 28px 20px;
+  border-radius: var(--radius-md);
+}
+
+.weekend-empty h3 {
+  font-size: 1.2rem;
+}
+
+.weekend-empty p {
+  color: var(--muted-text);
+  font-size: 0.84rem;
+}
+
+.session-timeline {
+  gap: 1px;
+  margin: 14px 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--line);
+}
+
+.session-step {
+  min-height: 44px;
+  padding: 9px 12px;
+  border-bottom-width: 2px;
+  background: var(--surface);
+  color: var(--muted-text);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.session-step.current {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.session-step.complete {
+  color: var(--text);
+}
+
+.session-header {
+  padding: 14px 0;
+}
+
+.session-header h3 {
+  font-size: 1.4rem;
+}
+
+.session-header p:last-child {
+  color: var(--muted-text);
+  font-size: 0.84rem;
+}
+
+.race-status {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.race-status .eyebrow {
+  color: var(--muted-text);
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.control-state {
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.race-controls {
+  border: 1px solid var(--line);
+  border-top: 0;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+
+.race-view-tabs {
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.race-view-tabs button {
+  min-height: 36px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted-text);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.race-view-tabs button.on {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.race-events {
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--red);
+  border-radius: var(--radius-sm);
+}
+
+.race-events h3 {
+  font-size: 1rem;
+}
+
+.race-events p {
+  color: var(--muted-text);
+  font-size: 0.78rem;
+}
+
+.live-track-panel {
+  overflow: hidden;
+  border-radius: var(--radius-md);
+}
+
+.live-track-panel .section-title p {
+  color: var(--muted-text);
+  font-size: 0.78rem;
+}
+
+.live-track-stage {
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.qualifying-live {
+  border-radius: var(--radius-md);
+}
+
+.qualifying-session-tabs {
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.qualifying-status {
+  border-radius: var(--radius-sm);
+}
+
+.qualifying-control,
+.qualifying-weather {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.practice-podium-portrait {
+  background: var(--team-color, var(--surface-muted));
+}
+
+@media (max-width: 700px) {
+  .weekend-heading {
+    align-items: flex-start;
+  }
+
+  .race-round {
+    min-width: 70px;
+  }
+}
+
+@media (max-width: 600px) {
+  .race-live .live-timing-table {
+    min-width: 900px;
+  }
+
+  .race-live .live-timing-table th:nth-child(4),
+  .race-live .live-timing-table td:nth-child(4) {
+    display: none;
+  }
+
+  .race-live .live-timing-table th:nth-child(6),
+  .race-live .live-timing-table td:nth-child(6) {
+    display: table-cell;
+  }
+
+  .weekend-select {
+    padding: 12px;
+  }
+
+  .session-timeline {
+    border: 0;
+    background: transparent;
+  }
+
+  .session-step {
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: var(--radius-sm);
+    font-size: 0.68rem;
+  }
+
+  .session-step.current {
+    border-bottom-color: var(--red);
+  }
+}
+
+.admin-login {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  max-width: 560px;
+  margin: clamp(32px, 7vh, 80px) auto;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--red);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.admin-login h2 {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.admin-login label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted-text);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.admin-login input {
+  min-height: 40px;
+  padding: 8px 10px;
+}
+
+.admin-login button {
+  grid-column: 1 / -1;
+  min-height: 42px;
+}
+
+.admin-page > .form {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.admin-page-heading .eyebrow,
+.admin-dashboard > header .eyebrow {
+  color: var(--muted-text);
+  font-size: 0.76rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.admin-module-nav {
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--radius-md);
+}
+
+.admin-module-nav h3 {
+  margin-bottom: 7px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.admin-module-nav section > div {
+  gap: 3px;
+}
+
+.admin-module-nav button {
+  min-height: 34px;
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.admin-dashboard {
+  gap: 14px;
+}
+
+.admin-dashboard > header {
+  padding: 16px;
+  border-left-width: 2px;
+  border-radius: var(--radius-md);
+}
+
+.admin-dashboard > header h3 {
+  font-size: 1.15rem;
+}
+
+.admin-dashboard > header p:last-child {
+  font-size: 0.82rem;
+}
+
+.admin-dashboard-summary {
+  gap: 16px;
+  padding: 14px;
+  border-radius: var(--radius-md);
+}
+
+.admin-dashboard-summary span {
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.admin-dashboard-summary strong {
+  font-size: 1.15rem;
+}
+
+.admin-module-cards {
+  gap: 8px;
+}
+
+.admin-module-card {
+  gap: 5px;
+  padding: 13px;
+  border-radius: var(--radius-sm);
+}
+
+.admin-module-card span {
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.admin-module-card strong {
+  font-size: 1.15rem;
+}
+
+.admin-module-card small {
+  font-size: 0.72rem;
+}
+
+.admin-crud-toolbar {
+  padding: 10px 0;
+  font-size: 0.76rem;
+}
+
+.admin-crud-toolbar button {
+  min-height: 34px;
+  padding: 7px 10px;
+  font-size: 0.74rem;
+}
+
+@media (max-width: 600px) {
+  .admin-login {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    margin: 28px 0;
+    padding: 16px;
+  }
+
+  .admin-login h2,
+  .admin-login button {
+    grid-column: auto;
+  }
+
+  .admin-module-nav {
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .admin-dashboard-summary {
+    gap: 10px;
+  }
+}

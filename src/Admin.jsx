@@ -151,17 +151,17 @@ function AdminDashboard({onSelect}){
   return()=>{active=false};
  },[]);
  const totalRecords=counts?Object.values(counts).reduce((sum,count)=>sum+count,0):0;
- return <section className="admin-dashboard"><header><p className="eyebrow">PITWALL MANAGEMENT</p><h3>Database overview</h3><p>Live record counts from the connected Supabase project.</p></header>
+ return <section className="admin-dashboard"><header><p className="eyebrow">Pitwall management</p><h3>Database overview</h3><p>Live record counts from the connected Supabase project.</p></header>
   {error&&<p className="query-status query-error" role="alert">Could not load database totals: {error}</p>}
-  <div className="admin-dashboard-summary"><div><span>TABLES</span><strong>{Object.keys(T).length}</strong></div><div><span>RECORDS</span><strong>{counts?totalRecords.toLocaleString():'—'}</strong></div><button type="button" className="btn" onClick={()=>onSelect('import')}>Open imports</button></div>
+  <div className="admin-dashboard-summary"><div><span>Tables</span><strong>{Object.keys(T).length}</strong></div><div><span>Records</span><strong>{counts?totalRecords.toLocaleString():'—'}</strong></div><button type="button" className="btn" onClick={()=>onSelect('import')}>Open imports</button></div>
   <div className="admin-module-cards">{Object.entries(T).map(([table])=><button type="button" className="admin-module-card" key={table} onClick={()=>onSelect(table)}><span>{ADMIN_LABELS[table]||table.replaceAll('_',' ')}</span><strong>{counts?counts[table].toLocaleString():'—'}</strong><small>Manage records</small></button>)}</div>
  </section>;
 }
 export default function Admin(){const [s,setS]=useState(null);const [tab,setTab]=useState('dashboard');const [e,setE]=useState({});
  useEffect(()=>{sb.auth.getSession().then(r=>setS(r.data.session));const {data}=sb.auth.onAuthStateChange((_,x)=>setS(x));return()=>data.subscription.unsubscribe()},[]);
- if(!s)return <div className="form"><h2>Admin sign in</h2><label>email<input onChange={x=>setE({...e,email:x.target.value})}/></label><label>password<input type="password" onChange={x=>setE({...e,password:x.target.value})}/></label>
+ if(!s)return <div className="form admin-login"><h2>Admin sign in</h2><label>email<input onChange={x=>setE({...e,email:x.target.value})}/></label><label>password<input type="password" onChange={x=>setE({...e,password:x.target.value})}/></label>
   <button className="btn" onClick={async()=>{const {error}=await sb.auth.signInWithPassword(e);if(error)alert(error.message)}}>Sign in</button></div>;
- return <section className="admin-page"><div className="admin-page-heading"><div><p className="eyebrow">MANAGEMENT</p><h2>Admin</h2><span>{s.user?.email}</span></div><button type="button" onClick={()=>sb.auth.signOut()}>Sign out</button></div>
+ return <section className="admin-page"><div className="admin-page-heading"><div><p className="eyebrow">Management</p><h2>Admin</h2><span>{s.user?.email}</span></div><button type="button" onClick={()=>sb.auth.signOut()}>Sign out</button></div>
   <nav className="admin-module-nav" aria-label="Admin modules">{ADMIN_GROUPS.map(group=><section key={group.label}><h3>{group.label}</h3><div>{group.items.map(key=><button type="button" key={key} className={tab===key?'active':''} aria-current={tab===key?'page':undefined} onClick={()=>setTab(key)}>{ADMIN_LABELS[key]||key.replaceAll('_',' ')}</button>)}</div></section>)}</nav>
   {tab==='dashboard'?<AdminDashboard onSelect={setTab}/>:tab==='import'?<Import/>:tab==='lineups'?<Lineups/>:<Crud table={tab}/>}
  </section>}

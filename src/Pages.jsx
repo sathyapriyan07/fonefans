@@ -285,16 +285,16 @@ export function Home() {
   const leaderPoints = data?.drivers[0]?.points || 0;
   const teamLeaderPoints = data?.teams[0]?.points || 0;
   return <section className="home-dashboard">
-    <header className="dashboard-heading"><div><p className="eyebrow">PITWALL · SEASON CONTROL</p><h1>Race season dashboard</h1><p>Race calendar, championship standings, and the latest saved Grand Prix.</p></div><Link className="btn" to="/simulate">Open race weekend</Link></header>
+    <header className="dashboard-heading"><div><p className="eyebrow">Pitwall · Season control</p><h1>Race season dashboard</h1><p>Race calendar, championship standings, and the latest saved Grand Prix.</p></div><Link className="btn" to="/simulate">Open race weekend</Link></header>
     <QueryStatus query={dashboard} />
     {data && <>
       <div className="dashboard-counts" aria-label="Database totals">
         {[['Drivers', data.counts.drivers], ['Teams', data.counts.teams], ['Races', data.counts.races]].map(([label, total]) => <div className="dashboard-count" key={label}><span>{label}</span><strong>{total.toLocaleString()}</strong></div>)}
       </div>
       <div className="dashboard-main-grid">
-        <section className="dashboard-feature-race">
+        <section className={`dashboard-feature-race ${nextRace?.circuit_image_url ? 'has-image' : 'without-image'}`}>
           {nextRace?.circuit_image_url && <img src={nextRace.circuit_image_url} alt={`${nextRace.circuit || nextRace.name} circuit layout`} />}
-          <div className="dashboard-feature-copy"><p className="eyebrow">{nextRace ? 'NEXT GRAND PRIX' : 'RACE CALENDAR'}</p>
+          <div className="dashboard-feature-copy"><p className="eyebrow">{nextRace ? 'Next Grand Prix' : 'Race calendar'}</p>
             <h2>{nextRace?.name || 'No upcoming race scheduled'}</h2>
             {nextRace && <p>{[nextRace.circuit, nextRace.country, nextRace.date].filter(Boolean).join(' · ')}</p>}
             {nextRace && data.daysToNextRace !== null && <strong className="dashboard-countdown">{data.daysToNextRace === 0 ? 'Race day' : `${data.daysToNextRace} days to lights out`}</strong>}
@@ -302,7 +302,7 @@ export function Home() {
           </div>
         </section>
         <section className="dashboard-latest-race">
-          <div className="dashboard-section-heading"><div><p className="eyebrow">LATEST SAVED GRAND PRIX</p><h2>{latestRace?.name || 'No saved race results'}</h2></div><Link to="/results">All results</Link></div>
+          <div className="dashboard-section-heading"><div><p className="eyebrow">Latest saved Grand Prix</p><h2>{latestRace?.name || 'No saved race results'}</h2></div><Link to="/results">All results</Link></div>
           {latestRace?.rows?.length ? <div className="dashboard-result-list">{latestRace.rows.slice(0, 5).map((row, index) => <Link className="dashboard-result-row" to={`/drivers/${row.drivers?.id}`} key={row.driver_id || row.drivers?.id || index}>
             <span className="dashboard-rank">{Number(row.position) === 1 ? 'P1' : row.position}</span>{row.teams?.logo_normal && <img src={row.teams.logo_normal} alt="" />}
             <strong>{row.drivers?.name || 'Driver'}</strong><span>{Number(row.points) || 0} pts</span>
@@ -310,29 +310,29 @@ export function Home() {
         </section>
       </div>
       <div className="dashboard-championship-grid">
-        <section className="dashboard-standings"><div className="dashboard-section-heading"><div><p className="eyebrow">{data.season ? `${data.season} SEASON` : 'CHAMPIONSHIP'}</p><h2>Driver standings</h2></div><Link to="/simulate">Full standings</Link></div>
+        <section className="dashboard-standings"><div className="dashboard-section-heading"><div><p className="eyebrow">{data.season ? `${data.season} season` : 'Championship'}</p><h2>Driver standings</h2></div><Link to="/simulate">Full standings</Link></div>
           {data.drivers.length ? <ol>{data.drivers.map((driver, index) => <li key={driver.id}>
             <span className="dashboard-rank">{index + 1}</span>{driverSeasonImage(driver, data.season) && <img src={driverSeasonImage(driver, data.season)} alt="" />}
             <span className="dashboard-standing-name"><strong>{driver.name}</strong><small>{driver.team?.name || driver.code || 'Driver'}</small></span>
-            <span className="dashboard-points-track"><i style={{ width: `${leaderPoints ? driver.points / leaderPoints * 100 : 0}%` }} /></span><strong className="dashboard-points">{driver.points}</strong>
+            <span className="dashboard-points-track"><i style={{ width: `${leaderPoints ? driver.points / leaderPoints * 100 : 0}%`, backgroundColor: driver.team?.color || undefined }} /></span><strong className="dashboard-points">{driver.points}</strong>
           </li>)}</ol> : <p className="muted">No saved season points yet.</p>}
         </section>
-        <section className="dashboard-standings"><div className="dashboard-section-heading"><div><p className="eyebrow">{data.season ? `${data.season} SEASON` : 'CHAMPIONSHIP'}</p><h2>Constructor standings</h2></div><Link to="/simulate">Season standings</Link></div>
+        <section className="dashboard-standings"><div className="dashboard-section-heading"><div><p className="eyebrow">{data.season ? `${data.season} season` : 'Championship'}</p><h2>Constructor standings</h2></div><Link to="/simulate">Season standings</Link></div>
           {data.teams.length ? <ol>{data.teams.map((team, index) => <li key={team.id}>
             <span className="dashboard-rank">{index + 1}</span>{team.logo_normal && <img src={team.logo_normal} alt="" />}
             <span className="dashboard-standing-name"><strong>{team.name}</strong><small>{team.wins} wins · {team.podiums} podiums</small></span>
-            <span className="dashboard-points-track"><i style={{ width: `${teamLeaderPoints ? team.points / teamLeaderPoints * 100 : 0}%` }} /></span><strong className="dashboard-points">{team.points}</strong>
+            <span className="dashboard-points-track"><i style={{ width: `${teamLeaderPoints ? team.points / teamLeaderPoints * 100 : 0}%`, backgroundColor: team.color || undefined }} /></span><strong className="dashboard-points">{team.points}</strong>
           </li>)}</ol> : <p className="muted">No saved constructor points yet.</p>}
         </section>
       </div>
       <div className="dashboard-lower-grid">
-        <section className="dashboard-history"><div className="dashboard-section-heading"><div><p className="eyebrow">SAVED RESULTS</p><h2>Recent race history</h2></div><Link to="/races">Race calendar</Link></div>
+        <section className="dashboard-history"><div className="dashboard-section-heading"><div><p className="eyebrow">Saved results</p><h2>Recent race history</h2></div><Link to="/races">Race calendar</Link></div>
           {data.recentRaces.length ? <ul>{data.recentRaces.map(race => <li key={race.id}><span>R{race.round || '—'} · {race.year}</span><strong>{race.name}</strong><small>{race.winner ? `Winner · ${race.winner.name}` : 'Classification saved'}</small></li>)}</ul> : <p className="muted">No saved race history yet.</p>}
         </section>
-        <section className="dashboard-quick-links"><p className="eyebrow">RACE OPERATIONS</p><h2>Go to the grid</h2><p>Choose a season grid, prepare the weekend, and run practice, qualifying, and the race.</p>
+        <section className="dashboard-quick-links"><p className="eyebrow">Race operations</p><h2>Go to the grid</h2><p>Choose a season grid, prepare the weekend, and run practice, qualifying, and the race.</p>
           <div><Link className="btn" to="/simulate">Start simulation</Link><Link className="btn ghost" to="/grids">Manage grids</Link></div>
         </section>
-        <section className="dashboard-recent-pages"><div className="dashboard-section-heading"><div><p className="eyebrow">ON THIS DEVICE</p><h2>Recently viewed</h2></div></div>
+        <section className="dashboard-recent-pages"><div className="dashboard-section-heading"><div><p className="eyebrow">On this device</p><h2>Recently viewed</h2></div></div>
           {recentPages.length ? <ul>{recentPages.map(page => <li key={page.path}><Link to={page.path}>{page.label}<span aria-hidden="true">→</span></Link></li>)}</ul> : <p className="muted">Pages you visit will appear here.</p>}
         </section>
       </div>
@@ -946,8 +946,9 @@ export function Teams() {
   return <><h2>Teams</h2><QueryStatus query={t} empty="No teams yet." /><div className="grid team-grid">{t.data?.map(x => {
     const normalLogo = Boolean(x.logo_normal);
     const logo = x.logo_normal || x.logo_detailed;
-    return <Link key={x.id} to={'/teams/' + x.id} className={`card team-card ${normalLogo ? 'has-normal-logo' : 'has-detailed-logo'}`} aria-label={x.name} style={{ backgroundColor: 'var(--paper)' }}>
+    return <Link key={x.id} to={'/teams/' + x.id} className={`card team-card ${normalLogo ? 'has-normal-logo' : 'has-detailed-logo'}`} aria-label={x.name} style={{ '--team-color': x.color || '#d3202f' }}>
       {logo && <img src={logo} alt={`${x.name} logo`} />}
+      <span className="team-card-name">{x.name}</span>
     </Link>;
   })}</div></>
 }
@@ -1361,7 +1362,7 @@ export function Results() {
     URL.revokeObjectURL(url);
   };
   return <section className="results-page">
-    <div className="results-page-heading"><div><p className="eyebrow">OFFICIAL CLASSIFICATION</p><h2>Race results</h2><p>Browse saved results by season, Grand Prix, and session.</p></div><button type="button" onClick={results.retry} disabled={results.loading}>Refresh results</button></div>
+    <div className="results-page-heading"><div><p className="eyebrow">Official classification</p><h2>Race results</h2><p>Browse saved results by season, Grand Prix, and session.</p></div><button type="button" onClick={results.retry} disabled={results.loading}>Refresh results</button></div>
     <QueryStatus query={results} empty="No saved race results yet. Simulate a race weekend to see the classifications here." />
     {weekends.length > 0 && <><nav className="results-year-nav" aria-label="Results season pages">{years.map(year => <button type="button" key={year} className={year === activeYear ? 'active' : ''} aria-current={year === activeYear ? 'page' : undefined} onClick={() => changeYear(year)}>{year}</button>)}</nav>
       <section className="results-season-page" aria-label={`${activeYear} race results`}>
@@ -1896,9 +1897,9 @@ export function Simulate() {
   const isQualifying = phase === 'qualifying' || phase === 'sprintQualifying'; const isPractice = phase.startsWith('practice');
   const getPosition = (entry, index) => isPractice ? entry.practicePos : isQualifying ? entry.grid : entry.dnf ? 'DNF' : entry.pos;
   return <section className="weekend">
-    <div className="weekend-heading"><div><p className="eyebrow">RACE OPERATIONS</p><h2>Simulation</h2>
+    <div className="weekend-heading"><div><p className="eyebrow">Race operations</p><h2>Simulation</h2>
       <p className="muted">Build your setup, qualify the grid, then call the race strategy.</p></div>
-      {selectedRace && <div className="race-round">ROUND <strong>{selectedRace.round || '—'}</strong></div>}
+      {selectedRace && <div className="race-round">Round <strong>{selectedRace.round || '—'}</strong></div>}
     </div>
     <div className="simulation-navigation">
       <label>Season grid<select value={gid} onChange={e => { setNextRaceNotice(''); setG(e.target.value); setR('') }}><option value="">Choose a grid</option>{grids.data?.map(g => <option key={g.id} value={g.id}>{g.name} · {g.year}</option>)}</select></label>
@@ -1970,9 +1971,9 @@ export function Simulate() {
           <path d="M22 72 33 32 68 20 92 35 127 21 155 38 148 66 164 82 133 94 105 81 77 94 49 81 22 72Z" fill="none" stroke="currentColor" strokeWidth="5" strokeLinejoin="round" />
           <path d="M22 72 33 32 68 20" fill="none" stroke="var(--red)" strokeWidth="5" strokeLinecap="round" />
         </svg>}
-        <div><p className="eyebrow">CIRCUIT</p><h3>{selectedRace.circuit || selectedRace.name}</h3>
+        <div><p className="eyebrow">Circuit</p><h3>{selectedRace.circuit || selectedRace.name}</h3>
           <p>{selectedRace.country || 'Race weekend'}{selectedRace.date ? ` · ${selectedRace.date}` : ''}</p></div>
-        <div className="circuit-facts"><span>{selectedRace.laps || 57}<small> LAPS</small></span><span>{selectedRace.is_sprint ? 'SPRINT FORMAT' : 'GRAND PRIX'}</span></div>
+        <div className="circuit-facts"><span>{selectedRace.laps || 57}<small> laps</small></span><span>{selectedRace.is_sprint ? 'Sprint format' : 'Grand Prix'}</span></div>
       </div>}
       {!weekendStarted && <div className="weekend-empty">
         <h3>Prepare for lights out</h3>
@@ -1989,11 +1990,11 @@ export function Simulate() {
             <span className="session-number">{complete ? '✓' : `0${index + 1}`}</span><span>{PHASE_LABELS[name]}</span>
           </button>
         })}</div>
-        {weekendComplete ? <div className="weekend-empty finish-banner"><p className="eyebrow">CHEQUERED FLAG</p>
+        {weekendComplete ? <div className="weekend-empty finish-banner"><p className="eyebrow">Chequered flag</p>
           <h3>{selectedRace.name} complete</h3><p>Weekend results are ready. Start another weekend to run a new event.</p>
           <button className="btn" onClick={() => { setWeekendStarted(false); setWeekendComplete(false); setResults({}) }}>Return to race selection</button>
         </div> : <>
-          <div className="session-header"><div><p className="eyebrow">SESSION {String(phaseIndex + 1).padStart(2, '0')}</p>
+          <div className="session-header"><div><p className="eyebrow">Session {String(phaseIndex + 1).padStart(2, '0')}</p>
             <h3>{PHASE_LABELS[phase]}</h3><p>{isPractice ? 'Dial in the car before qualifying.' : phase === 'qualifying' ? 'Set the starting order for the weekend.' : phase === 'sprint' ? 'A short-format race for extra points.' : 'Choose your race strategy and go racing.'}</p>
           </div>
             {phaseResult && (phase !== 'race' && phase !== 'sprint' || raceState?.done) && <button className="btn" onClick={advance}>{phaseIndex === phases.length - 1 ? 'Finish weekend' : 'Continue to ' + PHASE_LABELS[phases[phaseIndex + 1]]}</button>}
