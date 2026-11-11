@@ -325,21 +325,20 @@ function GarageView({ entries = [], timingRows = [], fastestSectors = [], sessio
 }
 function useQualifyingRowMotion() {
   const previousRows = useRef(new Map());
-  const animationFrame = useRef(0);
   useLayoutEffect(() => {
     const nodes = [...document.querySelectorAll('.qualifying-timing-table tbody tr[data-driver-id]')];
     const nextRows = new Map();
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    for (const node of nodes) {
+    nodes.forEach((node, index) => {
       const id = node.dataset.driverId;
-      const top = node.getBoundingClientRect().top;
+      const top = node.offsetTop;
       const flashKey = node.dataset.flashKey || '';
       const previous = previousRows.current.get(id);
-      if (!reduceMotion && previous && Math.abs(previous.top - top) > 1 && typeof node.animate === 'function') {
+      if (!reduceMotion && previous && previous.index !== index && typeof node.animate === 'function') {
         node.animate([
           { transform: `translateY(${previous.top - top}px)` },
           { transform: 'translateY(0)' }
-        ], { duration: 280, easing: 'ease-out' });
+        ], { duration: 360, easing: 'cubic-bezier(0.2, 0.75, 0.25, 1)' });
       }
       if (!reduceMotion && previous && flashKey && flashKey !== previous.flashKey && typeof node.animate === 'function') {
         const color = node.dataset.flashKind === 'purple' ? 'rgba(156, 98, 210, 0.55)'
@@ -349,15 +348,9 @@ function useQualifyingRowMotion() {
           { backgroundColor: 'transparent' }
         ], { duration: 2200, easing: 'ease-out' });
       }
-      nextRows.set(id, { top, flashKey });
-    }
-    previousRows.current = nextRows;
-    window.cancelAnimationFrame(animationFrame.current);
-    animationFrame.current = window.requestAnimationFrame(() => {
-      previousRows.current = new Map([...document.querySelectorAll('.qualifying-timing-table tbody tr[data-driver-id]')]
-        .map(node => [node.dataset.driverId, { top: node.getBoundingClientRect().top, flashKey: node.dataset.flashKey || '' }]));
+      nextRows.set(id, { index, top, flashKey });
     });
-    return () => window.cancelAnimationFrame(animationFrame.current);
+    previousRows.current = nextRows;
   });
 }
 const CAR = CAR_OVERALL_ATTRIBUTES.map(attribute => attribute.key);
