@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'; import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'; import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { sb } from './supabase.js'; import { activateDriverBoost, advanceRaceIfRunning, advanceRaceLap, applyDriverPerformanceBoosts, applyPracticeSubstitutions, applyTeamPerformanceBoosts, calculateStandings, calculateTeammateHeadToHead, createRaceState, getBestCareerPositions, getCareerChampionships, getCareerRecords, getCareerStats, getClassification, getTeamCareerStats, getWeekendAwards, getWeekendPhases, practice, requiresMandatoryDryTyreCompounds, setDriverRaceAdjustments, setPitInstruction, setTeamRaceAdjustments, simulateQualifyingWeekend } from './sim.js';
 import './liveTiming.css';
 import './dashboard.css';
@@ -176,6 +176,7 @@ const driverGridImage = (driver, year) => {
 function SessionPodium({ entries, race, phaseLabel, fastestLap = Infinity, raceResult = false }) {
   const podium = raceResult ? entries.filter(entry => !entry.retired).slice(0, 3) : entries.slice(0, 3);
   const leader = entries.find(entry => Number(entry.position ?? entry.pos) === 1) || podium[0];
+  const awards = raceResult ? getRaceAwards(entries) : null;
   if (!podium.length) return null;
   return <section className="practice-podium" aria-label={`${phaseLabel} top three`}>
     <div className="practice-podium-heading"><h4>{race?.name || 'Race'} · {phaseLabel} top three</h4></div>
@@ -188,10 +189,176 @@ function SessionPodium({ entries, race, phaseLabel, fastestLap = Infinity, raceR
       const portrait = driverSeasonImage(entry.driver, race?.year);
       return <article className={`practice-podium-card practice-podium-${index + 1}`} key={entry.driver.id} style={{ '--team-color': entry.team.color || '#d3202f' }}>
         <div className="practice-podium-portrait">{portrait ? <img src={portrait} alt={`${entry.driver.name} portrait`} /> : <span className={entry.driver.code ? 'driver-code' : undefined}>{entry.driver.code || entry.driver.name.trim().split(/\s+/).pop()?.slice(0, 1)}</span>}<strong className="practice-podium-position">P{position}</strong></div>
-        <div className="practice-podium-details"><span className="practice-podium-team">{entry.team.logo_normal && <img src={entry.team.logo_normal} alt="" />}{entry.team.name}</span><strong className="practice-podium-driver">{entry.driver.name.toUpperCase()}</strong><span className="practice-podium-gap">{gap}</span></div>
+        <div className="practice-podium-details"><span className="practice-podium-team">{entry.team.logo_normal && <img src={entry.team.logo_normal} alt="" />}{entry.team.name}</span><strong className="practice-podium-driver">{entry.driver.name.toUpperCase()}</strong><span className="practice-podium-gap">{gap}</span>
+          {awards && <div className="race-award-badges">
+            {String(entry.driver.id) === String(awards.fastestLapDriverId) && <span className="race-award-badge fastest-lap">Fastest lap</span>}
+            {String(entry.driver.id) === String(awards.driverOfTheDayId) && <span className="race-award-badge driver-of-the-day">Driver of the day</span>}
+          </div>}
+        </div>
       </article>;
     })}</div>
   </section>;
+}
+function getRaceAwards(entries = []) {
+  const finishers = entries.filter(entry => !entry.retired && entry.status !== 'Retired');
+  const fastestLapDriverId = [...finishers]
+    .filter(entry => Number.isFinite(entry.bestLap))
+    .sort((a, b) => a.bestLap - b.bestLap || String(a.driver?.id).localeCompare(String(b.driver?.id)))[0]?.driver?.id ?? null;
+  const driverOfTheDay = finishers.map((entry, index) => {
+    const position = Number(entry.position ?? entry.pos) || index + 1;
+    const gridPosition = Number(entry.gridPosition ?? entry.grid) || position;
+    return { entry, position, placesGained: gridPosition - position };
+  }).filter(item => item.placesGained > 0)
+    .sort((a, b) => b.placesGained - a.placesGained || a.position - b.position)[0]?.entry;
+  return { fastestLapDriverId, driverOfTheDayId: driverOfTheDay?.driver?.id ?? null, driverOfTheDay };
+}
+function SessionIcon({ phase }) {
+  const kind = phase.startsWith('practice') ? 'practice' : phase === 'sprint' ? 'sprint' : phase === 'race' ? 'race' : 'qualifying';
+  return <svg className="session-icon" viewBox="0 0 24 24" aria-hidden="true">
+    {kind === 'practice' && <><circle cx="12" cy="12" r="3" /><path d="M12 2v3m0 14v3M4.93 4.93l2.12 2.12m9.9 9.9 2.12 2.12M2 12h3m14 0h3M4.93 19.07l2.12-2.12m9.9-9.9 2.12-2.12" /></>}
+    {kind === 'sprint' && <path d="m13 2-8 12h6l-1 8 9-13h-6l1-7Z" />}
+    {kind === 'qualifying' && <><circle cx="12" cy="13" r="8" /><path d="M12 9v4l3 2M9 2h6m-3 0v3" /></>}
+    {kind === 'race' && <><path d="M5 21V4m1 1h12l-3 3 3 3H6" /><path d="M9 7h.01M13 9h.01M9 11h.01" /></>}
+  </svg>;
+}
+function SessionTransition({ entries, race, phaseLabel, fastestLap = Infinity, raceResult = false }) {
+  const awards = raceResult ? getRaceAwards(entries) : null;
+  const leader = entries.find(entry => Number(entry.position ?? entry.pos ?? entry.grid ?? entry.practicePos) === 1) || entries[0];
+  const title = `${phaseLabel} complete`;
+  const highlight = raceResult
+    ? `Winner · ${leader?.driver?.name || '—'}`
+    : phaseLabel.toLowerCase().includes('qualifying')
+      ? `${phaseLabel.toLowerCase().includes('sprint') ? 'Sprint pole' : 'Pole position'} · ${leader?.driver?.name || '—'}`
+      : `Session leader · ${leader?.driver?.name || '—'}`;
+  return <section className={`session-transition${raceResult ? ' race-finish-transition' : ''}`} aria-label={`${phaseLabel} complete`}>
+    <div className="session-transition-heading">
+      <p className="eyebrow">{race?.name || 'Race weekend'} · Session complete</p>
+      <h3>{title}</h3>
+      <strong>{highlight}</strong>
+    </div>
+    {awards && <div className="race-award-summary">
+      {awards.fastestLapDriverId != null && <span><i className="race-award-badge fastest-lap">Fastest lap</i><strong>{entries.find(entry => String(entry.driver.id) === String(awards.fastestLapDriverId))?.driver?.name || '—'}</strong></span>}
+      {awards.driverOfTheDay && <span><i className="race-award-badge driver-of-the-day">Driver of the day</i><strong>{awards.driverOfTheDay.driver?.name || '—'} · +{awards.driverOfTheDay.placesGained} places</strong></span>}
+    </div>}
+    <SessionPodium entries={entries} race={race} phaseLabel={phaseLabel} fastestLap={fastestLap} raceResult={raceResult} />
+  </section>;
+}
+function StartingGrid({ entries, race }) {
+  const ordered = entries.map((entry, index) => ({
+    ...entry,
+    startPosition: Number(entry.gridPosition ?? entry.grid ?? entry.position ?? entry.pos) || index + 1
+  })).sort((a, b) => a.startPosition - b.startPosition);
+  if (!ordered.length) return null;
+  return <section className="starting-grid-panel" aria-label="Starting grid">
+    <div className="section-title"><div><p className="eyebrow">FORMATION</p><h3>Starting grid</h3><p>{race?.circuit || race?.name} · {ordered.length} cars</p></div><span className="starting-grid-direction">→ RACE DIRECTION</span></div>
+    <div className="starting-grid">
+      {ordered.map((entry, index) => <article key={entry.driver.id} className={`starting-grid-slot${index % 2 ? ' staggered' : ''}`} style={{ '--team-color': entry.team?.color || '#d3202f', gridColumn: index % 2 + 1, gridRow: Math.floor(index / 2) + 1 }}>
+        <strong className="starting-grid-position">P{entry.startPosition}</strong>
+        <span className="starting-grid-team">{entry.team?.logo_normal && <img src={entry.team.logo_normal} alt="" />}{entry.team?.name || 'Team'}</span>
+        <span className="starting-grid-driver">{entry.driver?.code || entry.driver?.name || 'Driver'}</span>
+      </article>)}
+    </div>
+  </section>;
+}
+function GarageView({ entries = [], timingRows = [], fastestSectors = [], sessionLabel = 'Session', hasStarted = false, complete = false }) {
+  const timingByDriver = new Map(timingRows.map(row => [String(row.driver?.id), row]));
+  const teams = new Map();
+  for (const entry of entries) {
+    const key = String(entry.team?.id ?? entry.team?.name ?? 'team');
+    const team = teams.get(key) || { team: entry.team, entries: [] };
+    team.entries.push(entry);
+    teams.set(key, team);
+  }
+  const sortedTimingRows = [...timingRows].sort((a, b) =>
+    Number.isFinite(a.bestLap) !== Number.isFinite(b.bestLap)
+      ? (Number.isFinite(a.bestLap) ? -1 : 1)
+      : (a.bestLap ?? Infinity) - (b.bestLap ?? Infinity)
+  );
+  const statusLabel = row => {
+    if (!hasStarted) return 'In garage';
+    const status = String(row?.currentStatus || row?.sessionStatus || '').toLowerCase();
+    if (status.includes('flying')) return 'Flying lap';
+    if (status.includes('out')) return 'Out lap';
+    if (status.includes('pit') || status.includes('garage') || complete) return 'In garage';
+    return 'In garage';
+  };
+  const sectorColor = (row, index, currentSectors) => {
+    const value = currentSectors[index];
+    if (!Number.isFinite(value)) return statusLabel(row) === 'Flying lap' && index === currentSectors.length ? 'sector-next' : 'sector-pending';
+    return Number.isFinite(fastestSectors[index]) && Math.abs(value - fastestSectors[index]) < 1e-8
+      ? 'sector-purple'
+      : 'sector-green';
+  };
+  return <section className="garage-view" aria-label={`${sessionLabel} garage and timing`}>
+    <div className="garage-view-heading"><div><p className="eyebrow">TEAM GARAGES</p><h4>{sessionLabel} garage</h4></div><span>{hasStarted ? complete ? 'Session complete' : 'Session live' : 'Session not started'}</span></div>
+    <div className="garage-view-layout">
+      <div className="garage-team-list">
+        {[...teams.entries()].map(([key, group]) => <article className="garage-team" key={key} style={{ '--team-color': group.team?.color || '#d3202f' }}>
+          <div className="garage-team-heading">{group.team?.logo_normal && <img src={group.team.logo_normal} alt="" />}<strong>{group.team?.name || 'Team'}</strong></div>
+          <div className="garage-cars">{group.entries.map(entry => {
+            const row = timingByDriver.get(String(entry.driver?.id));
+            const sectors = row?.currentSectors?.length ? row.currentSectors : row?.sectors || entry.sectors || [];
+            const status = statusLabel(row);
+            return <div className={`garage-car ${status.toLowerCase().replaceAll(' ', '-')}`} key={entry.driver?.id}>
+              <div className="garage-car-top"><span className="garage-car-icon" aria-hidden="true">▰</span><strong>{entry.driver?.code || entry.driver?.name || 'Driver'}</strong></div>
+              <span className="garage-car-status"><i />{status}</span>
+              <div className="garage-sector-bars" aria-label="Sector progress">{[0, 1, 2].map(index => <span key={index} className={sectorColor(row, index, sectors)} title={`Sector ${index + 1}${Number.isFinite(sectors[index]) ? ` · ${sectors[index].toFixed(3)}s` : ''}`} />)}</div>
+              <small>S1 <strong>{Number.isFinite(sectors[0]) ? sectors[0].toFixed(3) : '—'}</strong> · S2 <strong>{Number.isFinite(sectors[1]) ? sectors[1].toFixed(3) : '—'}</strong> · S3 <strong>{Number.isFinite(sectors[2]) ? sectors[2].toFixed(3) : '—'}</strong></small>
+            </div>;
+          })}</div>
+        </article>)}
+        {!teams.size && <p className="muted">No driver entries are available for this session.</p>}
+      </div>
+      <aside className="garage-timing-sidebar" aria-label="Session timing">
+        <h4>Timing</h4>
+        {!sortedTimingRows.length && <p>{hasStarted ? 'Waiting for first timed lap…' : 'Timing appears when the session starts.'}</p>}
+        {sortedTimingRows.map((row, index) => <div className="garage-timing-row" key={row.driver?.id}>
+          <strong className="garage-timing-position">{Number.isFinite(row.bestLap) ? index + 1 : '—'}</strong>
+          <span className="garage-timing-driver"><strong>{row.driver?.code || row.driver?.name || 'Driver'}</strong><small>{row.team?.name || 'Team'}</small></span>
+          <span className="garage-timing-best">{formatTime(row.bestLap)}</span>
+          <div className="garage-sidebar-sectors">{[0, 1, 2].map(sector => <i key={sector} className={sectorColor(row, sector, row.currentSectors?.length ? row.currentSectors : row.sectors || [])} />)}</div>
+          <small className={`garage-timing-status ${statusLabel(row).toLowerCase().replaceAll(' ', '-')}`}>{statusLabel(row)}</small>
+        </div>)}
+      </aside>
+    </div>
+  </section>;
+}
+function useQualifyingRowMotion() {
+  const previousRows = useRef(new Map());
+  const animationFrame = useRef(0);
+  useLayoutEffect(() => {
+    const nodes = [...document.querySelectorAll('.qualifying-timing-table tbody tr[data-driver-id]')];
+    const nextRows = new Map();
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    for (const node of nodes) {
+      const id = node.dataset.driverId;
+      const top = node.getBoundingClientRect().top;
+      const flashKey = node.dataset.flashKey || '';
+      const previous = previousRows.current.get(id);
+      if (!reduceMotion && previous && Math.abs(previous.top - top) > 1 && typeof node.animate === 'function') {
+        node.animate([
+          { transform: `translateY(${previous.top - top}px)` },
+          { transform: 'translateY(0)' }
+        ], { duration: 280, easing: 'ease-out' });
+      }
+      if (!reduceMotion && previous && flashKey && flashKey !== previous.flashKey && typeof node.animate === 'function') {
+        const color = node.dataset.flashKind === 'purple' ? 'rgba(156, 98, 210, 0.55)'
+          : node.dataset.flashKind === 'green' ? 'rgba(67, 167, 123, 0.48)' : 'rgba(231, 174, 42, 0.32)';
+        node.animate([
+          { backgroundColor: color },
+          { backgroundColor: 'transparent' }
+        ], { duration: 2200, easing: 'ease-out' });
+      }
+      nextRows.set(id, { top, flashKey });
+    }
+    previousRows.current = nextRows;
+    window.cancelAnimationFrame(animationFrame.current);
+    animationFrame.current = window.requestAnimationFrame(() => {
+      previousRows.current = new Map([...document.querySelectorAll('.qualifying-timing-table tbody tr[data-driver-id]')]
+        .map(node => [node.dataset.driverId, { top: node.getBoundingClientRect().top, flashKey: node.dataset.flashKey || '' }]));
+    });
+    return () => window.cancelAnimationFrame(animationFrame.current);
+  });
 }
 const CAR = CAR_OVERALL_ATTRIBUTES.map(attribute => attribute.key);
 const one = x => Array.isArray(x) ? x[0] : x;
@@ -1594,7 +1761,7 @@ export function Simulate() {
   const [reserveDriversEnabled, setReserveDriversEnabled] = useState(false);
   const [practiceSubstitutions, setPracticeSubstitutions] = useState({});
   const [resultSaveError, setResultSaveError] = useState(''); const [resultSaveFailed, setResultSaveFailed] = useState(false); const [resultSaveSaving, setResultSaveSaving] = useState(false); const [resultSaveNeedsAuth, setResultSaveNeedsAuth] = useState(false); const [resultSaveSuccess, setResultSaveSuccess] = useState('');
-  const [raceState, setRaceState] = useState(null); const [isRunning, setIsRunning] = useState(false); const [raceViewTab, setRaceViewTab] = useState('timing'); const [raceTeamAdjustments, setRaceTeamAdjustments] = useState({}); const [raceDriverAdjustments, setRaceDriverAdjustments] = useState({}); const [expandedTimingDrivers, setExpandedTimingDrivers] = useState(() => new Set()); const [simulationSpeed, setSimulationSpeed] = useState(1); const [weatherMode, setWeatherMode] = useState('dry'); const [selectedDriverId, setSelectedDriverId] = useState(null); const [pitCompound, setPitCompound] = useState('medium'); const [pitLap, setPitLap] = useState(1); const [pitFeedback, setPitFeedback] = useState(''); const [boostFeedback, setBoostFeedback] = useState('');
+  const [raceState, setRaceState] = useState(null); const [isRunning, setIsRunning] = useState(false); const [raceViewTab, setRaceViewTab] = useState('timing'); const [raceTeamAdjustments, setRaceTeamAdjustments] = useState({}); const [raceDriverAdjustments, setRaceDriverAdjustments] = useState({}); const [expandedTimingDrivers, setExpandedTimingDrivers] = useState(() => new Set()); const [simulationSpeed, setSimulationSpeed] = useState(1); const [weatherMode, setWeatherMode] = useState('dry'); const [selectedDriverId, setSelectedDriverId] = useState(null); const [pitCompound, setPitCompound] = useState('medium'); const [pitLap, setPitLap] = useState(1); const [pitFeedback, setPitFeedback] = useState(''); const [boostFeedback, setBoostFeedback] = useState(''); const [raceStartLights, setRaceStartLights] = useState(0);
   const [nextRaceNotice, setNextRaceNotice] = useState('');
   const completedRaceRef = useRef(null);
   const resultSaveQueueRef = useRef([]);
@@ -1627,6 +1794,9 @@ export function Simulate() {
   const mandatoryDryTyreCompounds = requiresMandatoryDryTyreCompounds(selectedRace || {}, phase === 'race' ? 'race' : 'sprint', weatherMode);
   const racePhase = phase === 'sprint' ? 'sprint' : phase === 'race' ? 'race' : null;
   const phaseResult = results[phase] || ((racePhase && raceState?.format === racePhase) ? getClassification(raceState) : null);
+  const completedRaceAwards = raceState?.done && (phase === 'race' || phase === 'sprint') ? getRaceAwards(phaseResult || []) : null;
+  const startingGridSource = phase === 'sprint' ? 'sprintQualifying' : phase === 'race' && selectedRace?.sprint_affects_grand_prix_grid ? 'sprint' : 'qualifying';
+  const startingGridRows = results[startingGridSource] || [];
   const currentQualifying = qualifyingSimulation?.phase === phase ? qualifyingSimulation : null;
   const qualifyingViewIndex = Math.min(currentQualifying?.viewIndex??currentQualifying?.sessionIndex??0,(currentQualifying?.sessions.length||1)-1);
   const qualifyingSession = currentQualifying?.sessions[qualifyingViewIndex] || null;
@@ -1634,33 +1804,57 @@ export function Simulate() {
   const qualifyingElapsed = currentQualifying&&qualifyingSessionIsCurrent?currentQualifying.elapsed:qualifyingSession?.duration||0;
   const qualifyingEvents = qualifyingSession?.timeline.filter(event => event.t <= qualifyingElapsed) || [];
   const qualifyingWeather = [...qualifyingEvents].reverse().find(event=>event.type==='weatherChange')?.weather||qualifyingSession?.weather;
+  const qualifyingFastestSectors = [0,1,2].map(index => Math.min(...qualifyingEvents.flatMap(event =>
+    event.type==='sectorComplete'&&event.sector-1===index?[event.sectorTime]
+      :event.type==='lapComplete'?[event.sectors[index]?.time]:[]
+  ).filter(Number.isFinite)));
   const qualifyingLiveRows = qualifyingSession ? (() => {
     const rows = new Map(qualifyingSession.standings.map(row => [String(row.driver?.id), {
-      ...row,bestLap:Infinity,lastLap:null,sectors:[],currentSectors:[],tyreCompound:row.tyreCompound,currentStatus:'In pit'
+      ...row,bestLap:Infinity,lastLap:null,sectors:[],currentSectors:[],sectorColors:[],tyreCompound:row.tyreCompound,currentStatus:'In garage'
     }]));
     for (const event of qualifyingEvents) {
       const row = rows.get(String(event.driverId));
       if (!row) continue;
       if (event.type === 'pitExit') { row.currentStatus = 'Out lap'; row.tyreCompound = event.tyreCompound || row.tyreCompound; }
       if (event.type === 'lapStart') { row.currentStatus = 'Flying lap'; row.currentSectors=[]; row.tyreCompound = event.tyreCompound || row.tyreCompound; }
-      if (event.type === 'sectorComplete') row.currentSectors[event.sector-1]=event.sectorTime;
+      if (event.type === 'sectorComplete') {
+        const index = event.sector - 1;
+        const personalBest = row.sectors[index];
+        row.currentSectors[index] = event.sectorTime;
+        row.sectorColors[index] = Number.isFinite(qualifyingFastestSectors[index]) && Math.abs(event.sectorTime - qualifyingFastestSectors[index]) < 1e-8
+          ? 'purple'
+          : !Number.isFinite(personalBest) || event.sectorTime < personalBest ? 'green' : 'yellow';
+      }
       if (event.type === 'lapComplete') {
         row.currentStatus = 'In lap'; row.lastLap = event.lapTime;
         const sectors = event.sectors.map(sector => sector.time);
+        const priorBest = row.bestLap;
+        const fastestBeforeLap = Math.min(...[...rows.values()].map(item => item.bestLap).filter(Number.isFinite));
+        const personalBest = !Number.isFinite(priorBest) || event.lapTime < priorBest;
+        const sessionBest = !Number.isFinite(fastestBeforeLap) || event.lapTime < fastestBeforeLap;
         row.currentSectors=sectors;
-        if (!Number.isFinite(row.bestLap) || event.lapTime < row.bestLap) { row.bestLap = event.lapTime; row.sectors = sectors; }
+        row.sectorColors=sectors.map((value,index) =>
+          Number.isFinite(qualifyingFastestSectors[index]) && Math.abs(value - qualifyingFastestSectors[index]) < 1e-8
+            ? 'purple'
+            : !Number.isFinite(row.sectors[index]) || value < row.sectors[index] ? 'green' : 'yellow'
+        );
+        row.lapDelta = Number.isFinite(priorBest) ? event.lapTime - priorBest : null;
+        row.lapFlashKind = sessionBest ? 'purple' : personalBest ? 'green' : 'yellow';
+        row.lapFlashKey = String(event.t);
+        if (personalBest) { row.bestLap = event.lapTime; row.sectors = sectors; }
       }
-      if (event.type === 'invalidLap') { row.currentStatus = 'In lap'; row.lastLap = event.lapTime; }
-      if (event.type === 'pitEntry') row.currentStatus = 'In pit';
+      if (event.type === 'invalidLap') { row.currentStatus = 'In lap'; row.lastLap = event.lapTime; row.sectorColors = [0,1,2].map(() => 'yellow'); }
+      if (event.type === 'pitEntry') { row.currentStatus = 'Cooldown'; row.cooldownStartedAt = event.t; }
     }
-    return [...rows.values()].sort((a,b) => Number.isFinite(a.bestLap) !== Number.isFinite(b.bestLap)
+    return [...rows.values()].map(row => ({
+      ...row,
+      currentStatus: row.currentStatus === 'Cooldown' && qualifyingElapsed - row.cooldownStartedAt > 35 ? 'In garage' : row.currentStatus
+    })).sort((a,b) => Number.isFinite(a.bestLap) !== Number.isFinite(b.bestLap)
       ? (Number.isFinite(a.bestLap) ? -1 : 1)
       : a.bestLap - b.bestLap || String(a.driver?.id).localeCompare(String(b.driver?.id)));
   })() : [];
-  const qualifyingFastestSectors = [0,1,2].map(index => Math.min(...qualifyingEvents.flatMap(event =>
-    event.type==='sectorComplete'&&event.sector-1===index?[event.sectorTime]
-      :event.type==='lapComplete'?[event.sectors[index]?.time]:[]
-  ).filter(Number.isFinite)));
+  useQualifyingRowMotion();
+  const practiceFastestSectors = [0,1,2].map(index => Math.min(...(phaseResult || []).map(row => row.sectors?.[index]).filter(Number.isFinite)));
   const fastestSessionLap = phaseResult ? Math.min(...phaseResult.map(entry => entry.bestLap).filter(Number.isFinite)) : Infinity;
   const stageEntry = phaseResult?.find(entry => String(entry.driver.id) === String(selectedDriverId)) || phaseResult?.[0] || null;
   const stagePosition = stageEntry ? phaseResult.findIndex(entry => String(entry.driver.id) === String(stageEntry.driver.id)) + 1 : 0;
@@ -1747,6 +1941,7 @@ export function Simulate() {
     setResults({});
     setQualifyingSimulation(null);
     setRaceState(null);
+    setRaceStartLights(0);
     setIsRunning(false);
     setPhaseIndex(0);
     setPracticeSubstitutions({});
@@ -1759,7 +1954,7 @@ export function Simulate() {
   useEffect(() => {
     if (previousGridId.current === gid) return;
     previousGridId.current = gid;
-    setR(''); setWeekendStarted(false); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setQualifyingSimulation(null); setRaceState(null); setIsRunning(false); setPracticeSubstitutions({});
+    setR(''); setWeekendStarted(false); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setQualifyingSimulation(null); setRaceState(null); setRaceStartLights(0); setIsRunning(false); setPracticeSubstitutions({});
   }, [gid]);
   useEffect(() => {
     if (!isRunning || !raceState || raceState.done) return;
@@ -1800,7 +1995,7 @@ export function Simulate() {
       setResultSaveError('Wait for queued results to save, or retry the pending save, before restarting the weekend.');
       return;
     }
-    setNextRaceNotice(''); setResultSaveError(''); setResultSaveFailed(false); setResultSaveNeedsAuth(false); setResultSaveSuccess(''); setBoostFeedback(''); setWeekendStarted(true); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setQualifyingSimulation(null); setRaceState(null)
+    setNextRaceNotice(''); setResultSaveError(''); setResultSaveFailed(false); setResultSaveNeedsAuth(false); setResultSaveSuccess(''); setBoostFeedback(''); setWeekendStarted(true); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setQualifyingSimulation(null); setRaceState(null); setRaceStartLights(0)
   };
   const resetSeasonStandings = async () => {
     if (!grid || !window.confirm(`Delete all saved simulated results for ${grid.name} (${grid.year}) from Supabase? This cannot be undone.`)) return;
@@ -1813,26 +2008,32 @@ export function Simulate() {
     completedRaceRef.current = null; setWeekendStarted(false); setWeekendComplete(false); setPhaseIndex(0); setResults({}); setRaceState(null); setIsRunning(false); setSelectedDriverId(null);
     setNextRaceNotice(`${grid.year} standings reset. Select any race in this season to simulate it again.`);
   };
+  const launchRaceSession = () => {
+    const sourceKey = startingGridSource;
+    const startRows = results[sourceKey]?.map((entry, index) => ({
+      ...entry,
+      grid: sourceKey === 'sprint' ? (entry.position || entry.pos || index + 1) : entry.grid
+    }));
+    if (!startRows?.length) {
+      alert(`Complete ${PHASE_LABELS[sourceKey] || sourceKey} before starting this session.`);
+      return;
+    }
+    if (phase === 'race') completedRaceRef.current = null;
+    const isSprint = phase === 'sprint';
+    const raceLaps = Number(selectedRace.laps) || 57;
+    const state = createRaceState({
+      entries: applyDriverPerformanceBoosts(applyTeamPerformanceBoosts(startRows, performanceBoosts), driverPerformanceBoosts), race: selectedRace, format: isSprint ? 'sprint' : 'race',
+      strategies: strategyEnabled ? strategies : {}, setups: activeSetups, weather: weatherMode, laps: isSprint ? Math.max(1, Math.round(raceLaps * 0.32)) : raceLaps
+    });
+    setRaceState(state); setRaceViewTab('timing'); setRaceTeamAdjustments({}); setRaceDriverAdjustments({}); setExpandedTimingDrivers(new Set()); setBoostFeedback(''); setIsRunning(true); setWeekendComplete(false);
+  };
   const runPhase = () => {
     if (entries.length < 2) return alert('Add at least 2 complete driver and car entries to this grid.');
     if (phase === 'race' || phase === 'sprint') {
-      completedRaceRef.current = null;
-      const gridKey = phase === 'sprint' ? 'sprintQualifying' : 'qualifying';
-      const useSprintGrid = phase === 'race' && selectedRace?.sprint_affects_grand_prix_grid;
-      const sourceKey = useSprintGrid ? 'sprint' : gridKey;
-      const startRows = results[sourceKey]?.map((entry, index) => ({
-        ...entry,
-        grid: sourceKey === 'sprint' ? (entry.position || entry.pos || index + 1) : entry.grid
-      }));
-      if (!startRows?.length) return alert(`Complete ${PHASE_LABELS[sourceKey] || sourceKey} before starting this session.`);
-      if (phase === 'race') completedRaceRef.current = null;
-      const isSprint = phase === 'sprint';
-      const raceLaps = Number(selectedRace.laps) || 57;
-      const state = createRaceState({
-        entries: applyDriverPerformanceBoosts(applyTeamPerformanceBoosts(startRows, performanceBoosts), driverPerformanceBoosts), race: selectedRace, format: isSprint ? 'sprint' : 'race',
-        strategies: strategyEnabled ? strategies : {}, setups: activeSetups, weather: weatherMode, laps: isSprint ? Math.max(1, Math.round(raceLaps * 0.32)) : raceLaps
-      });
-      setRaceState(state); setRaceViewTab('timing'); setRaceTeamAdjustments({}); setRaceDriverAdjustments({}); setExpandedTimingDrivers(new Set()); setBoostFeedback(''); setIsRunning(true); setWeekendComplete(false);
+      if (!startingGridRows.length) return alert(`Complete ${PHASE_LABELS[startingGridSource] || startingGridSource} before starting this session.`);
+      setIsRunning(false);
+      setRaceState(null);
+      setRaceStartLights(1);
       return;
     }
     if (phase === 'qualifying' || phase === 'sprintQualifying') {
@@ -1850,6 +2051,17 @@ export function Simulate() {
     if (phase.startsWith('practice')) rows = practice(practiceEntries, { race: selectedRace, setups: activeSetups, weather: weatherMode });
     persistPhaseResults(phase,rows);
   };
+  useEffect(() => {
+    if (!raceStartLights) return;
+    const timer = window.setTimeout(() => {
+      if (raceStartLights < 6) setRaceStartLights(step => step + 1);
+      else {
+        setRaceStartLights(0);
+        launchRaceSession();
+      }
+    }, raceStartLights === 5 ? 850 : 550);
+    return () => window.clearTimeout(timer);
+  }, [raceStartLights]);
   const skipQualifying = () => {
     const simulation=currentQualifying||simulateQualifyingWeekend(performanceEntries,{
       race:selectedRace,setups:activeSetups,weather:weatherMode,seed:newQualifyingSeed(),
@@ -1994,15 +2206,17 @@ export function Simulate() {
         {grid && entries.length > 0 && entries.length < 2 && <p className="muted">This grid needs at least two entries with a driver, team, and car.</p>}
       </div>}
       {weekendStarted && <>
-        <div className="session-timeline">{phases.map((name, index) => {
+        <div className="session-timeline" aria-label="Race weekend progress">{phases.map((name, index) => {
           const complete = Boolean(results[name]) || ((name === 'race' || name === 'sprint') && phase === name && raceState?.done);
-          return <button key={name}
-            className={`session-step ${phaseIndex === index ? 'current' : ''} ${complete ? 'complete' : ''}`}
-            onClick={() => { if (index <= phaseIndex && !weekendComplete && !isRunning && !currentQualifying?.playing) { setQualifyingSimulation(null); setPhaseIndex(index) } }}
-            disabled={weekendComplete || isRunning || currentQualifying?.playing || index > phaseIndex}>
-            <span className="session-number">{complete ? '✓' : `0${index + 1}`}</span><span>{PHASE_LABELS[name]}</span>
-          </button>
-        })}</div>
+              const locked = index > phaseIndex;
+              return <button key={name}
+                className={`session-step ${phaseIndex === index ? 'current' : ''} ${complete ? 'complete' : ''} ${locked ? 'locked' : ''}`}
+                aria-current={phaseIndex === index ? 'step' : undefined}
+                onClick={() => { if (index <= phaseIndex && !weekendComplete && !isRunning && !currentQualifying?.playing) { setQualifyingSimulation(null); setPhaseIndex(index) } }}
+                disabled={weekendComplete || isRunning || raceStartLights > 0 || currentQualifying?.playing || locked}>
+                <span className="session-number">{complete ? <span aria-label="Complete">✓</span> : <SessionIcon phase={name} />}</span><span className="session-step-label">{PHASE_LABELS[name]}<small>{complete ? 'Complete' : locked ? 'Locked' : phaseIndex === index ? 'In progress' : 'Ready'}</small></span>
+              </button>
+            })}</div>
         {weekendComplete ? <div className="weekend-empty finish-banner"><p className="eyebrow">Chequered flag</p>
           <h3>{selectedRace.name} complete</h3><p>Weekend results are ready. Start another weekend to run a new event.</p>
           <button className="btn" onClick={() => { setWeekendStarted(false); setWeekendComplete(false); setResults({}) }}>Return to race selection</button>
@@ -2013,11 +2227,20 @@ export function Simulate() {
             {phaseResult && (phase !== 'race' && phase !== 'sprint' || raceState?.done) && <button className="btn" onClick={advance}>{phaseIndex === phases.length - 1 ? 'Finish weekend' : 'Continue to ' + PHASE_LABELS[phases[phaseIndex + 1]]}</button>}
           </div>
           {isQualifying&&!phaseResult&&!currentQualifying&&<>
-            <details className="qualifying-strategy"><summary>Qualifying run plans</summary><div>{teams.map(team=><label key={team.id}>{team.name}
-              <select value={qualifyingRunPlans[team.id]||'auto'} onChange={event=>setQualifyingRunPlans(current=>({...current,[team.id]:event.target.value==='auto'?undefined:Number(event.target.value)}))}>
-                <option value="auto">Team choice · 1–3 runs</option><option value="1">One run</option><option value="2">Two runs</option><option value="3">Three runs</option>
-              </select>
-            </label>)}</div></details>
+            <section className="run-plan-panel"><div className="run-plan-heading"><div><p className="eyebrow">QUALIFYING STRATEGY</p><h4>Team run plans</h4></div><p>Choose how many flying runs each team makes per round.</p></div>
+              <div className="run-plan-grid">{teams.map(team=><article className="run-plan-card" key={team.id} style={{'--team-color':team.color||'#d3202f'}}>
+                <div className="run-plan-team">{team.logo_normal&&<img src={team.logo_normal} alt="" />}<strong>{team.name}</strong></div>
+                <div className="run-plan-drivers">{performanceEntries.filter(entry=>String(entry.team.id)===String(team.id)).map(entry=><span key={entry.driver.id}>{entry.driver.code||entry.driver.name}</span>)}</div>
+                <div className="run-plan-options" role="group" aria-label={`${team.name} qualifying run plan`}>
+                  {[['auto','Auto'],['1','1 run'],['2','2 runs'],['3','3 runs']].map(([value,label])=><button type="button" key={value} aria-pressed={(qualifyingRunPlans[team.id]===undefined?'auto':String(qualifyingRunPlans[team.id]))===value} className={(qualifyingRunPlans[team.id]===undefined?'auto':String(qualifyingRunPlans[team.id]))===value?'selected':''} onClick={()=>setQualifyingRunPlans(current=>({...current,[team.id]:value==='auto'?undefined:Number(value)}))}>{label}</button>)}
+                </div>
+                <div className="tyre-set-display" aria-label={`${qualifyingRunPlans[team.id]||3} tyre sets planned`}>
+                  <span className="tyre-set-icon"><i/><i/></span><span className="tyre-set-icon"><i/><i/></span><span className="tyre-set-icon"><i/><i/></span>
+                  <small>{qualifyingRunPlans[team.id]||'Auto'} tyre sets</small>
+                </div>
+              </article>)}</div>
+            </section>
+            <GarageView entries={performanceEntries} sessionLabel={PHASE_LABELS[phase]} />
             <div className="qualifying-start-actions">
               <button type="button" className="btn run-session" onClick={runPhase}>Start {PHASE_LABELS[phase]}</button>
               <button type="button" className="qualifying-skip" onClick={skipQualifying}>Skip simulation</button>
@@ -2025,21 +2248,28 @@ export function Simulate() {
           </>}
           {currentQualifying&&qualifyingSession&&<section className="qualifying-live" aria-label={`${qualifyingSession.session} live timing`}>
             <div className="qualifying-session-tabs" role="tablist" aria-label="Qualifying sessions">
-              {currentQualifying.sessions.map((session,index)=><button type="button" role="tab" key={session.session}
-                aria-selected={qualifyingViewIndex===index} className={qualifyingViewIndex===index?'active':''}
-                disabled={index>currentQualifying.sessionIndex}
-                onClick={()=>setQualifyingSimulation(current=>({...current,viewIndex:index}))}>{session.session}</button>)}
+             {currentQualifying.sessions.map((session,index)=>{
+               const sessionComplete = index < currentQualifying.sessionIndex || index === currentQualifying.sessionIndex && qualifyingSessionIsCurrent && qualifyingElapsed >= session.duration;
+               return <button type="button" role="tab" key={session.session}
+                 aria-selected={qualifyingViewIndex===index} aria-label={`${session.session}${sessionComplete?' results complete':index===currentQualifying.sessionIndex?' in progress':' locked'}`}
+                 className={`${qualifyingViewIndex===index?'active':''} ${sessionComplete?'completed':''}`}
+                 disabled={index>currentQualifying.sessionIndex}
+                 onClick={()=>setQualifyingSimulation(current=>({...current,viewIndex:index}))}>
+                 <strong>{session.session}</strong><small>{sessionComplete?'Complete':index===currentQualifying.sessionIndex?'Live':'Upcoming'}</small>
+               </button>;
+             })}
             </div>
             {(()=>{
-              const red=qualifyingSession.timeline.find(event=>event.type==='red');
+             const red=qualifyingSession.timeline.find(event=>event.type==='red');
               const clockRemaining=!red?qualifyingSession.clockDuration-qualifyingElapsed
                 :qualifyingElapsed<red.t?qualifyingSession.clockDuration-qualifyingElapsed
                   :qualifyingElapsed<red.t+red.addedSeconds?qualifyingSession.clockDuration-red.clock
                     :qualifyingSession.clockDuration-(qualifyingElapsed-red.addedSeconds);
               const redActive=Boolean(red&&qualifyingElapsed>=red.t&&qualifyingElapsed<red.t+red.addedSeconds);
-              const dropStart=Math.max(0,qualifyingLiveRows.length-qualifyingSession.eliminated.length);
               const leader=qualifyingLiveRows.find(row=>Number.isFinite(row.bestLap));
               const completed=qualifyingElapsed>=qualifyingSession.duration;
+              const dropStart=Math.max(0,qualifyingLiveRows.length-qualifyingSession.eliminated.length);
+              const eliminatedIds=new Set(qualifyingSession.eliminated.map(row=>String(row.driver?.id)));
               return <>
                 <div className="qualifying-status">
                   <div><span className="eyebrow">{qualifyingSession.session} · {qualifyingSession.fieldSize} CARS</span><strong className="qualifying-clock">{qualifyingClock(clockRemaining)}</strong></div>
@@ -2055,23 +2285,30 @@ export function Simulate() {
                     :'Complete qualifying'}</button>}
                   {qualifyingSessionIsCurrent&&!completed&&<button type="button" className="qualifying-skip" onClick={skipQualifying}>Skip simulation</button>}
                 </div>
-                <div className="scroll"><table className="race-table qualifying-timing-table"><thead><tr><th>POS</th><th>DRIVER</th><th>TEAM</th><th>BEST</th><th>GAP</th><th>S1</th><th>S2</th><th>S3</th><th>TYRE</th><th>STATUS</th></tr></thead>
+                <GarageView entries={performanceEntries} timingRows={qualifyingLiveRows} fastestSectors={qualifyingFastestSectors} sessionLabel={qualifyingSession.session} hasStarted complete={completed} />
+                <div className="scroll"><table className="race-table qualifying-timing-table"><thead><tr><th>POS</th><th>DRIVER</th><th>TEAM</th><th>BEST / Δ</th><th>GAP</th><th>S1</th><th>S2</th><th>S3</th><th>TYRE</th><th>STATUS</th></tr></thead>
                   <tbody>{qualifyingLiveRows.map((row,index)=>{
                     const drop=qualifyingSession.eliminated.length>0&&index>=dropStart;
-                    const sectors=row.currentSectors?.length?row.currentSectors:row.sectors||[];
-                    return <tr key={row.driver?.id} className={`${index===0&&leader?'leader':''} ${drop?'drop-zone':''}`}>
-                      <td className="position-cell">{index+1}</td>
-                      <td><span className="driver-result"><span className="team-logo">{row.team?.logo_normal&&<img src={row.team.logo_normal} alt="" />}</span><strong className={row.driver?.code?'driver-code':undefined}>{row.driver?.code||row.driver?.name}</strong></span></td>
+                    const knockedOut=completed&&eliminatedIds.has(String(row.driver?.id));
+                    const sectors=row.currentStatus==='Flying lap'?row.currentSectors:row.sectors||[];
+                    const status=row.currentStatus==='In pit'?'In garage':row.currentStatus;
+                    const statusClass=status.toLowerCase().replaceAll(' ','-');
+                    const delta=Number.isFinite(row.lapDelta)?`${row.lapDelta>0?'+':''}${row.lapDelta.toFixed(3)}`:row.lapFlashKey?'NEW':'';
+                    const eliminationLine=index===dropStart-1&&qualifyingSession.eliminated.length>0;
+                    return <tr key={row.driver?.id} data-driver-id={row.driver?.id} data-flash-key={row.lapFlashKey||''} data-flash-kind={row.lapFlashKind||''}
+                      className={`${index===0&&leader?'leader':''} ${drop?'drop-zone elimination-row':''} ${eliminationLine?'elimination-line':''} ${knockedOut?'knocked-out':''}`}>
+                      <td className="position-cell">{index+1}{eliminationLine&&<span className="elimination-line-label">CUT</span>}</td>
+                      <td><span className="driver-result"><span className="team-logo">{row.team?.logo_normal&&<img src={row.team.logo_normal} alt="" />}</span><strong className={row.driver?.code?'driver-code':undefined}>{row.driver?.code||row.driver?.name}</strong></span>{knockedOut&&<span className="qualifying-out-badge">{qualifyingSession.session} OUT</span>}</td>
                       <td>{row.team?.name||'—'}</td>
-                      <td>{formatTime(row.bestLap)}</td>
+                      <td><span className="qualifying-best-time">{formatTime(row.bestLap)}</span>{delta&&<small key={row.lapFlashKey||row.driver?.id} className={`qualifying-lap-delta ${row.lapDelta<0?'improved':row.lapDelta>0?'slower':''}`}>{delta}</small>}</td>
                       <td>{index===0||!leader||!Number.isFinite(row.bestLap)?'—':`+${(row.bestLap-leader.bestLap).toFixed(3)}`}</td>
                       {[0,1,2].map(sector=>{
-                        const value=sectors[sector],fastest=qualifyingFastestSectors[sector];
-                        const className=Number.isFinite(value)&&Math.abs(value-fastest)<1e-8?'sector-purple':Number.isFinite(value)?'sector-green':'sector-yellow';
-                        return <td className={className} key={sector}>{Number.isFinite(value)?value.toFixed(3):'—'}</td>;
+                        const value=sectors[sector];
+                        const color=row.sectorColors?.[sector]||(Number.isFinite(value)&&Number.isFinite(qualifyingFastestSectors[sector])&&Math.abs(value-qualifyingFastestSectors[sector])<1e-8?'purple':Number.isFinite(value)?'green':'pending');
+                        return <td className={`sector-${color}`} key={sector}><span>{Number.isFinite(value)?value.toFixed(3):'—'}</span><i className={`qualifying-mini-sector ${Number.isFinite(value)?'filled':''} sector-${color}`} aria-hidden="true" /></td>;
                       })}
                       <td><span className={`qualifying-tyre ${row.tyreCompound||''}`}>{row.tyreCompound?.toUpperCase()||'—'}</span></td>
-                      <td>{row.currentStatus}</td>
+                      <td><span className={`qualifying-status-chip ${statusClass}`}><i />{status}</span></td>
                     </tr>;
                   })}</tbody></table></div>
                 {completed&&<div className="qualifying-eliminations"><strong>{qualifyingSession.eliminated.length?`${qualifyingSession.eliminated.length} eliminated`:qualifyingSession.session.endsWith('3')?'Final session complete':'No eliminations'}</strong>
@@ -2081,6 +2318,7 @@ export function Simulate() {
             })()}
           </section>}
           {isPractice && <>
+            <GarageView entries={practiceEntries} timingRows={phaseResult || []} fastestSectors={practiceFastestSectors} sessionLabel={PHASE_LABELS[phase]} hasStarted={Boolean(phaseResult)} complete={Boolean(phaseResult)} />
             <label className="strategy-toggle"><input type="checkbox" checked={reserveDriversEnabled} onChange={event => { setReserveDriversEnabled(event.target.checked); if (!event.target.checked) setPracticeSubstitutions({}) }} /><span>Enable reserve drivers</span></label>
             {reserveDriversEnabled && <section className="practice-substitution"><div><h4>Practice-only reserve substitutions</h4><p>Choose which team driver the assigned reserve replaces for practice sessions. Qualifying and races use the original grid.</p></div>
             <QueryStatus query={practiceLineups} empty="No season lineups found. Assign reserve drivers in Admin to enable substitutions." />
@@ -2095,6 +2333,7 @@ export function Simulate() {
             </label>)}</div>}
             </section>}
           </>}
+          {(phase === 'sprint' || phase === 'race') && !phaseResult && !raceState && <StartingGrid entries={startingGridRows} race={selectedRace} />}
           {(phase === 'sprint' || phase === 'race') && <div className="strategy-panel"><div className="section-title"><h3>Race strategy</h3><p>Off by default: the simulator selects each team’s tyre and pit plan automatically.</p></div>
             <label className="strategy-toggle"><input type="checkbox" checked={strategyEnabled} onChange={e => setStrategyEnabled(e.target.checked)} /><span>Enable custom race strategy</span></label>
             {strategyEnabled && <div className="strategy-grid">{teams.map(team => {
@@ -2104,7 +2343,14 @@ export function Simulate() {
               </article>
             })}</div>}
           </div>}
-          {!phaseResult&&!isQualifying&&<button className="btn run-session" onClick={runPhase}>{isPractice ? `Run ${PHASE_LABELS[phase]}` : phase === 'sprint' ? 'Start sprint' : 'Start Grand Prix'}</button>}
+          {!phaseResult&&!isQualifying&&<button className="btn run-session" onClick={runPhase} disabled={raceStartLights > 0}>{isPractice ? `Run ${PHASE_LABELS[phase]}` : phase === 'sprint' ? 'Start sprint' : 'Start Grand Prix'}</button>}
+          {raceStartLights > 0 && <div className="race-start-sequence" role="status" aria-live="assertive">
+            <p className="eyebrow">{phase === 'sprint' ? 'Sprint start' : 'Grand Prix start'}</p>
+            <h3>{raceStartLights === 6 ? 'Lights out' : 'Get ready'}</h3>
+            <div className={`start-lights${raceStartLights === 6 ? ' lights-out' : ''}`} aria-label={raceStartLights === 6 ? 'Lights out' : `${raceStartLights} of 5 red lights`}>
+              {Array.from({ length: 5 }, (_, index) => <span key={index} className={index < raceStartLights && raceStartLights < 6 ? 'lit' : ''} />)}
+            </div>
+          </div>}
           {phaseResult && (phase === 'race' || phase === 'sprint') && raceState && <div className="race-live">
             <div className="race-status">
               <div><span className="eyebrow">{raceState.format === 'sprint' ? 'SPRINT' : 'GRAND PRIX'}</span><strong>LAP {raceState.lap} / {raceState.totalLaps}</strong></div>
@@ -2149,9 +2395,9 @@ export function Simulate() {
                 </article>;
               })}</div>
             </section> : <>
-              {raceState.done && <SessionPodium entries={phaseResult} race={selectedRace} phaseLabel={PHASE_LABELS[phase]} raceResult fastestLap={fastestSessionLap} />}
+              {raceState.done && <SessionTransition entries={phaseResult} race={selectedRace} phaseLabel={PHASE_LABELS[phase]} raceResult fastestLap={fastestSessionLap} />}
               <QueryStatus query={tyreImagesQuery} />
-              <div className="results-panel"><div className="section-title"><h3>Live timing</h3><p>{raceState.done ? 'Chequered flag' : 'Simulation in progress'}</p></div>
+              <div className="results-panel"><div className="section-title"><h3>{raceState.done ? 'Final classification' : 'Live timing'}</h3><p>{raceState.done ? 'Chequered flag' : 'Simulation in progress'}</p></div>
                 {boostFeedback && <p className="boost-feedback" role="status">{boostFeedback}</p>}
                 <div className="live-timing-layout">
                   <div className="timing-stage-column">
@@ -2179,7 +2425,12 @@ export function Simulate() {
                         const description = change > 0 ? `${change} place${change === 1 ? '' : 's'} gained` : change < 0 ? `${Math.abs(change)} place${change === -1 ? '' : 's'} lost` : 'no position change';
                         return <span className={`position-change ${direction}`} aria-label={description} title={description}>{symbol}</span>;
                       })()}</td>
-                      <td data-label="Driver"><button className="driver-select" onClick={() => setSelectedDriverId(entry.driver.id)}><span className="driver-result"><span className="team-logo">{entry.team.logo_normal && <img src={entry.team.logo_normal} alt={`${entry.team.name} logo`} />}</span><strong className="live-driver-name"><span>{driverName.slice(0, -1).join(' ')}</span>{driverName.length > 1 && ' '}<span className="live-driver-surname">{driverName[driverName.length - 1] || '—'}</span></strong></span></button></td>
+                      <td data-label="Driver"><button className="driver-select" onClick={() => setSelectedDriverId(entry.driver.id)}><span className="driver-result"><span className="team-logo">{entry.team.logo_normal && <img src={entry.team.logo_normal} alt={`${entry.team.name} logo`} />}</span><strong className="live-driver-name"><span>{driverName.slice(0, -1).join(' ')}</span>{driverName.length > 1 && ' '}<span className="live-driver-surname">{driverName[driverName.length - 1] || '—'}</span></strong></span></button>
+                        {completedRaceAwards && <div className="race-award-badges">
+                          {String(entry.driver.id) === String(completedRaceAwards.fastestLapDriverId) && <span className="race-award-badge fastest-lap">Fastest lap</span>}
+                          {String(entry.driver.id) === String(completedRaceAwards.driverOfTheDayId) && <span className="race-award-badge driver-of-the-day">Driver of the day</span>}
+                        </div>}
+                      </td>
                       <td data-label="Gap">{gap}</td><td data-label="Interval">{interval}</td><td data-label="Last lap">{formatTime(entry.lastLap)}</td><td data-label="Best lap">{formatTime(entry.bestLap)}</td>
                       <td className="tyre-compound-cell" data-label="Tyre">{entry.tyre?.compound && tyreImages[entry.tyre.compound] ? <img className="tyre-compound-image" src={tyreImages[entry.tyre.compound]} alt={entry.tyre.compound} title={entry.tyre.compound} /> : entry.tyre?.compound?.toUpperCase() || '—'}</td><td data-label="Tyre age">{entry.tyre?.age ?? '—'}</td><td data-label="Tyre wear">{entry.tyre?.wear?.toFixed(0) ?? '—'}%</td><td data-label="Grip">{entry.tyre?.state?.toUpperCase() || '—'}</td><td data-label="Pit stops">{entry.pitStops}</td><td data-label="Fuel">{entry.retired ? '—' : `${entry.fuelRemaining.toFixed(1)} kg`}</td><td data-label="Pit command">{entry.pitInstruction ? `${entry.pitInstruction.mode.toUpperCase()} · LAP ${entry.pitInstruction.targetLap}` : entry.pitStatus}</td><td data-label="Status">{entry.retired ? `RETIRED · L${entry.retirementLap}` : entry.status}</td>
                       <td data-label="Boost"><button className={`driver-boost ${entry.boostLap != null ? 'armed' : ''}`} onClick={() => issueDriverBoost(entry.driver.id)} disabled={raceState.done || entry.retired || entry.completed || entry.boostLap != null || entry.boostCooldownLaps > 0} title={entry.boostLap != null ? `Boost armed for lap ${entry.boostLap}` : entry.boostCooldownLaps > 0 ? `Available in ${entry.boostCooldownLaps} laps` : 'Boost pace for the next lap'}>{entry.boostLap != null ? 'ARMED' : entry.boostCooldownLaps > 0 ? `${entry.boostCooldownLaps}L` : 'BOOST'}</button></td>
@@ -2200,7 +2451,7 @@ export function Simulate() {
             </>}
           </div>}
           {phaseResult && phase !== 'race' && phase !== 'sprint' && <div className="results-panel"><div className="section-title"><h3>{PHASE_LABELS[phase]} classification</h3><p>{isPractice ? 'Practice pace' : isQualifying ? 'Starting grid' : 'Session results'}</p></div>
-            {(isPractice || isQualifying) && <SessionPodium entries={phaseResult} race={selectedRace} phaseLabel={PHASE_LABELS[phase]} fastestLap={fastestSessionLap} />}
+            {(isPractice || isQualifying) && <SessionTransition entries={phaseResult} race={selectedRace} phaseLabel={PHASE_LABELS[phase]} fastestLap={fastestSessionLap} />}
             <div className={`scroll ${isPractice ? 'practice-classification-scroll' : isQualifying ? 'qualifying-classification-scroll' : ''}`}><table className={`race-table session-classification-table ${isPractice ? 'practice-classification-table' : ''} ${isQualifying ? 'qualifying-classification-table' : ''}`}><thead><tr><th>POS</th><th>DRIVER</th><th>GAP</th>{!isPractice && !isQualifying && <><th>BEST LAP</th><th>CAR</th></>}<th></th></tr></thead>
               <tbody>{phaseResult.map((entry, index) => {
                 const gap = Number.isFinite(entry.bestLap) && Number.isFinite(fastestSessionLap) && entry.bestLap > fastestSessionLap ? `+${(entry.bestLap - fastestSessionLap).toFixed(3)}` : '—';
