@@ -187,26 +187,51 @@ test('career stats calculate starts, points, and averages from saved weekend res
 test('career records find best season totals and race grid-position records',()=>{
  const results=[
   {session_type:'qualifying',grid_id:1,race_id:1,position:1,pole_position:true,races:{year:2024}},
-  {session_type:'race',grid_id:1,race_id:1,position:1,race_win:true,result:{gridPosition:8},races:{year:2024,name:'Opening GP'}},
+  {session_type:'race',grid_id:1,race_id:1,position:1,points:25,race_win:true,result:{gridPosition:8},races:{year:2024,name:'Opening GP'}},
   {session_type:'qualifying',grid_id:1,race_id:2,position:1,pole_position:true,races:{year:2024}},
-  {session_type:'race',grid_id:1,race_id:2,position:2,result:{gridPosition:2},races:{year:2024,name:'Second GP'}},
-  {session_type:'race',grid_id:1,race_id:3,position:1,race_win:true,result:{gridPosition:3},races:{year:2024,name:'Third GP'}},
+  {session_type:'race',grid_id:1,race_id:2,position:2,points:18,result:{gridPosition:2},races:{year:2024,name:'Second GP'}},
+  {session_type:'race',grid_id:1,race_id:3,position:1,points:25,race_win:true,result:{gridPosition:3},races:{year:2024,name:'Third GP'}},
   {session_type:'qualifying',grid_id:2,race_id:4,position:1,pole_position:true,races:{year:2025}},
-  {session_type:'race',grid_id:2,race_id:4,position:1,race_win:true,result:{gridPosition:19},races:{year:2025,name:'Final GP'}},
-  {session_type:'race',grid_id:2,race_id:5,position:3,result:{gridPosition:4},races:{year:2025,name:'Last GP'}},
+  {session_type:'race',grid_id:2,race_id:4,position:1,points:25,race_win:true,result:{gridPosition:19},races:{year:2025,name:'Final GP'}},
+  {session_type:'race',grid_id:2,race_id:5,position:3,points:15,result:{gridPosition:4},races:{year:2025,name:'Last GP'}},
   {session_type:'race',grid_id:2,race_id:6,position:1,race_win:true,retired:true,result:{gridPosition:22},races:{year:2025,name:'Retirement'}}
  ];
  assert.deepEqual(getCareerRecords(results),{
   mostWinsInSeason:{value:2,year:2024},
   mostPodiumsInSeason:{value:3,year:2024},
   mostPolesInSeason:{value:2,year:2024},
+  mostConsecutivePointsFinishes:5,
+  mostConsecutivePodiumFinishes:5,
+  mostConsecutiveWins:2,
+  mostConsecutivePoles:3,
   mostPositionsGained:{value:18,year:2025,raceName:'Final GP'},
   furthestWinningPosition:{position:19,year:2025,raceName:'Final GP'}
  });
  assert.deepEqual(getCareerRecords([]),{
   mostWinsInSeason:null,mostPodiumsInSeason:null,mostPolesInSeason:null,
+  mostConsecutivePointsFinishes:0,mostConsecutivePodiumFinishes:0,
+  mostConsecutiveWins:0,mostConsecutivePoles:0,
   mostPositionsGained:{value:null,year:null,raceName:null},furthestWinningPosition:null
  });
+});
+
+test('career streak records count consecutive Grand Prix results in chronological order',()=>{
+ const race=(round,position,points)=>({
+  session_type:'race',race_id:round,position,points,race_win:position===1,races:{year:2024,round}
+ });
+ const qualifying=(round,polePosition)=>({
+  session_type:'qualifying',race_id:round,pole_position:polePosition,races:{year:2024,round}
+ });
+ const results=[
+  race(5,1,25),race(4,1,25),race(3,5,10),race(2,2,18),race(1,1,25),
+  qualifying(6,true),qualifying(5,true),qualifying(4,false),
+  qualifying(3,true),qualifying(2,true),qualifying(1,true)
+ ];
+ const records=getCareerRecords(results);
+ assert.equal(records.mostConsecutivePointsFinishes,5);
+ assert.equal(records.mostConsecutivePodiumFinishes,2);
+ assert.equal(records.mostConsecutiveWins,2);
+ assert.equal(records.mostConsecutivePoles,3);
 });
 
 test('career championships count completed seasons where the driver leads the final standings',()=>{

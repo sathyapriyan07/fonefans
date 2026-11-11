@@ -44,6 +44,8 @@ const qualifyingClock = seconds => {
 function createPracticeTimeline(rows = []) {
   const events = [];
   let latestEvent = 0;
+  const initialWeather = rows[0]?.lapHistory?.[0]?.weather || null;
+  let previousWetness = Number(initialWeather?.wetness) || 0;
   for (const [entryIndex, entry] of rows.entries()) {
     let nextRun = entryIndex * 2;
     for (const [lapIndex, lap] of (entry.lapHistory || []).entries()) {
@@ -54,6 +56,10 @@ function createPracticeTimeline(rows = []) {
       sectors[2] = lapTime - sectors[0] - sectors[1];
       events.push({ t: nextRun, type: 'pitExit', driverId: entry.driver.id, tyreCompound: lap.compound, lap: lapNumber });
       events.push({ t: lapStart, type: 'lapStart', driverId: entry.driver.id, tyreCompound: lap.compound, lap: lapNumber });
+      if (entryIndex === 0 && lap.weather && Math.abs(Number(lap.weather.wetness) - previousWetness) >= 0.08) {
+        previousWetness = Number(lap.weather.wetness) || 0;
+        events.push({ t: lapStart, type: 'weatherChange', weather: lap.weather });
+      }
       let sectorTime = 0;
       sectors.forEach((time, index) => {
         sectorTime += time;
@@ -61,13 +67,13 @@ function createPracticeTimeline(rows = []) {
       });
       const lapEnd = lapStart + lapTime;
       events.push({ t: lapEnd, type: 'lapComplete', driverId: entry.driver.id, lapTime, sectors, lap: lapNumber, tyreCompound: lap.compound });
-      if (lapNumber < entry.lapHistory.length) events.push({ t: lapEnd + 8, type: 'pitEntry', driverId: entry.driver.id, lap: lapNumber });
+      events.push({ t: lapEnd + 8, type: 'pitEntry', driverId: entry.driver.id, lap: lapNumber });
       latestEvent = Math.max(latestEvent, lapEnd + 8);
       nextRun = lapEnd + 28;
     }
   }
   events.sort((a, b) => a.t - b.t || (a.type === 'lapComplete' ? 1 : -1));
-  return { events, duration: latestEvent + 12 };
+  return { events, duration: latestEvent + 12, initialWeather };
 }
 const qualifyingRadioCall = (event, events, session) => {
   const driver = event.driverId == null ? null : session.standings.find(row => String(row.driver?.id) === String(event.driverId))?.driver;
@@ -647,7 +653,7 @@ export function Driver() {
         {lineups.data?.map(lineup => {
           const assigned = lineupSlots.map(([key, label]) => ({ id: lineup[key], label })).filter(slot => slot.id); const role = assigned.find(slot => String(slot.id) === String(driver.id))?.label;
           return <article className="driver-team-season" key={`${lineup.team_id}-${lineup.year}`}><div className="driver-team-season-head"><Link className="driver-team-link" to={`/teams/${lineup.team_id}`}>{lineup.teams?.logo_normal && <img src={lineup.teams.logo_normal} alt="" />}<strong>{lineup.teams?.name || 'Team'}</strong></Link><span>{lineup.year === new Date().getFullYear() ? 'Current season' : lineup.year}</span>{role && <small>{role}</small>}</div>
-            <div className="driver-teammates">{assigned.filter(slot => String(slot.id) !== String(driver.id)).map(slot => { const teammate = driverById.get(String(slot.id)); return <Link key={`${lineup.year}-${slot.id}`} to={`/drivers/${slot.id}`} className="card driver-card driver-teammate-card">{teammate && latestImg(teammate, 'card_url') && <img className="driver-pole-image" src={latestImg(teammate, 'card_url')} alt="" aria-hidden="true" />}<div className="driver-card-copy"><small>{slot.label}</small><h4>{teammate?.name || `Driver #${slot.id}`}</h4></div></Link> })}</div>
+            <ul className="driver-teammates">{assigned.filter(slot => String(slot.id) !== String(driver.id)).map(slot => { const teammate = driverById.get(String(slot.id)); return <li key={`${lineup.year}-${slot.id}`}><Link to={`/drivers/${slot.id}`} className="driver-teammate-link"><small>{slot.label}</small><strong>{teammate?.name || `Driver #${slot.id}`}</strong></Link></li> })}</ul>
           </article>
         })}</section>
         <section className="teammate-head-to-head" id="driver-head-to-head"><div className="section-title"><div><h3>Teammate head-to-head</h3><p>Session results from weekends where you shared a team</p></div></div><QueryStatus query={headToHeadResults} />
@@ -676,6 +682,10 @@ export function Driver() {
             ['GP wins', careerWins], ['P2 finishes', careerP2s], ['P3 finishes', careerP3s], ['Sprint wins', careerSprintWins],
             ['Podiums', careerPodiums], ['Poles', careerPoles], ['Sprint poles', careerSprintPoles], ['Fastest laps', careerFastestLaps],
             ['Sprint fastest laps', careerSprintFastestLaps], ['Retirements', careerRetirements], ['Grand Slams', careerGrandSlams],
+            ['Most consecutive points finishes', careerRecords.mostConsecutivePointsFinishes],
+            ['Most consecutive podium finishes', careerRecords.mostConsecutivePodiumFinishes],
+            ['Most consecutive wins', careerRecords.mostConsecutiveWins],
+            ['Most consecutive poles', careerRecords.mostConsecutivePoles],
             ['Best finish', Number.isFinite(bestCareerPositions.bestFinish) ? `P${bestCareerPositions.bestFinish}` : '—'],
             ['Best qualifying', Number.isFinite(bestCareerPositions.bestQualifying) ? `P${bestCareerPositions.bestQualifying}` : '—'],
             [`Most wins in a season${careerRecords.mostWinsInSeason ? ` (${careerRecords.mostWinsInSeason.year})` : ''}`, careerRecords.mostWinsInSeason?.value ?? '—'],
@@ -1795,9 +1805,12 @@ export function Simulate() {
   const qualifyingElapsed = currentQualifying&&qualifyingSessionIsCurrent?currentQualifying.elapsed:qualifyingSession?.duration||0;
   const qualifyingEvents = qualifyingSession?.timeline.filter(event => event.t <= qualifyingElapsed) || [];
   const currentPractice = practiceSimulation?.phase === phase ? practiceSimulation : null;
+  const practiceInProgress = Boolean(practiceSimulation && practiceSimulation.elapsed < practiceSimulation.duration);
   const practiceElapsed = currentPractice?.elapsed || 0;
   const practiceEvents = currentPractice?.events.filter(event => event.t <= practiceElapsed) || [];
-  const practiceWeather = weatherMode === 'wet' ? 'WET' : weatherMode === 'variable' ? 'CHANGEABLE' : 'DRY';
+  const practiceWeatherState = [...practiceEvents].reverse().find(event => event.type === 'weatherChange')?.weather || currentPractice?.initialWeather;
+  const practiceWetness = Number(practiceWeatherState?.wetness) || 0;
+  const practiceWeather = practiceWetness >= 0.65 ? 'WET' : practiceWetness >= 0.3 ? 'DAMP' : 'DRY';
   const practiceFastestSectors = [0, 1, 2].map(index => Math.min(...practiceEvents.filter(event => event.type === 'sectorComplete' && event.sector === index + 1).map(event => event.sectorTime)));
   const practiceLiveRows = currentPractice ? (() => {
     const rows = new Map(currentPractice.results.map(row => [String(row.driver?.id), {
@@ -2127,7 +2140,7 @@ export function Simulate() {
       completedPracticeRef.current = null;
       setPracticeSimulation({
         id, phase, results: rows, events: timeline.events, duration: timeline.duration,
-        elapsed: 0, speed: practiceSpeed, playing: true
+        initialWeather: timeline.initialWeather, elapsed: 0, speed: practiceSpeed, playing: true
       });
       setQualifyingSimulation(null);
       setWeekendComplete(false);
@@ -2296,8 +2309,8 @@ export function Simulate() {
               return <button key={name}
                 className={`session-step ${phaseIndex === index ? 'current' : ''} ${complete ? 'complete' : ''} ${locked ? 'locked' : ''}`}
                 aria-current={phaseIndex === index ? 'step' : undefined}
-                onClick={() => { if (index <= phaseIndex && !weekendComplete && !isRunning && !currentQualifying?.playing && !currentPractice?.playing) { setQualifyingSimulation(null); setPracticeSimulation(null); setPhaseIndex(index) } }}
-                disabled={weekendComplete || isRunning || raceStartLights > 0 || currentQualifying?.playing || currentPractice?.playing || locked}>
+                onClick={() => { if (index <= phaseIndex && !weekendComplete && !isRunning && !currentQualifying?.playing && !practiceInProgress) { setQualifyingSimulation(null); setPhaseIndex(index) } }}
+                disabled={weekendComplete || isRunning || raceStartLights > 0 || currentQualifying?.playing || practiceInProgress || locked}>
                 <span className="session-number">{complete ? <span aria-label="Complete">✓</span> : <SessionIcon phase={name} />}</span><span className="session-step-label">{PHASE_LABELS[name]}<small>{complete ? 'Complete' : locked ? 'Locked' : phaseIndex === index ? 'In progress' : 'Ready'}</small></span>
               </button>
             })}</div>

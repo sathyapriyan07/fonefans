@@ -856,6 +856,19 @@ export function getBestCareerPositions(results=[]){
 }
 export function getCareerRecords(results=[]){
  const seasons=new Map();
+ const longestStreak=(rows,isAchievement)=>{
+  let longest=0,current=0;
+  for(const row of rows){
+   if(isAchievement(row)){current++;longest=Math.max(longest,current)}
+   else current=0;
+  }
+  return longest;
+ };
+ const chronologicalResults=sessionType=>results.filter(row=>row.session_type===sessionType).sort((a,b)=>
+  Number(a.races?.year??a.grids?.year)-Number(b.races?.year??b.grids?.year)||
+  Number(a.races?.round)-Number(b.races?.round)||
+  Number(a.race_id)-Number(b.race_id)
+ );
  const qualifyingByWeekend=new Map(results.filter(row=>row.session_type==='qualifying')
   .map(row=>[`${row.grid_id}:${row.race_id}`,Number(row.position)]));
  const seasonFor=row=>{
@@ -913,6 +926,14 @@ export function getCareerRecords(results=[]){
   mostWinsInSeason:topSeasonRecord(seasonCounts('wins')),
   mostPodiumsInSeason:topSeasonRecord(seasonCounts('podiums')),
   mostPolesInSeason:topSeasonRecord(seasonCounts('poles')),
+  mostConsecutivePointsFinishes:longestStreak(chronologicalResults('race'),row=>Number(row.points)>0),
+  mostConsecutivePodiumFinishes:longestStreak(chronologicalResults('race'),row=>
+   !row.retired&&row.status!=='Retired'&&Number(row.position)>=1&&Number(row.position)<=3
+  ),
+  mostConsecutiveWins:longestStreak(chronologicalResults('race'),row=>
+   !row.retired&&row.status!=='Retired'&&(row.race_win||Number(row.position)===1)
+  ),
+  mostConsecutivePoles:longestStreak(chronologicalResults('qualifying'),row=>Boolean(row.pole_position)),
   mostPositionsGained,
   furthestWinningPosition
  };
