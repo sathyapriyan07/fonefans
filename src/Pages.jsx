@@ -30,6 +30,9 @@ function QueryStatus({ query, empty }) {
   return null;
 }
 const Bar = ({ l, v }) => <div className="bar"><span>{l}</span><i><b style={{ width: (v ?? 0) + '%' }} /></i><em>{v ?? '–'}</em></div>;
+const DashboardCar = ({ points, leaderPoints, imageUrl, imageAlt }) => <span className="dashboard-car-track" style={{ '--car-progress': `${leaderPoints ? points / leaderPoints * 100 : 0}%` }}>
+  {imageUrl && <img className="dashboard-car" src={imageUrl} alt={imageAlt} loading="lazy" />}
+</span>;
 const PHASE_LABELS = { practice1: 'Practice 1', practice2: 'Practice 2', practice3: 'Practice 3', sprintQualifying: 'Sprint Qualifying', sprint: 'Sprint', qualifying: 'Qualifying', race: 'Grand Prix' };
 const sessionLabel = session => PHASE_LABELS[session] || session;
 const newQualifyingSeed = () => {
@@ -377,9 +380,20 @@ async function loadHomeDashboard() {
   const latestRaceRows = latestRows.filter(row => String(row.race_id) === String(latestRaceId));
   const season = Number(latestRaceRows[0]?.races?.year) || null;
   let seasonRows = [];
+  const seasonCarImages = new Map();
   if (season) {
-    const { data: seasonRaces, error: raceError } = await sb.from('races').select('id').eq('year', season);
+    const [seasonRacesResult, seasonCarsResult] = await Promise.all([
+      sb.from('races').select('id').eq('year', season),
+      sb.from('cars').select('team_id,model,image_url').eq('year', season).order('model')
+    ]);
+    const { data: seasonRaces, error: raceError } = seasonRacesResult;
+    const { data: seasonCars, error: carsError } = seasonCarsResult;
     if (raceError) throw raceError;
+    if (carsError) throw carsError;
+    for (const car of seasonCars || []) {
+      const teamId = String(car.team_id);
+      if (car.image_url && !seasonCarImages.has(teamId)) seasonCarImages.set(teamId, { ...car, year: season });
+    }
     if (seasonRaces?.length) {
       const { data, error } = await sb.from('race_results')
         .select('race_id,session_type,position,points,status,retired,race_win,drivers(id,name,code,driver_images(year,card_url,pole_url,grid_url)),teams(id,name,logo_normal,color)')
@@ -420,6 +434,7 @@ async function loadHomeDashboard() {
   for (const race of recentRaces) {
     race.winner = latestRows.find(row => String(row.race_id) === String(race.id) && Number(row.position) === 1)?.drivers || null;
   }
+  const withSeasonCar = team => team ? { ...team, seasonCar: seasonCarImages.get(String(team.id)) || null } : team;
   const nextRace = upcoming.data?.[0] || null;
   return {
     counts: { drivers: driverCount, teams: teamCount, races: raceCount },
@@ -428,8 +443,8 @@ async function loadHomeDashboard() {
     latestRace: latestRaceRows[0]?.races ? { ...latestRaceRows[0].races, id: latestRaceId, rows: latestRaceRows } : null,
     recentRaces: recentRaces.slice(0, 5),
     season,
-    drivers: [...driverStandings.values()].sort((a, b) => b.points - a.points || b.wins - a.wins || a.name.localeCompare(b.name)).slice(0, 5),
-    teams: [...teamStandings.values()].sort((a, b) => b.points - a.points || b.wins - a.wins || a.name.localeCompare(b.name)).slice(0, 5)
+    drivers: [...driverStandings.values()].map(driver => ({ ...driver, team: withSeasonCar(driver.team) })).sort((a, b) => b.points - a.points || b.wins - a.wins || a.name.localeCompare(b.name)).slice(0, 5),
+    teams: [...teamStandings.values()].map(withSeasonCar).sort((a, b) => b.points - a.points || b.wins - a.wins || a.name.localeCompare(b.name)).slice(0, 5)
   };
 }
 export function Home() {
@@ -473,14 +488,14 @@ export function Home() {
           {data.drivers.length ? <ol>{data.drivers.map((driver, index) => <li key={driver.id}>
             <span className="dashboard-rank">{index + 1}</span>{driverSeasonImage(driver, data.season) && <img src={driverSeasonImage(driver, data.season)} alt="" />}
             <span className="dashboard-standing-name"><strong>{driver.name}</strong><small>{driver.team?.name || driver.code || 'Driver'}</small></span>
-            <span className="dashboard-points-track"><i style={{ width: `${leaderPoints ? driver.points / leaderPoints * 100 : 0}%`, backgroundColor: driver.team?.color || undefined }} /></span><strong className="dashboard-points">{driver.points}</strong>
+            <DashboardCar points={driver.points} leaderPoints={leaderPoints} imageUrl={driver.team?.seasonCar?.image_url} imageAlt={driver.team?.seasonCar ? `${driver.team.seasonCar.year} ${driver.team.name} ${driver.team.seasonCar.model}` : ''} /><strong className="dashboard-points">{driver.points}</strong>
           </li>)}</ol> : <p className="muted">No saved season points yet.</p>}
         </section>
         <section className="dashboard-standings"><div className="dashboard-section-heading"><div><p className="eyebrow">{data.season ? `${data.season} season` : 'Championship'}</p><h2>Constructor standings</h2></div><Link to="/simulate">Season standings</Link></div>
           {data.teams.length ? <ol>{data.teams.map((team, index) => <li key={team.id}>
             <span className="dashboard-rank">{index + 1}</span>{team.logo_normal && <img src={team.logo_normal} alt="" />}
             <span className="dashboard-standing-name"><strong>{team.name}</strong><small>{team.wins} wins · {team.podiums} podiums</small></span>
-            <span className="dashboard-points-track"><i style={{ width: `${teamLeaderPoints ? team.points / teamLeaderPoints * 100 : 0}%`, backgroundColor: team.color || undefined }} /></span><strong className="dashboard-points">{team.points}</strong>
+            <DashboardCar points={team.points} leaderPoints={teamLeaderPoints} imageUrl={team.seasonCar?.image_url} imageAlt={team.seasonCar ? `${team.seasonCar.year} ${team.name} ${team.seasonCar.model}` : ''} /><strong className="dashboard-points">{team.points}</strong>
           </li>)}</ol> : <p className="muted">No saved constructor points yet.</p>}
         </section>
       </div>
@@ -1790,6 +1805,7 @@ export function Simulate() {
   const seasonRacesCompleted = Boolean(grid && races.data?.length && races.data.every(race => savedSeason.some(result => String(result.raceId) === String(race.id) && result.raceResults.length > 0)));
   const upcomingRace = races.data?.find(race => Number(race.year) === Number(grid?.year) && !savedSeason.some(result => String(result.raceId) === String(race.id) && result.raceResults.length > 0));
   const seasonStandings = calculateStandings(savedSeason, entries);
+  const seasonCarByTeam = new Map(entries.filter(entry => entry.c?.image_url).map(entry => [String(entry.team.id), entry.c]));
   const seasonDriverById = new Map(entries.map(entry => [String(entry.driver.id), entry.driver]));
   const phase = phases[Math.min(phaseIndex, phases.length - 1)];
   const mandatoryDryTyreCompounds = requiresMandatoryDryTyreCompounds(selectedRace || {}, phase === 'race' ? 'race' : 'sprint', weatherMode);
@@ -2239,11 +2255,12 @@ export function Simulate() {
       <div className="section-title"><div><h3>{grid.year} season standings</h3><p>Race and sprint points · wins and podiums count Grand Prix results</p></div><div className="standings-actions"><label className="standings-detail-toggle"><input type="checkbox" checked={detailedStandings} onChange={event => setDetailedStandings(event.target.checked)} />Detailed</label>{savedSeason.length > 0 && <button type="button" className="btn-danger" onClick={resetSeasonStandings} disabled={resultSaveSaving || resultSaveQueueRef.current.length > 0}>Reset / Delete results</button>}</div></div>
       <div className="standings-grid">
         {[['Drivers', seasonStandings.drivers], ['Constructors', seasonStandings.teams]].map(([title, rows]) => <div key={title}>
-          <h4>{title}</h4><div className="scroll"><table className={`race-table standings-table ${title === 'Drivers' ? 'driver-standings-table' : 'team-standings-table'} ${detailedStandings ? 'detailed' : 'compact'}`}><thead><tr><th>{title === 'Drivers' ? '' : 'TEAM'}</th><th>PTS</th>{detailedStandings && <><th>W</th><th>POD</th><th>POLE</th></>}{title === 'Drivers' && <th aria-label="Driver image"></th>}</tr></thead>
+          <h4>{title}</h4><div className="scroll"><table className={`race-table standings-table ${title === 'Drivers' ? 'driver-standings-table' : 'team-standings-table'} ${detailedStandings ? 'detailed' : 'compact'}`}><thead><tr><th>{title === 'Drivers' ? '' : 'TEAM'}</th>{title === 'Constructors' && <th aria-label="Season car image"></th>}<th>PTS</th>{detailedStandings && <><th>W</th><th>POD</th><th>POLE</th></>}{title === 'Drivers' && <th aria-label="Driver image"></th>}</tr></thead>
             <tbody>{rows.map((row, index) => {
               const driver = title === 'Drivers' ? seasonDriverById.get(String(row.id)) : null;
+              const teamCar = title === 'Constructors' ? seasonCarByTeam.get(String(row.id)) : null;
               const image = driver && driverGridImage(driver, grid.year);
-              return <tr key={row.id} className={index === 0 ? 'leader' : ''}><td>{title === 'Drivers' ? <span className="driver-result"><span className="team-logo">{row.team?.logo_normal && <img src={row.team.logo_normal} alt="" />}</span><strong className={detailedStandings && row.code ? 'driver-code' : undefined}>{detailedStandings ? row.code || '—' : (driver?.name || row.name)?.trim().split(/\s+/).pop() || '—'}</strong></span> : <span className="driver-result"><span className="team-logo">{row.logo_normal && <img src={row.logo_normal} alt="" />}</span><strong>{row.name}</strong></span>}</td><td><strong>{row.points}</strong></td>{detailedStandings && <><td>{row.wins}</td><td>{row.podiums}</td><td>{row.poles}</td></>}{title === 'Drivers' && <td className="driver-grid-image-cell">{image && <img className="driver-grid-image" src={image} alt={`${driver.name} grid image`} />}</td>}</tr>;
+              return <tr key={row.id} className={index === 0 ? 'leader' : ''}><td>{title === 'Drivers' ? <span className="driver-result"><span className="team-logo">{row.team?.logo_normal && <img src={row.team.logo_normal} alt="" />}</span><strong className={detailedStandings && row.code ? 'driver-code' : undefined}>{detailedStandings ? row.code || '—' : (driver?.name || row.name)?.trim().split(/\s+/).pop() || '—'}</strong></span> : <span className="driver-result"><span className="team-logo">{row.logo_normal && <img src={row.logo_normal} alt="" />}</span><strong>{row.name}</strong></span>}</td>{title === 'Constructors' && <td className="team-car-image-cell">{teamCar?.image_url && <img className="standings-team-car" src={teamCar.image_url} alt={`${grid.year} ${row.name} ${teamCar.model}`} loading="lazy" />}</td>}<td><strong>{row.points}</strong></td>{detailedStandings && <><td>{row.wins}</td><td>{row.podiums}</td><td>{row.poles}</td></>}{title === 'Drivers' && <td className="driver-grid-image-cell">{image && <img className="driver-grid-image" src={image} alt={`${driver.name} grid image`} />}</td>}</tr>;
             })}</tbody>
           </table></div>
         </div>)}
@@ -2391,7 +2408,7 @@ export function Simulate() {
                     :'Complete qualifying'}</button>}
                   {qualifyingSessionIsCurrent&&!completed&&<button type="button" className="qualifying-skip" onClick={skipQualifying}>Skip simulation</button>}
                 </div>
-                <div className="scroll"><table className="race-table qualifying-timing-table"><thead><tr><th>POS</th><th>DRIVER</th><th>TEAM</th><th>BEST / Δ</th><th>GAP</th><th>S1</th><th>S2</th><th>S3</th><th>TYRE</th><th>STATUS</th></tr></thead>
+                <div className="scroll"><table className="race-table qualifying-timing-table"><thead><tr><th>POS</th><th>DRIVER</th><th>BEST / Δ</th><th>GAP</th><th>SECTORS</th><th>TYRE</th><th>STATUS</th></tr></thead>
                   <tbody>{qualifyingLiveRows.map((row,index)=>{
                     const drop=qualifyingSession.eliminated.length>0&&index>=dropStart;
                     const knockedOut=completed&&eliminatedIds.has(String(row.driver?.id));
@@ -2404,14 +2421,13 @@ export function Simulate() {
                       className={`${index===0&&leader?'leader':''} ${drop?'drop-zone elimination-row':''} ${eliminationLine?'elimination-line':''} ${knockedOut?'knocked-out':''}`}>
                       <td className="position-cell">{index+1}{eliminationLine&&<span className="elimination-line-label">CUT</span>}</td>
                       <td><span className="driver-result"><span className="team-logo">{row.team?.logo_normal&&<img src={row.team.logo_normal} alt="" />}</span><strong className={row.driver?.code?'driver-code':undefined}>{row.driver?.code||row.driver?.name}</strong></span>{knockedOut&&<span className="qualifying-out-badge">{qualifyingSession.session} OUT</span>}</td>
-                      <td>{row.team?.name||'—'}</td>
                       <td><span className="qualifying-best-time">{formatTime(row.bestLap)}</span>{delta&&<small key={row.lapFlashKey||row.driver?.id} className={`qualifying-lap-delta ${row.lapDelta<0?'improved':row.lapDelta>0?'slower':''}`}>{delta}</small>}</td>
                       <td>{index===0||!leader||!Number.isFinite(row.bestLap)?'—':`+${(row.bestLap-leader.bestLap).toFixed(3)}`}</td>
-                      {[0,1,2].map(sector=>{
+                      <td className="qualifying-sector-stack">{[0,1,2].map(sector=>{
                         const value=sectors[sector];
                         const color=row.sectorColors?.[sector]||(Number.isFinite(value)&&Number.isFinite(qualifyingFastestSectors[sector])&&Math.abs(value-qualifyingFastestSectors[sector])<1e-8?'purple':Number.isFinite(value)?'green':'pending');
-                        return <td className={`sector-${color}`} key={sector}><span>{Number.isFinite(value)?value.toFixed(3):'—'}</span><i className={`qualifying-mini-sector ${Number.isFinite(value)?'filled':''} sector-${color}`} aria-hidden="true" /></td>;
-                      })}
+                        return <span className={`qualifying-sector-row sector-${color}`} key={sector}><small>S{sector+1}</small><span>{Number.isFinite(value)?value.toFixed(3):'—'}</span></span>;
+                      })}</td>
                       <td><span className={`qualifying-tyre ${row.tyreCompound||''}`}>{row.tyreCompound?.toUpperCase()||'—'}</span></td>
                       <td><span className={`qualifying-status-chip ${statusClass}`}><i />{status}</span></td>
                     </tr>;
@@ -2434,7 +2450,7 @@ export function Simulate() {
                 <label>Speed<select value={practiceSpeed} onChange={event => { const speed = Number(event.target.value); setPracticeSpeed(speed); setPracticeSimulation(current => current ? { ...current, speed } : current) }}><option value={1}>1×</option><option value={5}>5×</option><option value={20}>20×</option></select></label>
                 {practiceElapsed < currentPractice.duration && <button type="button" onClick={() => setPracticeSimulation(current => ({ ...current, elapsed: current.duration, playing: false }))}>Skip to end</button>}
               </div>
-              <div className="scroll"><table className="race-table qualifying-timing-table practice-timing-table"><thead><tr><th>POS</th><th>DRIVER</th><th>TEAM</th><th>BEST / Δ</th><th>GAP</th><th>S1</th><th>S2</th><th>S3</th><th>TYRE</th><th>LAP</th><th>STATUS</th></tr></thead>
+              <div className="scroll"><table className="race-table qualifying-timing-table practice-timing-table"><thead><tr><th>POS</th><th>DRIVER</th><th>BEST / Δ</th><th>GAP</th><th>SECTORS</th><th>TYRE</th><th>LAP</th><th>STATUS</th></tr></thead>
                 <tbody>{practiceLiveRows.map((row, index) => {
                   const leader = practiceLiveRows.find(entry => Number.isFinite(entry.bestLap));
                   const sectors = row.currentStatus === 'Flying lap' ? row.currentSectors : row.sectors;
@@ -2444,14 +2460,13 @@ export function Simulate() {
                   return <tr key={row.driver?.id} data-driver-id={row.driver?.id} data-flash-key={row.lapFlashKey || ''} data-flash-kind={row.lapFlashKind || ''} className={index === 0 && leader ? 'leader' : ''}>
                     <td className="position-cell">{Number.isFinite(row.bestLap) ? index + 1 : '—'}</td>
                     <td><span className="driver-result"><span className="team-logo">{row.team?.logo_normal && <img src={row.team.logo_normal} alt="" />}</span><strong className={row.driver?.code ? 'driver-code' : undefined}>{row.driver?.code || row.driver?.name}</strong></span></td>
-                    <td>{row.team?.name || '—'}</td>
                     <td><span className="qualifying-best-time">{formatTime(row.bestLap)}</span>{delta && <small key={row.lapFlashKey || row.driver?.id} className={`qualifying-lap-delta ${row.lapDelta < 0 ? 'improved' : row.lapDelta > 0 ? 'slower' : ''}`}>{delta}</small>}</td>
                     <td>{!Number.isFinite(row.bestLap) || !leader || row === leader ? '—' : `+${(row.bestLap - leader.bestLap).toFixed(3)}`}</td>
-                    {[0, 1, 2].map(sector => {
+                    <td className="qualifying-sector-stack">{[0, 1, 2].map(sector => {
                       const value = sectors?.[sector];
                       const color = row.sectorColors?.[sector] || (Number.isFinite(value) && Number.isFinite(practiceFastestSectors[sector]) && Math.abs(value - practiceFastestSectors[sector]) < 1e-8 ? 'purple' : Number.isFinite(value) ? 'green' : 'pending');
-                      return <td className={`sector-${color}`} key={sector}><span>{Number.isFinite(value) ? value.toFixed(3) : '—'}</span><i className={`qualifying-mini-sector ${Number.isFinite(value) ? 'filled' : ''} sector-${color}`} aria-hidden="true" /></td>;
-                    })}
+                      return <span className={`qualifying-sector-row sector-${color}`} key={sector}><small>S{sector + 1}</small><span>{Number.isFinite(value) ? value.toFixed(3) : '—'}</span></span>;
+                    })}</td>
                     <td><span className={`qualifying-tyre ${row.tyreCompound || ''}`}>{row.tyreCompound?.toUpperCase() || '—'}</span></td>
                     <td>{row.lap || '—'} / 5</td>
                     <td><span className={`qualifying-status-chip ${statusClass}`}><i />{status}</span></td>

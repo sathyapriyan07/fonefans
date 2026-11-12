@@ -42,8 +42,9 @@
 .dashboard-standing-name strong,.dashboard-standing-name small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dashboard-standing-name strong{font-size:.7rem}
 .dashboard-standing-name small{color:var(--muted-text);font-size:.59rem}
-.dashboard-points-track{height:5px;overflow:hidden;background:var(--surface-muted)}
-.dashboard-points-track i{display:block;height:100%;background:var(--red)}
+.dashboard-car-track{position:relative;display:block;height:36px;min-width:0}
+.dashboard-car-track::before{position:absolute;top:50%;right:0;left:0;height:3px;background:repeating-linear-gradient(90deg,var(--line) 0 8px,transparent 8px 12px);content:""}
+.dashboard-car{position:absolute;top:50%;left:clamp(42px,var(--car-progress),calc(100% - 42px));width:84px;height:42px;object-fit:contain;transform:translate(-50%,-50%)}
 .dashboard-points{justify-self:end;font-size:.7rem;font-variant-numeric:tabular-nums}
 .dashboard-history li{display:grid;grid-template-columns:88px minmax(0,1fr);gap:2px 8px;padding:8px 0;border-top:1px solid var(--line)}
 .dashboard-history li:first-child{border-top:0}
@@ -61,5 +62,5 @@
 .dashboard-recent-pages a{display:flex;justify-content:space-between;gap:8px;padding:8px 0;color:var(--text);font-size:.72rem;font-weight:700;text-decoration:none}
 .dashboard-recent-pages a span{color:var(--red)}
 @media(max-width:850px){.dashboard-main-grid,.dashboard-championship-grid,.dashboard-lower-grid{grid-template-columns:1fr}.dashboard-feature-race{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
-@media(max-width:560px){.home-dashboard{gap:16px}.dashboard-heading{align-items:flex-start;flex-direction:column;gap:9px}.dashboard-heading h1{font-size:1.55rem}.dashboard-heading p:not(.eyebrow){font-size:.82rem}.dashboard-counts{gap:6px}.dashboard-count{padding:9px}.dashboard-count strong{font-size:1rem}.dashboard-count span{font-size:.7rem}.dashboard-feature-race{grid-template-columns:1fr;min-height:0}.dashboard-feature-race>img{height:150px;min-height:0}.dashboard-feature-copy{padding:12px}.dashboard-feature-race.without-image .dashboard-feature-copy{grid-template-columns:1fr}.dashboard-feature-race.without-image .dashboard-feature-copy>a{grid-column:auto;grid-row:auto}.dashboard-latest-race,.dashboard-standings,.dashboard-history,.dashboard-quick-links,.dashboard-recent-pages{padding:12px}.dashboard-standings li{grid-template-columns:24px 30px minmax(0,1fr) 42px}.dashboard-points-track{display:none}.dashboard-history li{grid-template-columns:75px minmax(0,1fr)}}
+@media(max-width:560px){.home-dashboard{gap:16px}.dashboard-heading{align-items:flex-start;flex-direction:column;gap:9px}.dashboard-heading h1{font-size:1.55rem}.dashboard-heading p:not(.eyebrow){font-size:.82rem}.dashboard-counts{gap:6px}.dashboard-count{padding:9px}.dashboard-count strong{font-size:1rem}.dashboard-count span{font-size:.7rem}.dashboard-feature-race{grid-template-columns:1fr;min-height:0}.dashboard-feature-race>img{height:150px;min-height:0}.dashboard-feature-copy{padding:12px}.dashboard-feature-race.without-image .dashboard-feature-copy{grid-template-columns:1fr}.dashboard-feature-race.without-image .dashboard-feature-copy>a{grid-column:auto;grid-row:auto}.dashboard-latest-race,.dashboard-standings,.dashboard-history,.dashboard-quick-links,.dashboard-recent-pages{padding:12px}.dashboard-standings li{grid-template-columns:24px 30px minmax(0,1fr) minmax(44px,.65fr) 42px}.dashboard-history li{grid-template-columns:75px minmax(0,1fr)}}
 @media(prefers-reduced-motion:reduce){.dashboard-heading{animation:none}}
