@@ -1,13 +1,13 @@
 import {useEffect,useState} from 'react';
 import {Routes,Route,NavLink,useLocation} from 'react-router-dom';
-import {Home,Drivers,Driver,Cars,Teams,Team,Grids,Races,RaceDetail,Circuits,Circuit,Results,Simulate} from './Pages.jsx';
+import {Home,Drivers,Driver,Cars,Teams,Team,Grids,Races,RaceDetail,Circuits,Circuit,Results,Records,Simulate} from './Pages.jsx';
 import Admin from './Admin.jsx';
 import GlobalSearch from './GlobalSearch.jsx';
 import './navigation.css';
 const sections=[
  ['Championship',[['/drivers','Drivers'],['/teams','Teams']]],
  ['Cars & Circuits',[['/cars','Cars'],['/circuits','Circuits']]],
- ['Race Center',[['/grids','Grids'],['/races','Races'],['/results','Results']]],
+ ['Race Center',[['/grids','Grids'],['/races','Races'],['/results','Results'],['/records','Records']]],
  ['Simulation',[['/simulate','Simulate']]],
  ['Management',[['/admin','Admin']]]
 ];
@@ -20,7 +20,7 @@ export default function App(){
  useEffect(()=>{
   if(location.pathname==='/')return;
   const segments=location.pathname.split('/').filter(Boolean);
-  const labels={drivers:'Drivers',teams:'Teams',cars:'Cars',grids:'Grids',races:'Races',circuits:'Circuits',results:'Results',simulate:'Simulation',admin:'Admin'};
+  const labels={drivers:'Drivers',teams:'Teams',cars:'Cars',grids:'Grids',races:'Races',circuits:'Circuits',results:'Results',records:'Records',simulate:'Simulation',admin:'Admin'};
   const item={path:location.pathname,label:segments.length>1?`${labels[segments[0]]||segments[0]} profile`:labels[segments[0]]||segments[0]};
   try{
    const saved=JSON.parse(window.localStorage.getItem('pitwall-recent-pages')||'[]');
@@ -53,4 +53,4 @@ export default function App(){
  </header>
  <main><Routes><Route path="/" element={<Home/>}/><Route path="/drivers" element={<Drivers/>}/><Route path="/drivers/:id" element={<Driver/>}/>
  <Route path="/cars" element={<Cars/>}/><Route path="/teams" element={<Teams/>}/><Route path="/teams/:id" element={<Team/>}/>
- <Route path="/grids" element={<Grids/>}/><Route path="/races" element={<Races/>}/><Route path="/races/:id" element={<RaceDetail/>}/><Route path="/circuits" element={<Circuits/>}/><Route path="/circuits/:name" element={<Circuit/>}/><Route path="/results" element={<Results/>}/><Route path="/simulate" element={<Simulate/>}/><Route path="/admin" element={<Admin/>}/></Routes></main></>}
+ <Route path="/grids" element={<Grids/>}/><Route path="/races" element={<Races/>}/><Route path="/races/:id" element={<RaceDetail/>}/><Route path="/circuits" element={<Circuits/>}/><Route path="/circuits/:name" element={<Circuit/>}/><Route path="/results" element={<Results/>}/><Route path="/records" element={<Records/>}/><Route path="/simulate" element={<Simulate/>}/><Route path="/admin" element={<Admin/>}/></Routes></main></>}
