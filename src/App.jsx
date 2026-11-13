@@ -51,6 +51,6 @@ export default function App(){
    <button type="button" className="theme-toggle" onClick={toggleTheme} aria-pressed={theme==='dark'} aria-label={`Switch to ${theme==='dark'?'light':'dark'} theme`}>{theme==='dark'?'Light theme':'Dark theme'}</button>
   </div>
  </header>
- <main><Routes><Route path="/" element={<Home/>}/><Route path="/drivers" element={<Drivers/>}/><Route path="/drivers/:id" element={<Driver/>}/>
+ <main><div key={location.pathname} className="page-transition"><Routes><Route path="/" element={<Home/>}/><Route path="/drivers" element={<Drivers/>}/><Route path="/drivers/:id" element={<Driver/>}/>
  <Route path="/cars" element={<Cars/>}/><Route path="/teams" element={<Teams/>}/><Route path="/teams/:id" element={<Team/>}/>
- <Route path="/grids" element={<Grids/>}/><Route path="/races" element={<Races/>}/><Route path="/races/:id" element={<RaceDetail/>}/><Route path="/circuits" element={<Circuits/>}/><Route path="/circuits/:name" element={<Circuit/>}/><Route path="/results" element={<Results/>}/><Route path="/records" element={<Records/>}/><Route path="/simulate" element={<Simulate/>}/><Route path="/admin" element={<Admin/>}/></Routes></main></>}
+ <Route path="/grids" element={<Grids/>}/><Route path="/races" element={<Races/>}/><Route path="/races/:id" element={<RaceDetail/>}/><Route path="/circuits" element={<Circuits/>}/><Route path="/circuits/:name" element={<Circuit/>}/><Route path="/results" element={<Results/>}/><Route path="/records" element={<Records/>}/><Route path="/simulate" element={<Simulate/>}/><Route path="/admin" element={<Admin/>}/></Routes></div></main></>}
