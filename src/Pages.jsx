@@ -138,7 +138,7 @@ async function loadSavedRaceResults() {
   const rows = [];
   for (let offset = 0; ; offset += 1000) {
     const { data, error } = await sb.from('race_results')
-      .select('grid_id,race_id,driver_id,team_id,session_type,position,points,status,laps_completed,total_time,best_lap,pole_position,sprint_pole,race_win,sprint_win,fastest_lap,grand_slam,retired,result,races(year,round,name,circuit),grids(year),drivers(id,name,code,number,driver_images(year,card_url,pole_url,grid_url)),teams(id,name,logo_normal,color)')
+      .select('grid_id,race_id,driver_id,team_id,session_type,position,points,status,laps_completed,total_time,best_lap,pole_position,sprint_pole,race_win,sprint_win,fastest_lap,grand_slam,retired,result,races(year,round,name,circuit),grids(year),drivers(id,name,code,number,driver_images(year,grid_url)),teams(id,name,logo_normal,color)')
       .order('race_id', { ascending: false }).order('grid_id').order('session_type').order('position').order('driver_id')
       .range(offset, offset + 999);
     if (error) throw error;
@@ -1586,66 +1586,33 @@ async function loadRecordsPageData() {
 export function Records() {
   const query = useQ(loadRecordsPageData);
   const leaderboards = buildRecordLeaderboards(query.data?.results || [], query.data?.championshipData || {});
-  const drivers = leaderboards.filter(board => board.key.startsWith('driver-') && !board.key.includes('circuit'));
-  const teams = leaderboards.filter(board => board.key.startsWith('team-') && !board.key.includes('circuit'));
-  const circuits = leaderboards.filter(board => board.key.includes('circuit'));
-  const teammateBoard = leaderboards.find(board => board.key === 'teammate-races');
-  const featuredBoard = leaderboards.find(board => board.key === 'driver-wins')?.rows?.[0]
-    ? leaderboards.find(board => board.key === 'driver-wins')
-    : leaderboards.find(board => board.key === 'driver-starts');
-  const featured = featuredBoard?.rows?.[0];
-  const featuredMetric = featuredBoard?.metric;
-  const featuredLabel = featuredBoard?.key === 'driver-wins' ? 'Grand Prix wins' : 'Race starts';
-  const renderRecordCard = (row, index, leaderboard) => {
-    const value = Number(row[leaderboard.metric]).toLocaleString();
-    const isDriver = leaderboard.entity === 'Driver';
-    const href = `/${isDriver ? 'drivers' : 'teams'}/${row.id}`;
-    const image = isDriver ? row.portrait : row.logo;
-    return <Link className={`records-card${image ? ' has-art' : ''}`} key={`${row.id}:${row.circuit || ''}`} to={href} style={{ '--record-color': row.color || 'var(--red)' }}>
-      <span className="records-card-rank">{String(index + 1).padStart(2, '0')}</span>
-      <span className="records-card-copy"><strong className="records-card-value">{value}</strong><span className="records-card-name">{row.name}</span>
-        {row.circuit && <small>{row.circuit}</small>}</span>
-      {image && <img className={`records-card-art${isDriver ? ' portrait' : ' logo'}`} src={image} alt="" loading="lazy" />}
-      <span className="records-card-mark" aria-hidden="true" />
-    </Link>;
-  };
-  const renderShelf = leaderboard => <section className="records-shelf" key={leaderboard.key}>
-    <header className="records-shelf-heading"><h3>{leaderboard.title}</h3><span>{leaderboard.entity}</span></header>
-    {leaderboard.rows.length ? <div className="records-rail" role="list" aria-label={`${leaderboard.title} ${leaderboard.entity}`} tabIndex={0}>
-      {leaderboard.rows.map((row, index) => {
-        if (leaderboard.entity !== 'Teammates') return <div role="listitem" key={`${row.id}:${row.circuit || ''}`}>{renderRecordCard(row, index, leaderboard)}</div>;
-        return <article className="records-card records-pair-card" role="listitem" key={`${row.firstId}:${row.secondId}`}>
-          <span className="records-card-rank">{String(index + 1).padStart(2, '0')}</span>
-          <span className="records-pair-art">{row.firstPortrait && <img src={row.firstPortrait} alt="" loading="lazy" />}{row.secondPortrait && <img src={row.secondPortrait} alt="" loading="lazy" />}</span>
-          <span className="records-card-copy"><strong className="records-card-value">{Number(row.races).toLocaleString()}</strong>
-            <span className="records-pair-names"><Link to={`/drivers/${row.firstId}`}>{row.firstName}</Link><small>with</small><Link to={`/drivers/${row.secondId}`}>{row.secondName}</Link></span>
-            <small>Races together</small></span>
-          <span className="records-card-mark" aria-hidden="true" />
-        </article>;
-      })}
-    </div> : <p className="records-empty">No records yet</p>}
-  </section>;
   return <section className="records-page">
     <header className="records-heading">
-      <div><p className="records-kicker">Career records</p><h2>Records</h2>
-        <p>Career milestones across drivers, teams and circuits</p></div>
+      <div><p className="eyebrow">CAREER LEADERBOARDS</p><h2>Records</h2>
+        <p>Records from saved race results. Titles include completed seasons only.</p></div>
       <button type="button" onClick={query.retry} disabled={query.loading}>Refresh records</button>
     </header>
     <QueryStatus query={query} />
     {!query.loading && !query.error && !query.data?.results.length && <p className="query-status">No saved race results yet. Simulate a race weekend to start building records.</p>}
-    {query.data?.results.length > 0 && <div className="records-content">
-      {featured && <section className={`records-feature${featured.portrait ? ' has-portrait' : ''}`} style={{ '--record-color': featured.color || 'var(--red)' }}>
-        {featured.portrait && <img className="records-feature-portrait" src={featured.portrait} alt="" />}
-        <div className="records-feature-copy"><p className="records-feature-kicker">Career record · {featuredLabel}</p>
-          <h3>{featured.name}</h3><p className="records-feature-stat"><strong>{Number(featured[featuredMetric]).toLocaleString()}</strong><span>{featuredLabel}</span></p>
-          <Link to={`/drivers/${featured.id}`} className="records-feature-link">View driver</Link>
-        </div>
-        <span className="records-feature-mark" aria-hidden="true">P1</span>
-      </section>}
-      <section className="records-group"><header className="records-group-heading"><h2>Drivers</h2><p>Race wins, starts, poles, podiums and titles</p></header>{drivers.map(renderShelf)}</section>
-      <section className="records-group"><header className="records-group-heading"><h2>Teams</h2><p>Constructor milestones across Grand Prix history</p></header>{teams.map(renderShelf)}</section>
-      {teammateBoard && renderShelf(teammateBoard)}
-      <section className="records-group"><header className="records-group-heading"><h2>Circuits</h2><p>The drivers and teams who have won here most</p></header>{circuits.map(renderShelf)}</section>
+    {query.data?.results.length > 0 && <div className="records-grid">
+      {leaderboards.map(leaderboard => <section className="records-board" key={leaderboard.key}>
+        <header><h3>{leaderboard.title}</h3><span>{leaderboard.entity}</span></header>
+        {leaderboard.rows.length ? <ol>{leaderboard.rows.map((row, index) => {
+          const value = Number(row[leaderboard.metric]).toLocaleString();
+          if (leaderboard.entity === 'Teammates') return <li key={`${row.firstId}:${row.secondId}`}>
+            <span className="records-rank">{index + 1}</span>
+            <span className="records-name"><Link to={`/drivers/${row.firstId}`}>{row.firstName}</Link><small>with</small><Link to={`/drivers/${row.secondId}`}>{row.secondName}</Link></span>
+            <strong>{value}</strong>
+          </li>;
+          const isDriver = leaderboard.entity === 'Driver';
+          const href = `/${isDriver ? 'drivers' : 'teams'}/${row.id}`;
+          return <li key={`${row.id}:${row.circuit || ''}`}>
+            <span className="records-rank">{index + 1}</span>
+            <Link className="records-name" to={href}>{row.logo && <img src={row.logo} alt="" />}{row.name}{row.circuit && <small>{row.circuit}</small>}</Link>
+            <strong>{value}</strong>
+          </li>;
+        })}</ol> : <p className="muted">No records yet.</p>}
+      </section>)}
     </div>}
   </section>;
 }

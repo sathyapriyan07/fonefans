@@ -1,15 +1,10 @@
 import { calculateStandings } from './sim.js';
 
 function makeStats(id, subject) {
-  const images = Array.isArray(subject?.driver_images) ? subject.driver_images : [];
-  const latestImage = [...images].sort((a, b) => Number(b.year) - Number(a.year))
-    .find(image => image.pole_url || image.card_url || image.grid_url);
   return {
     id,
     name: subject?.name || 'Unknown',
     logo: subject?.logo_normal || '',
-    portrait: latestImage?.pole_url || latestImage?.card_url || latestImage?.grid_url || '',
-    color: subject?.color || '',
     starts: new Set(),
     wins: 0,
     poles: 0,
@@ -25,12 +20,6 @@ function getStats(collection, id, subject) {
   const stats = collection.get(key);
   if (subject?.name) stats.name = subject.name;
   if (subject?.logo_normal) stats.logo = subject.logo_normal;
-  if (subject?.color) stats.color = subject.color;
-  if (Array.isArray(subject?.driver_images)) {
-    const images = [...subject.driver_images].sort((a, b) => Number(b.year) - Number(a.year));
-    const latestImage = images.find(image => image.pole_url || image.card_url || image.grid_url);
-    if (latestImage) stats.portrait = latestImage.pole_url || latestImage.card_url || latestImage.grid_url;
-  }
   return stats;
 }
 
@@ -110,15 +99,9 @@ export function buildRecordLeaderboards(results = [], championshipData = {}) {
     const id = entity === 'driver' ? row.driver_id : row.team_id;
     const subject = entity === 'driver' ? row.drivers : row.teams;
     if (id === null || id === undefined) return;
-    const driverImages = Array.isArray(subject?.driver_images) ? [...subject.driver_images] : [];
-    driverImages.sort((a, b) => Number(b.year) - Number(a.year));
-    const latestImage = driverImages.find(image => image.pole_url || image.card_url || image.grid_url);
     const key = `${entity}:${id}:${circuit}`;
     const record = circuitWins.get(key) || {
       id, name: subject?.name || 'Unknown', circuit, entity,
-      logo: subject?.logo_normal || '',
-      portrait: latestImage?.pole_url || latestImage?.card_url || latestImage?.grid_url || '',
-      color: subject?.color || '',
       wins: 0
     };
     record.wins += 1;
@@ -195,10 +178,6 @@ export function buildRecordLeaderboards(results = [], championshipData = {}) {
   }));
   const driverRows = finalize(drivers);
   const teamRows = finalize(teams);
-  for (const pair of teammatePairs.values()) {
-    pair.firstPortrait = drivers.get(String(pair.firstId))?.portrait || '';
-    pair.secondPortrait = drivers.get(String(pair.secondId))?.portrait || '';
-  }
   const metricBoard = (rows, metric) => ranked(rows, metric).slice(0, 10);
   const circuitBoard = entity => [...circuitWins.values()]
     .filter(row => row.entity === entity)

@@ -3,10 +3,7 @@ import assert from 'node:assert/strict';
 import { buildRecordLeaderboards } from './records.js';
 
 const drivers = {
-  1: { id: 1, name: 'A Driver', driver_images: [
-    { year: 2022, pole_url: '/older-portrait.png' },
-    { year: 2024, card_url: '/latest-portrait.png' }
-  ] },
+  1: { id: 1, name: 'A Driver' },
   2: { id: 2, name: 'B Driver' },
   3: { id: 3, name: 'C Driver' },
   4: { id: 4, name: 'D Driver' }
@@ -43,7 +40,6 @@ test('builds driver and team records from race and qualifying results', () => {
   assert.equal(board(records, 'team-podiums')[0].podiums, 2);
   assert.equal(board(records, 'teammate-races')[0].races, 1);
   assert.equal(board(records, 'driver-circuit-wins')[0].circuit, 'Test Circuit');
-  assert.equal(board(records, 'driver-wins')[0].portrait, '/latest-portrait.png');
   assert.equal(board(records, 'team-circuit-wins')[0].wins, 1);
 });
 
